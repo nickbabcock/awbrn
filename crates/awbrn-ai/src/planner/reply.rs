@@ -18,7 +18,7 @@
 //! checked, so the estimate is a little pessimistic in crowded positions.
 
 use awvm::ruleset::{self, TerrainTrait};
-use awvm::semantic::{CAPTURE_REQUIRED_POINTS, CellIdx, PlayerIdx, TileOwner, UnitId};
+use awvm::semantic::{CAPTURE_REQUIRED_POINTS, CellIdx, PlayerIdx, TileOwner, UnitId, UnitStore};
 use awvm::session::{
     AttackCandidate, LegalScope, LegalVisitor, Order, OrderKind, OrderMask, Session, TargetKind,
 };
@@ -75,16 +75,19 @@ impl PropertyValues {
 struct Attack {
     attacker: UnitId,
     target: UnitId,
+    target_index: usize,
     damage: f64,
 }
 
-struct Collector {
+struct Collector<'a> {
     ours: PlayerIdx,
+    units: &'a UnitStore,
+    group_start: usize,
     attacks: Vec<Attack>,
     captures: Vec<Order>,
 }
 
-impl LegalVisitor for Collector {
+impl LegalVisitor for Collector<'_> {
     const ATTACK_CONTEXT: bool = true;
     const ACTIONS: OrderMask =
         OrderMask::from_untargeted(&[OrderKind::Capture]).with_targets(TargetKind::Attack);
@@ -105,8 +108,14 @@ impl LegalVisitor for Collector {
         }
         let damage = (f64::from(forecast.attack.low) + f64::from(forecast.attack.high)) / 2.0;
         let attacker = candidate.attacker.id;
-        match self
+        if self
             .attacks
+            .last()
+            .is_some_and(|attack| attack.attacker != attacker)
+        {
+            self.group_start = self.attacks.len();
+        }
+        match self.attacks[self.group_start..]
             .iter_mut()
             .find(|attack| attack.attacker == attacker && attack.target == target.id)
         {
@@ -114,6 +123,10 @@ impl LegalVisitor for Collector {
             None => self.attacks.push(Attack {
                 attacker,
                 target: target.id,
+                target_index: self
+                    .units
+                    .index_of(target.id)
+                    .expect("an attack target is present"),
                 damage,
             }),
         }
@@ -127,6 +140,8 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
     let state = session.state();
     let mut collector = Collector {
         ours,
+        units: &state.units,
+        group_start: 0,
         attacks: Vec::new(),
         captures: Vec::new(),
     };
@@ -153,7 +168,6 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
     let mut remaining: Vec<(UnitId, f64, f64)> = state
         .units
         .iter()
-        .filter(|unit| unit.owner == ours)
         .map(|unit| {
             (
                 unit.id,
@@ -168,9 +182,7 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
     loop {
         let mut best: Option<(usize, f64)> = None;
         for (index, attack) in attacks.iter().enumerate() {
-            let Some((_, hp, cost)) = remaining.iter().find(|(id, ..)| *id == attack.target) else {
-                continue;
-            };
+            let (_, hp, cost) = &remaining[attack.target_index];
             if *hp <= 0.0 {
                 continue;
             }
@@ -188,10 +200,7 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
             break;
         };
         let attack = attacks.swap_remove(index);
-        let target = remaining
-            .iter_mut()
-            .find(|(id, ..)| *id == attack.target)
-            .expect("the target is one of our units");
+        let target = &mut remaining[attack.target_index];
         let destroyed = target.1 > 0.0 && attack.damage >= target.1;
         target.1 = (target.1 - attack.damage).max(0.0);
         estimate.unit_loss += value;

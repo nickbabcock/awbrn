@@ -560,7 +560,7 @@ impl Hasher for IdHasher {
 #[derive(Clone, Debug, Default)]
 pub struct UnitStore {
     units: Vec<Unit>,
-    by_id: HashMap<UnitId, usize, BuildHasherDefault<IdHasher>>,
+    by_id: Arc<HashMap<UnitId, usize, BuildHasherDefault<IdHasher>>>,
 }
 
 impl PartialEq for UnitStore {
@@ -582,7 +582,10 @@ impl UnitStore {
                 return Err(DuplicateUnitId(unit.id));
             }
         }
-        Ok(Self { units, by_id })
+        Ok(Self {
+            units,
+            by_id: Arc::new(by_id),
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -653,7 +656,9 @@ impl UnitStore {
     pub fn push(&mut self, unit: Unit) {
         let id = unit.id;
         assert!(
-            self.by_id.insert(id, self.units.len()).is_none(),
+            Arc::make_mut(&mut self.by_id)
+                .insert(id, self.units.len())
+                .is_none(),
             "unit {id} is already in play"
         );
         self.units.push(unit);
@@ -662,8 +667,9 @@ impl UnitStore {
     /// Remove the unit at a position, keeping the index in step.
     pub fn remove(&mut self, index: usize) -> Unit {
         let removed = self.units.remove(index);
-        self.by_id.remove(&removed.id);
-        for later in self.by_id.values_mut() {
+        let by_id = Arc::make_mut(&mut self.by_id);
+        by_id.remove(&removed.id);
+        for later in by_id.values_mut() {
             if *later > index {
                 *later -= 1;
             }
@@ -682,8 +688,9 @@ impl UnitStore {
     }
 
     fn reindex(&mut self) {
-        self.by_id.clear();
-        self.by_id.extend(
+        let by_id = Arc::make_mut(&mut self.by_id);
+        by_id.clear();
+        by_id.extend(
             self.units
                 .iter()
                 .enumerate()
@@ -2365,6 +2372,44 @@ mod tests {
             match_state: Match::Active {
                 draw_offers: Vec::new(),
             },
+        }
+    }
+
+    #[test]
+    fn movement_copies_the_board_only_when_capture_progress_changes() {
+        use crate::transition::{Command, ExecuteOutcome, execute};
+
+        for progress in [None, Some(CAPTURE_REQUIRED_POINTS), Some(7)] {
+            let mut origin = Tile::new(if progress.is_some() {
+                TerrainId::City
+            } else {
+                TerrainId::Plain
+            });
+            origin.capture_points = progress;
+            if progress.is_some() {
+                origin.owner = TileOwner::Neutral;
+            }
+            let board = Board::new(2, 1, vec![origin, plain()]).unwrap();
+            let mut state = state_around(board);
+            let seat = state.players.seat(&state.turn.active_player).unwrap();
+            state.units.push(unit(1, seat));
+            let command = Command::MoveWait {
+                player: state.turn.active_player.clone(),
+                unit: UnitId::new(1),
+                path: vec![Pos::new(0, 0), Pos::new(1, 0)],
+            };
+            let ExecuteOutcome::Accepted(result) = execute(&state, command, &[]).unwrap() else {
+                panic!("the move must be accepted");
+            };
+            assert_eq!(
+                Arc::ptr_eq(&state.board.tiles, &result.state.board.tiles),
+                progress != Some(7)
+            );
+            assert_eq!(state.board.tile(Pos::new(0, 0)).capture_points, progress);
+            assert_eq!(
+                result.state.board.tile(Pos::new(0, 0)).capture_points,
+                progress.map(|_| CAPTURE_REQUIRED_POINTS)
+            );
         }
     }
 

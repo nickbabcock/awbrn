@@ -354,6 +354,7 @@ pub struct PlannerAgent {
     seed: u64,
     fallback: GreedyAgent,
     rollout: Option<GreedyAgent>,
+    observed: Option<Session>,
     evaluator: Evaluator,
     replay: Option<ReplayReader>,
     plan: Vec<Play>,
@@ -381,6 +382,7 @@ impl PlannerAgent {
             seed,
             fallback: config.baseline.build_greedy(seed),
             rollout: None,
+            observed: None,
             evaluator: Evaluator::new(config.eval_weights),
             replay: config.replay_score.map(ReplayReader::new),
             plan: Vec::new(),
@@ -507,9 +509,13 @@ impl PlannerAgent {
     }
 }
 
-impl Agent for PlannerAgent {
-    fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play> {
-        let session = Session::from_observation(view).ok()?;
+impl PlannerAgent {
+    fn act_observed(
+        &mut self,
+        view: &Observation,
+        budget: NodeBudget,
+        session: &Session,
+    ) -> Option<Play> {
         if !session.is_commandable() {
             return None;
         }
@@ -529,15 +535,15 @@ impl Agent for PlannerAgent {
             self.plan.clear();
             self.positions.clear();
             self.next = 0;
-            let fog = self.fog_estimate(&session);
-            if !self.may_plan() || self.build(&session, budget, fog.clone()).is_none() {
+            let fog = self.fog_estimate(session);
+            if !self.may_plan() || self.build(session, budget, fog.clone()).is_none() {
                 self.stats.fallbacks += 1;
                 self.fallback.set_fog(fog);
                 let modeled = (self.config.fog_memory && session.state().settings.fog)
                     .then(|| Session::new(self.memory.planning_state(session.state())));
                 return self
                     .fallback
-                    .act_in_session(modeled.as_ref().unwrap_or(&session));
+                    .act_in_session(modeled.as_ref().unwrap_or(session));
             }
         }
         let mut play = self.plan.get(self.next).copied();
@@ -547,6 +553,24 @@ impl Agent for PlannerAgent {
             });
         }
         self.next += 1;
+        play
+    }
+}
+
+impl Agent for PlannerAgent {
+    fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play> {
+        let session = match self.observed.take() {
+            Some(mut session) => {
+                if session.reset_from_observation(view).is_err() {
+                    self.observed = Some(session);
+                    return None;
+                }
+                session
+            }
+            None => Session::from_observation(view).ok()?,
+        };
+        let play = self.act_observed(view, budget, &session);
+        self.observed = Some(session);
         play
     }
 

@@ -383,6 +383,9 @@ fn action_filters_preserve_the_selected_order_stream() {
         let mut filtered = Filtered::<MODE>::default();
         legal.visit_orders(&mut filtered);
         assert_eq!(filtered.0, expected, "action filter {MODE}");
+        filtered.0.clear();
+        legal.visit_orders(&mut filtered);
+        assert_eq!(filtered.0, expected, "repeated action filter {MODE}");
     }
     for state in corpus() {
         let session = Session::new(state);
@@ -965,4 +968,92 @@ fn a_hidden_trap_suppresses_a_capture() {
             position: Pos::new(0, 0)
         })
     );
+}
+
+#[test]
+fn retained_unit_orders_preserve_forecasts_and_destination_limits() {
+    #[derive(Default, Debug, PartialEq)]
+    struct Limited {
+        limit: usize,
+        count: usize,
+        checks: Vec<UnitIdx>,
+        orders: Vec<Order>,
+        forecasts: Vec<Option<awvm::combat::Forecast>>,
+    }
+    impl LegalVisitor for Limited {
+        const ACTIONS: OrderMask = OrderMask::from_untargeted(&[
+            OrderKind::Wait,
+            OrderKind::Capture,
+            OrderKind::Supply,
+            OrderKind::Join,
+            OrderKind::Load,
+        ])
+        .with_targets(TargetKind::Attack);
+        const ATTACK_CONTEXT: bool = true;
+        fn visit_unit(&mut self, _: UnitIdx) -> bool {
+            self.count = 0;
+            true
+        }
+        fn continue_unit(&mut self, unit: UnitIdx) -> bool {
+            self.checks.push(unit);
+            self.count += 1;
+            self.count <= self.limit
+        }
+        fn order(&mut self, order: Order) {
+            self.orders.push(order);
+        }
+        fn attack(&mut self, candidate: AttackCandidate<'_>) {
+            self.orders.push(candidate.order);
+            self.forecasts.push(candidate.forecast);
+        }
+    }
+    for state in corpus() {
+        let warm = Session::new(state.clone());
+        warm.legal().visit_orders(&mut Limited {
+            limit: usize::MAX,
+            ..Limited::default()
+        });
+        for limit in [0, 1, 2, usize::MAX] {
+            let fresh = Session::new(state.clone());
+            let mut actual = Limited {
+                limit,
+                ..Limited::default()
+            };
+            let mut expected = Limited {
+                limit,
+                ..Limited::default()
+            };
+            warm.legal().visit_orders(&mut actual);
+            fresh.legal().visit_orders(&mut expected);
+            assert_eq!(actual, expected);
+        }
+        let mut retained = warm;
+        let orders = all_orders(&retained.legal());
+        for order in orders
+            .into_iter()
+            .filter(|order| order.unit().is_some() && !matches!(order.kind(), OrderKind::Delete))
+            .take(4)
+        {
+            let Ok(mark) = retained.apply(order, &mut RandomTape::new(&[]), &mut ()) else {
+                continue;
+            };
+            for rewind in [false, true] {
+                if rewind {
+                    retained.rewind(mark);
+                }
+                let fresh = Session::new(retained.state().clone());
+                let mut actual = Limited {
+                    limit: usize::MAX,
+                    ..Limited::default()
+                };
+                let mut expected = Limited {
+                    limit: usize::MAX,
+                    ..Limited::default()
+                };
+                retained.legal().visit_orders(&mut actual);
+                fresh.legal().visit_orders(&mut expected);
+                assert_eq!(actual, expected, "order {order:?}, rewind {rewind}");
+            }
+        }
+    }
 }

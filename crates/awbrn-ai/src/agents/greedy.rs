@@ -595,6 +595,11 @@ pub struct GreedyAgent {
     capture_fields: CaptureFields,
     advance_field: Vec<f64>,
     advance_for: Option<AdvanceContext>,
+    advance_revision: u64,
+    movement_bounds: std::cell::RefCell<MovementBounds>,
+    enemy_units: Vec<(usize, Pos)>,
+    target_reductions:
+        std::cell::RefCell<Vec<(awvm::semantic::UnitId, awvm::semantic::UnitId, f64)>>,
     /// What standing on each tile is worth to hold it, which is nothing
     /// anywhere except on a property of ours an enemy capturer is near.
     hold_field: Vec<f64>,
@@ -627,6 +632,64 @@ pub struct GreedyAgent {
     /// Keep query buffers and terrain tables across observed decisions.
     session: Option<Session>,
     selection: Selection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MovementKey {
+    kind: UnitKind,
+    owner: PlayerIdx,
+    origin: Pos,
+    hp: u8,
+    radius: u64,
+    revision: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MovementMaximum {
+    key: MovementKey,
+    movement: f64,
+    pull: f64,
+    sight: f64,
+}
+
+/// Reuse movement bounds when unit inputs, board state and pull fields match.
+/// The board key includes capture progress. Team keys cover property relations.
+/// Use this cache only when fog is off and the hold weight is zero.
+#[derive(Debug)]
+struct MovementBounds {
+    board: Option<awvm::semantic::Board>,
+    teams: Vec<awvm::semantic::TeamId>,
+    entries: Vec<Option<MovementMaximum>>,
+}
+
+impl MovementBounds {
+    const fn new() -> Self {
+        Self {
+            board: None,
+            teams: Vec::new(),
+            entries: Vec::new(),
+        }
+    }
+
+    fn prepare(&mut self, state: &State) {
+        if self
+            .board
+            .as_ref()
+            .is_none_or(|board| *board != state.board)
+            || !self
+                .teams
+                .iter()
+                .eq(state.players.iter().map(|player| &player.team))
+        {
+            self.entries.fill(None);
+            self.board = Some(state.board.clone());
+            self.teams.clear();
+            self.teams
+                .extend(state.players.iter().map(|player| player.team.clone()));
+        }
+        self.entries
+            .resize(state.units.len().min(usize::from(u16::MAX) + 1), None);
+    }
 }
 
 #[derive(Debug)]
@@ -776,6 +839,10 @@ impl GreedyAgent {
             capture_fields: CaptureFields::new(),
             advance_field: Vec::new(),
             advance_for: None,
+            advance_revision: 0,
+            movement_bounds: std::cell::RefCell::new(MovementBounds::new()),
+            enemy_units: Vec::new(),
+            target_reductions: std::cell::RefCell::new(Vec::new()),
             hold_field: Vec::new(),
             decay: Vec::new(),
             occupant: Vec::new(),
@@ -890,8 +957,12 @@ struct CaptureFields {
     /// none of it reads the field again instead of searching for it again.
     /// `None` for a class holding no field.
     built: [Option<Built>; MovementClass::COUNT],
+    /// A changed pull field gets a new revision.
+    revisions: [u64; MovementClass::COUNT],
     /// The targets of each distinct approach weight, rebuilt each play.
     groups: Vec<(f64, Vec<Pos>)>,
+    property_board: Option<awvm::semantic::Board>,
+    properties: Vec<(usize, Pos)>,
     /// Movement points to the nearest target of the group being walked.
     points: Vec<Option<u16>>,
     distances: [Option<CaptureDistances>; MovementClass::COUNT],
@@ -901,7 +972,7 @@ struct CaptureFields {
 #[derive(Debug)]
 struct CaptureDistances {
     allowance: u16,
-    costs: Vec<Option<u16>>,
+    costs: Arc<[Option<u16>]>,
     targets: Vec<(Vec<Pos>, Vec<Option<u16>>)>,
 }
 
@@ -933,7 +1004,7 @@ struct CaptureDistances {
 #[derive(Clone, Debug, PartialEq)]
 struct Built {
     allowance: u16,
-    costs: Vec<Option<u16>>,
+    costs: Arc<[Option<u16>]>,
     targets: Vec<(f64, Vec<Pos>)>,
     decay: Vec<f64>,
 }
@@ -943,12 +1014,12 @@ impl Built {
     fn still_answers(
         &self,
         allowance: u16,
-        costs: &[Option<u16>],
+        costs: &Arc<[Option<u16>]>,
         targets: &[(f64, Vec<Pos>)],
         decay: &[f64],
     ) -> bool {
         self.allowance == allowance
-            && self.costs == costs
+            && self.costs == *costs
             && self.targets == targets
             && self.decay == decay
     }
@@ -988,7 +1059,10 @@ impl CaptureFields {
         Self {
             fields: [const { Vec::new() }; MovementClass::COUNT],
             built: [const { None }; MovementClass::COUNT],
+            revisions: [0; MovementClass::COUNT],
             groups: Vec::new(),
+            property_board: None,
+            properties: Vec::new(),
             points: Vec::new(),
             distances: [const { None }; MovementClass::COUNT],
             point_decay: Vec::new(),
@@ -997,10 +1071,16 @@ impl CaptureFields {
 
     /// Drop every field, so that the next play searches for all of them.
     fn forget(&mut self) {
-        for (field, built) in self.fields.iter_mut().zip(self.built.iter_mut()) {
-            field.clear();
-            *built = None;
+        for index in 0..MovementClass::COUNT {
+            self.clear_field(index);
         }
+    }
+
+    fn clear_field(&mut self, index: usize) {
+        if self.built[index].take().is_some() || !self.fields[index].is_empty() {
+            self.revisions[index] += 1;
+        }
+        self.fields[index].clear();
     }
 
     /// The field a unit of this class reads. Empty for a class that cannot
@@ -1023,14 +1103,26 @@ impl CaptureFields {
         contest: &ContestMap,
     ) {
         let cells = board.cells();
-        self.groups.clear();
-        for (position, tile) in board.state.board.iter() {
+        for (_, targets) in &mut self.groups {
+            targets.clear();
+        }
+        let mut groups = 0;
+        if self.property_board.as_ref() != Some(&board.state.board) {
+            self.properties.clear();
+            self.properties
+                .extend(board.state.board.iter().filter_map(|(position, tile)| {
+                    if !ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
+                        return None;
+                    }
+                    board.cell(position).map(|cell| (cell, position))
+                }));
+            self.property_board = Some(board.state.board.clone());
+        }
+        for &(cell, position) in &self.properties {
+            let tile = board.state.board.tile(position);
             if !board.capturable(tile) {
                 continue;
             }
-            let Some(cell) = board.cell(position) else {
-                continue;
-            };
             if occupant[cell].is_some_and(|index| board.is_our_capturer(index)) {
                 continue;
             }
@@ -1043,11 +1135,23 @@ impl CaptureFields {
                     .weights
                     .contest_decay
                     .powi(i32::from(contest.deficit(cell)));
-            match self.groups.iter_mut().find(|(known, _)| *known == weight) {
-                Some((_, targets)) => targets.push(position),
-                None => self.groups.push((weight, vec![position])),
-            }
+            let index = match self.groups[..groups]
+                .iter()
+                .position(|(known, _)| *known == weight)
+            {
+                Some(index) => index,
+                None => {
+                    if groups == self.groups.len() {
+                        self.groups.push((weight, Vec::new()));
+                    }
+                    self.groups[groups].0 = weight;
+                    groups += 1;
+                    groups - 1
+                }
+            };
+            self.groups[index].1.push(position);
         }
+        self.groups.truncate(groups);
         if self.groups.is_empty() {
             self.forget();
             return;
@@ -1065,22 +1169,22 @@ impl CaptureFields {
             // A class our side does not field costs a search for each weight
             // on the board and is read by nothing.
             let Some(allowance) = board.capture_allowance(class) else {
-                self.fields[index].clear();
-                self.built[index] = None;
+                self.clear_field(index);
                 continue;
             };
             // Ask for the table before the searches, because deciding not to
             // run them is what this is for.
-            let costs = travel.costs(class);
+            let costs = travel.shared_costs(class);
             if self.built[index]
                 .as_ref()
-                .is_some_and(|built| built.still_answers(allowance, costs, &self.groups, decay))
+                .is_some_and(|built| built.still_answers(allowance, &costs, &self.groups, decay))
             {
                 continue;
             }
+            self.revisions[index] += 1;
             self.built[index] = Some(Built {
                 allowance,
-                costs: costs.to_vec(),
+                costs: Arc::clone(&costs),
                 targets: self.groups.clone(),
                 decay: decay.to_vec(),
             });
@@ -1095,7 +1199,7 @@ impl CaptureFields {
                 {
                     self.distances[index] = Some(CaptureDistances {
                         allowance,
-                        costs: costs.to_vec(),
+                        costs: Arc::clone(&costs),
                         targets: Vec::new(),
                     });
                 }
@@ -1393,6 +1497,10 @@ impl GreedyAgent {
             capture_fields,
             advance_field,
             advance_for,
+            advance_revision,
+            movement_bounds,
+            enemy_units,
+            target_reductions,
             hold_field,
             decay,
             occupant,
@@ -1426,8 +1534,8 @@ impl GreedyAgent {
         if capture_needed {
             capture_fields.build(session, &board, decay, occupant, contest);
         }
-        if advance_needed {
-            board.advance_field(advance_field, advance_for, decay);
+        if advance_needed && board.advance_field(advance_field, advance_for, decay) {
+            *advance_revision += 1;
         }
         // A term priced at nothing decides nothing, so the field it reads is
         // not built. That is what keeps every weighting below `defend` at the
@@ -1484,26 +1592,28 @@ impl GreedyAgent {
                 }
             }
         }
-        let reduction_bound = if unit_fields_needed && policy.target_threat_reduction {
-            weights.threat
-                * state
-                    .units
-                    .iter()
-                    .filter(|unit| unit.owner == seat)
-                    .filter_map(|unit| match unit.location {
-                        Location::Board { position } => state
-                            .board
-                            .dimensions()
-                            .cell_index(position)
-                            .map(|cell| threat.immediate(cell, unit.kind)),
-                        _ => None,
-                    })
-                    .sum::<f64>()
+        let bound_weights_valid = !RECORD && Scorer::bound_weights_valid(weights);
+        enemy_units.clear();
+        if bound_weights_valid && unit_fields_needed {
+            enemy_units.extend(state.units.iter().enumerate().filter_map(|(index, unit)| {
+                let Location::Board { position } = unit.location else {
+                    return None;
+                };
+                board.hostile(unit.owner).then_some((index, position))
+            }));
+        }
+        let movement_bounds = if bound_weights_valid && !state.settings.fog && weights.hold == 0.0 {
+            movement_bounds.borrow_mut().prepare(state);
+            Some(&*movement_bounds)
         } else {
-            0.0
+            None
         };
+        target_reductions.borrow_mut().clear();
         let scorer = Scorer {
             board: &board,
+            movement_bounds,
+            enemy_units,
+            advance_revision: *advance_revision,
             capture_fields,
             advance_field,
             hold_field,
@@ -1512,12 +1622,11 @@ impl GreedyAgent {
             vision,
             threat,
             shortfall: std::cell::Cell::new(None),
-            bound_weights_valid: !RECORD && Scorer::bound_weights_valid(weights),
+            bound_weights_valid,
             production: [const { std::cell::Cell::new(None) }; UnitKind::COUNT],
             policy: *policy,
             min_step: &min_step,
-            reduction_bound,
-            target_reductions: std::cell::RefCell::new(Vec::new()),
+            target_reductions,
         };
 
         let mut visitor = GreedyVisitor::<RECORD> {
@@ -1687,44 +1796,71 @@ impl Board<'_> {
     ///
     /// The nearest enemy, priced by what it costs to build. This is the term
     /// that keeps an army walking when nothing is in range of it yet.
-    fn advance_field(&self, out: &mut Vec<f64>, built: &mut Option<AdvanceContext>, decay: &[f64]) {
+    fn advance_field(
+        &self,
+        out: &mut Vec<f64>,
+        built: &mut Option<AdvanceContext>,
+        decay: &[f64],
+    ) -> bool {
+        let enemies = || {
+            self.state.units.iter().filter_map(|unit| {
+                let Location::Board { position } = unit.location else {
+                    return None;
+                };
+                self.hostile(unit.owner)
+                    .then_some((unit.kind, position, unit.hp))
+            })
+        };
+        if built.as_ref().is_some_and(|context| {
+            context.dimensions == self.state.board.dimensions()
+                && context.weight == self.weights.advance
+                && context.decay == decay
+                && context.enemies.iter().copied().eq(enemies())
+        }) {
+            return false;
+        }
         let context = AdvanceContext {
             dimensions: self.state.board.dimensions(),
             weight: self.weights.advance,
             decay: decay.to_vec(),
-            enemies: self
-                .state
-                .units
-                .iter()
-                .filter_map(|unit| {
-                    let Location::Board { position } = unit.location else {
-                        return None;
-                    };
-                    self.hostile(unit.owner)
-                        .then_some((unit.kind, position, unit.hp))
-                })
-                .collect(),
+            enemies: enemies().collect(),
         };
-        if built.as_ref() == Some(&context) {
-            return;
-        }
         out.clear();
         out.resize(self.cells(), 0.0);
         let width = usize::from(self.state.board.width());
+        let mut pulls = Vec::with_capacity(decay.len());
         for (kind, target, hp) in &context.enemies {
             let weight = self.weights.advance * cost(*kind) * (f64::from(*hp) / 100.0);
+            if usize::from(target.x) >= width {
+                for (y, row) in out.chunks_mut(width).enumerate() {
+                    for (x, value) in row.iter_mut().enumerate() {
+                        let distance =
+                            usize::from(target.x).abs_diff(x) + usize::from(target.y).abs_diff(y);
+                        let pull = weight * decay[distance];
+                        if pull > *value {
+                            *value = pull;
+                        }
+                    }
+                }
+                continue;
+            }
+            pulls.clear();
+            pulls.extend(decay.iter().map(|decay| weight * decay));
             for (y, row) in out.chunks_mut(width).enumerate() {
                 let vertical = usize::from(target.y).abs_diff(y);
-                for (x, value) in row.iter_mut().enumerate() {
-                    let distance = usize::from(target.x).abs_diff(x) + vertical;
-                    let pull = weight * decay[distance];
-                    if pull > *value {
-                        *value = pull;
-                    }
+                let pivot = usize::from(target.x);
+                let (left, right) = row.split_at_mut(pivot);
+                let left_start = vertical + 1;
+                for (value, pull) in left.iter_mut().rev().zip(&pulls[left_start..]) {
+                    *value = if *pull > *value { *pull } else { *value };
+                }
+                for (value, pull) in right.iter_mut().zip(&pulls[vertical..]) {
+                    *value = if *pull > *value { *pull } else { *value };
                 }
             }
         }
         *built = Some(context);
+        true
     }
 
     /// What standing on each tile is worth as a garrison.
@@ -2026,7 +2162,7 @@ impl<const RECORD: bool> LegalVisitor for GreedyVisitor<'_, RECORD> {
         if RECORD || self.chosen.is_none() {
             return true;
         }
-        let Some(bound) = self.scorer.unit_score_bound(unit) else {
+        let Some(bound) = self.scorer.unit_score_bound(unit, self.best) else {
             return true;
         };
         if bound >= self.best {
@@ -2049,6 +2185,9 @@ impl<const RECORD: bool> LegalVisitor for GreedyVisitor<'_, RECORD> {
 /// Everything one play is scored against.
 struct Scorer<'a> {
     board: &'a Board<'a>,
+    movement_bounds: Option<&'a std::cell::RefCell<MovementBounds>>,
+    enemy_units: &'a [(usize, Pos)],
+    advance_revision: u64,
     capture_fields: &'a CaptureFields,
     advance_field: &'a [f64],
     hold_field: &'a [f64],
@@ -2061,9 +2200,8 @@ struct Scorer<'a> {
     production: [std::cell::Cell<Option<f64>>; UnitKind::COUNT],
     policy: TacticalPolicy,
     min_step: &'a [u16; MovementClass::COUNT],
-    reduction_bound: f64,
     target_reductions:
-        std::cell::RefCell<Vec<(awvm::semantic::UnitId, awvm::semantic::UnitId, f64)>>,
+        &'a std::cell::RefCell<Vec<(awvm::semantic::UnitId, awvm::semantic::UnitId, f64)>>,
 }
 
 impl Scorer<'_> {
@@ -2098,7 +2236,7 @@ impl Scorer<'_> {
 
     /// Bound every scored action of one unit without a movement search.
     /// Terrain and blockers can only remove destinations from this bound.
-    fn unit_score_bound(&self, index: UnitIdx) -> Option<f64> {
+    fn unit_score_bound(&self, index: UnitIdx, threshold: f64) -> Option<f64> {
         let weights = self.weights();
         if !self.bound_weights_valid {
             return None;
@@ -2119,47 +2257,82 @@ impl Scorer<'_> {
         } else {
             budget / u64::from(minimum)
         };
-        let axis = radius.min(u64::from(u8::MAX)) as u8;
+        let key = MovementKey {
+            kind: unit.kind,
+            owner: unit.owner,
+            origin,
+            hp: unit.hp,
+            radius,
+            revision: if profile.can_capture {
+                self.capture_fields.revisions[profile.movement_class.index()]
+            } else {
+                self.advance_revision
+            },
+        };
+        let cached = self.movement_bounds.and_then(|cache| {
+            cache.borrow().entries[usize::from(index.get())].filter(|cached| cached.key == key)
+        });
         let mut movement = 0.0_f64;
         let mut pull = 0.0_f64;
         let mut sight = 0.0_f64;
-        let supply = if profile.supply.is_some() {
-            weights.supply.max(0.0)
+        if let Some(cached) = cached {
+            movement = cached.movement;
+            pull = cached.pull;
+            sight = cached.sight;
         } else {
-            0.0
-        };
-        for y in origin.y.saturating_sub(axis)
-            ..=origin.y.saturating_add(axis).min(dimensions.height() - 1)
-        {
-            let reach = radius
-                .saturating_sub(u64::from(origin.y.abs_diff(y)))
-                .min(u64::from(u8::MAX)) as u8;
-            for x in origin.x.saturating_sub(reach)
-                ..=origin.x.saturating_add(reach).min(dimensions.width() - 1)
+            let axis = radius.min(u64::from(u8::MAX)) as u8;
+            let supply = if profile.supply.is_some() {
+                weights.supply.max(0.0)
+            } else {
+                0.0
+            };
+            for y in origin.y.saturating_sub(axis)
+                ..=origin.y.saturating_add(axis).min(dimensions.height() - 1)
             {
-                let position = Pos::new(x, y);
-                let cell = dimensions.cell_index(position)?;
-                let order = Order::new(index, cell, OrderKind::Wait);
-                let at_pull = self.pull(order);
-                let at_sight = self.sight(order);
-                pull = pull.max(at_pull);
-                sight = sight.max(at_sight);
-                movement = movement.max((at_pull + supply) + at_sight).max(at_pull);
-                if profile.can_capture
-                    && state
-                        .board
-                        .tile(position)
-                        .owner
-                        .player()
-                        .is_none_or(|owner| self.board.hostile(owner))
-                    && ruleset::terrain_has(
-                        state.board.tile(position).terrain,
-                        TerrainTrait::Capturable,
-                    )
+                let reach = radius
+                    .saturating_sub(u64::from(origin.y.abs_diff(y)))
+                    .min(u64::from(u8::MAX)) as u8;
+                for x in origin.x.saturating_sub(reach)
+                    ..=origin.x.saturating_add(reach).min(dimensions.width() - 1)
                 {
-                    movement = movement.max(self.capture(order) + at_sight);
+                    let position = Pos::new(x, y);
+                    let cell = dimensions.cell_index(position)?;
+                    let order = Order::new(index, cell, OrderKind::Wait);
+                    let at_pull = self.pull(order);
+                    let at_sight = self.sight(order);
+                    pull = pull.max(at_pull);
+                    sight = sight.max(at_sight);
+                    movement = movement.max((at_pull + supply) + at_sight).max(at_pull);
+                    if profile.can_capture
+                        && state
+                            .board
+                            .tile(position)
+                            .owner
+                            .player()
+                            .is_none_or(|owner| self.board.hostile(owner))
+                        && ruleset::terrain_has(
+                            state.board.tile(position).terrain,
+                            TerrainTrait::Capturable,
+                        )
+                    {
+                        movement = movement.max(self.capture(order) + at_sight);
+                    }
+                    if self.movement_bounds.is_none() && movement >= threshold {
+                        return None;
+                    }
                 }
             }
+            if let Some(cache) = self.movement_bounds {
+                cache.borrow_mut().entries[usize::from(index.get())] = Some(MovementMaximum {
+                    key,
+                    movement,
+                    pull,
+                    sight,
+                });
+            }
+        }
+        if movement >= threshold {
+            return None;
         }
         let mut bound = movement;
         let range = profile.indirect_range.map(|range| {
@@ -2172,20 +2345,14 @@ impl Scorer<'_> {
             )
         });
         let attack_reach = range.unwrap_or_else(|| radius.saturating_add(1));
-        for defender in state
-            .units
-            .iter()
-            .filter(|unit| self.board.hostile(unit.owner))
-        {
-            let Location::Board { position } = defender.location else {
-                continue;
-            };
-            if origin.distance(position) > attack_reach
+        for (index, position) in self.enemy_units {
+            let defender = &state.units[*index];
+            if origin.distance(*position) > attack_reach
                 || combat::select_weapon(unit.kind, defender.kind, unit.ammo).is_none()
             {
                 continue;
             }
-            let cell = dimensions.cell_index(position)?;
+            let cell = dimensions.cell_index(*position)?;
             let perfect = Forecast {
                 attack: combat::DamageRange {
                     low: u16::from(defender.hp),
@@ -2204,14 +2371,19 @@ impl Scorer<'_> {
             {
                 return None;
             }
-            let exchange =
-                (weights.funds * cost(defender.kind) * (f64::from(defender.hp).max(100.0) / 100.0))
-                    .next_up();
+            let exchange = (weights.funds
+                * ((f64::from(defender.hp) / 100.0) * cost(defender.kind)))
+            .next_up();
             let mut attack = exchange + weights.unit_count;
             attack += denial;
-            attack += self.reduction_bound.next_up();
+            attack += self
+                .target_threat_reduction_score(unit, defender, 1.0)
+                .next_up();
             let blind = weights.blind_attack * weights.funds * cost(defender.kind);
             bound = bound.max((attack.max(blind) + pull) + sight);
+            if bound >= threshold {
+                return None;
+            }
         }
         if bound.is_finite() {
             Some(bound.next_up())
@@ -2452,6 +2624,7 @@ impl Scorer<'_> {
         {
             return self.weights().threat * threat * damage_fraction;
         }
+        let contribution = self.threat.immediate_contributions(defender.id);
         let mut threat = 0.0;
         for unit in self.board.state.units.iter() {
             if unit.owner != self.board.seat || unit.id == attacker.id {
@@ -2463,9 +2636,7 @@ impl Scorer<'_> {
             let Some(cell) = self.board.state.board.dimensions().cell_index(position) else {
                 continue;
             };
-            threat += self
-                .threat
-                .immediate_contribution(defender.id, cell, unit.kind);
+            threat += contribution(cell, unit.kind);
         }
         self.target_reductions
             .borrow_mut()
@@ -2688,6 +2859,78 @@ mod tests {
     }
 
     #[test]
+    fn advance_rows_match_the_ordered_enemy_scan() {
+        let mut state = arena(false, 19);
+        let seat = state.players.seat(&state.turn.active_player).unwrap();
+        let other = state
+            .players
+            .seats()
+            .map(|(seat, _)| seat)
+            .find(|other| *other != seat)
+            .unwrap();
+        state.units.retain(|_| false);
+        let dimensions = state.board.dimensions();
+        for (index, kind) in [
+            UnitKind::Infantry,
+            UnitKind::Tank,
+            UnitKind::Recon,
+            UnitKind::Artillery,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let position = Pos::new(
+                (index * 3 % usize::from(dimensions.width())) as u8,
+                (index * 5 % usize::from(dimensions.height())) as u8,
+            );
+            let mut unit = test_unit(kind, position, other);
+            unit.id = UnitId::new(index as u32 + 1);
+            unit.hp = [1, 61, 99, 100][index];
+            state.units.push(unit);
+        }
+        for advance in [0.0, -0.0, -1.0, 0.015, f64::INFINITY, f64::NAN] {
+            let weights = Weights {
+                advance,
+                ..Weights::DEFAULT
+            };
+            let board = Board {
+                state: &state,
+                seat,
+                weights: &weights,
+            };
+            let mut decay = Vec::new();
+            board.decay_table(&mut decay);
+            let mut actual = Vec::new();
+            let mut context = None;
+            board.advance_field(&mut actual, &mut context, &decay);
+            let mut expected = vec![0.0; dimensions.len()];
+            for unit in state.units.iter() {
+                let Location::Board { position } = unit.location else {
+                    continue;
+                };
+                let weight = advance * cost(unit.kind) * (f64::from(unit.hp) / 100.0);
+                for target in dimensions.positions() {
+                    let pull = weight * decay[position.distance(target) as usize];
+                    let index = dimensions.index(target).unwrap();
+                    if pull > expected[index] {
+                        expected[index] = pull;
+                    }
+                }
+            }
+            assert_eq!(
+                actual
+                    .iter()
+                    .map(|value| value.to_bits())
+                    .collect::<Vec<_>>(),
+                expected
+                    .iter()
+                    .map(|value| value.to_bits())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
     fn point_decay_lookup_matches_turn_division() {
         for decay in [vec![1.0_f64], vec![1.0, 0.75, 0.5, 0.0], vec![0.25; 511]] {
             for allowance in [0, 1, 2, 3, 7, u16::MAX] {
@@ -2777,6 +3020,57 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn retained_movement_bounds_match_fresh_decisions_after_rewinds() {
+        let initial = amber_valley(false, 7);
+        let mut session = Session::new(initial.clone());
+        let mut retained = GreedyAgent::with_generic_tactical_policy(19, Weights::BASELINE);
+        let mut entropy = Rng::from_seed(17);
+        let mut snapshots = vec![initial.clone()];
+        let mut populated = false;
+        for step in 0..400 {
+            if !matches!(
+                session.state().match_state,
+                awvm::semantic::Match::Active { .. }
+            ) {
+                session.reset(initial.clone());
+            }
+            if step % 64 == 0 {
+                snapshots.push(session.state().clone());
+            }
+            if step % 128 == 127 {
+                session.reset(snapshots[(step / 128) % snapshots.len()].clone());
+            }
+            let reference = Session::new(session.state().clone());
+            let mut fresh = GreedyAgent::with_generic_tactical_policy(
+                retained.tie_break_state(),
+                Weights::BASELINE,
+            );
+            let actual = retained.order_in_session(&session);
+            assert_eq!(
+                actual,
+                fresh.order_in_session(&reference),
+                "decision {step}"
+            );
+            assert_eq!(retained.tie_break_state(), fresh.tie_break_state());
+            populated |= retained
+                .movement_bounds
+                .borrow()
+                .entries
+                .iter()
+                .any(Option::is_some);
+            let order = actual.unwrap_or_else(|| {
+                session
+                    .resolve(&awvm::transition::Command::EndTurn {
+                        player: session.state().turn.active_player.clone(),
+                    })
+                    .unwrap()
+            });
+            session.apply(order, &mut entropy, &mut ()).unwrap();
+        }
+        assert!(populated);
     }
 
     #[test]
@@ -2970,7 +3264,7 @@ mod tests {
     fn a_capture_key_names_every_input_it_reads() {
         let built = Built {
             allowance: 3,
-            costs: vec![Some(1), None],
+            costs: Arc::from([Some(1), None]),
             targets: vec![(2.0, vec![Pos { x: 1, y: 1 }])],
             decay: vec![1.0, 0.75],
         };
@@ -2980,7 +3274,7 @@ mod tests {
             "the allowance divides the search into turns"
         );
         assert!(
-            !built.still_answers(3, &[Some(2), None], &built.targets, &built.decay),
+            !built.still_answers(3, &Arc::from([Some(2), None]), &built.targets, &built.decay),
             "the entry costs are what the search walks"
         );
         assert!(
