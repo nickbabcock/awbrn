@@ -31,6 +31,7 @@
 //! Simulation uses the middle of each luck range, so a plan is deterministic.
 
 mod combat;
+mod position;
 mod reply;
 
 use std::sync::Arc;
@@ -39,7 +40,7 @@ use awvm::commander::Domain;
 use awvm::random::{Entropy, Luck, RandomError};
 use awvm::ruleset::WeatherKind;
 use awvm::semantic::{CellIdx, Location, Match, Observation, PlayerIdx, State, UnitId};
-use awvm::session::{Order, OrderKind, Session};
+use awvm::session::{LegalScope, LegalVisitor, Order, OrderKind, OrderMask, Session, TargetKind};
 use awvm::transition::Command;
 
 use crate::agent::{Agent, NodeBudget, Play};
@@ -128,6 +129,9 @@ pub struct PlannerConfig {
     /// v6 estimate of enemy composition. A game without fog does not change.
     #[serde(skip_serializing_if = "is_false")]
     pub fog_memory: bool,
+    /// Continue a plan when unit names change and all game facts remain equal.
+    #[serde(skip_serializing_if = "is_false")]
+    pub reuse_equivalent_positions: bool,
 }
 
 // The fields that later configurations add are left out of the fingerprint
@@ -173,6 +177,7 @@ impl PlannerConfig {
         power_first: false,
         replay_score: None,
         fog_memory: false,
+        reuse_equivalent_positions: false,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -224,6 +229,20 @@ impl PlannerConfig {
         identifier: "planner-v6",
         replay_score: Some(ReplayScore::CUP_3_4),
         ..Self::V5
+    };
+
+    /// Planner v6 with plan reuse after equivalent observation projections.
+    pub const V6_CANONICAL: Self = Self {
+        identifier: "planner-v6-canonical",
+        reuse_equivalent_positions: true,
+        ..Self::V6
+    };
+
+    /// Planner v6 with plan reuse after unit IDs change in an observation.
+    pub const V7: Self = Self {
+        identifier: "planner-v7",
+        reuse_equivalent_positions: true,
+        ..Self::V6
     };
 
     /// planner-v6 with the fog memory.
@@ -323,6 +342,7 @@ struct Line {
     generator: Generator,
     /// The plays before the end of the turn, in order.
     plays: Vec<Play>,
+    end_state: State,
     score: f64,
     reply: ReplyEstimate,
 }
@@ -333,6 +353,7 @@ pub struct PlannerAgent {
     config: PlannerConfig,
     seed: u64,
     fallback: GreedyAgent,
+    rollout: Option<GreedyAgent>,
     evaluator: Evaluator,
     replay: Option<ReplayReader>,
     plan: Vec<Play>,
@@ -359,6 +380,7 @@ impl PlannerAgent {
             config,
             seed,
             fallback: config.baseline.build_greedy(seed),
+            rollout: None,
             evaluator: Evaluator::new(config.eval_weights),
             replay: config.replay_score.map(ReplayReader::new),
             plan: Vec::new(),
@@ -448,6 +470,7 @@ impl PlannerAgent {
         let planning = modeled.as_ref().unwrap_or(session);
         let mut planner = TurnPlanner {
             config: &self.config,
+            rollout: self.rollout.take(),
             seed: Rng::mix(self.seed ^ u64::from(self.plans_this_turn)),
             seat,
             evaluator: &mut self.evaluator,
@@ -459,6 +482,7 @@ impl PlannerAgent {
             fog,
         };
         let line = planner.plan(planning);
+        self.rollout = planner.rollout.take();
         self.stats.evaluations += u64::from(budget.get() - planner.nodes_left);
         self.stats.candidates += planner.candidates;
         self.stats.work += planner.work;
@@ -491,7 +515,13 @@ impl Agent for PlannerAgent {
         }
         self.begin_turn(view);
         self.remember(view);
-        let on_plan = self.positions.get(self.next) == Some(session.state());
+        let on_plan = self.positions.get(self.next).is_some_and(|expected| {
+            if self.config.reuse_equivalent_positions {
+                position::matches(expected, session.state())
+            } else {
+                expected == session.state()
+            }
+        });
         if !on_plan {
             if !self.positions.is_empty() {
                 self.stats.mismatches += 1;
@@ -510,7 +540,12 @@ impl Agent for PlannerAgent {
                     .act_in_session(modeled.as_ref().unwrap_or(&session));
             }
         }
-        let play = self.plan.get(self.next).copied();
+        let mut play = self.plan.get(self.next).copied();
+        if on_plan && self.config.reuse_equivalent_positions {
+            play = play.and_then(|play| {
+                position::remap(self.positions.get(self.next)?, session.state(), play)
+            });
+        }
         self.next += 1;
         play
     }
@@ -543,6 +578,7 @@ impl Agent for PlannerAgent {
 
 /// The work of one planning call.
 struct TurnPlanner<'a> {
+    rollout: Option<GreedyAgent>,
     config: &'a PlannerConfig,
     seed: u64,
     seat: PlayerIdx,
@@ -691,7 +727,24 @@ impl TurnPlanner<'_> {
         }
         let friendly = session.state().turn.active_player.clone();
         let mut orders = Vec::new();
-        session.legal().orders(&mut orders);
+        struct Options<'a>(&'a mut Vec<Order>);
+        impl LegalVisitor for Options<'_> {
+            const ACTIONS: OrderMask =
+                OrderMask::from_untargeted(&[OrderKind::Wait, OrderKind::Capture])
+                    .with_targets(TargetKind::Attack);
+            const DELETE: bool = false;
+
+            fn order(&mut self, order: Order) {
+                self.0.push(order);
+            }
+        }
+        session.legal().visit_scoped(
+            LegalScope {
+                units: &seed.reply.exposed,
+                unitless: false,
+            },
+            &mut Options(&mut orders),
+        );
         let mut plays = Vec::new();
         let mut units = 0;
         for unit in &seed.reply.exposed {
@@ -780,39 +833,44 @@ impl TurnPlanner<'_> {
         self.nodes_left == 0 || self.work_left.is_some_and(|left| self.work >= left)
     }
 
-    /// Play `line`, then a Hard reply for the enemy, and value the result.
+    /// Play a Hard reply from the end of `line`, and value the result.
     ///
     /// The session is back at its start position when this returns.
     fn replied_value(&mut self, session: &mut Session, line: &Line) -> Option<f64> {
-        let friendly = session.state().turn.active_player.clone();
+        let mut hard = self
+            .rollout
+            .take()
+            .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
+        hard.restart(Rng::mix(self.seed ^ 0x5eed));
+        hard.set_fog(None);
         let mut entropy = MeanLuck;
-        let mut root = None;
+        let root = session.state().clone();
+        session.reset(line.end_state.clone());
         let result = (|| {
-            for play in &line.plays {
-                let order = play_order(session, play)?;
-                root.get_or_insert(session.apply(order, &mut entropy, &mut ()).ok()?);
-            }
             if !matches!(session.state().match_state, Match::Active { .. }) {
                 self.nodes_left -= 1;
                 return Some(self.leaf_value(session));
             }
-            let end = session
-                .resolve(&Command::EndTurn {
-                    player: friendly.clone(),
-                })
-                .ok()?;
-            root.get_or_insert(session.apply(end, &mut entropy, &mut ()).ok()?);
+            // Keep the extra boundary that command replay applies after EndTurn.
+            if line
+                .plays
+                .last()
+                .is_some_and(|play| play.kind() == OrderKind::EndTurn)
+            {
+                let end = session
+                    .resolve(&Command::EndTurn {
+                        player: session.state().turn.active_player.clone(),
+                    })
+                    .ok()?;
+                session.apply(end, &mut entropy, &mut ()).ok()?;
+            }
             let enemy = session.state().turn.active_player.clone();
-            let mut hard = self
-                .config
-                .baseline
-                .build_greedy(Rng::mix(self.seed ^ 0x5eed));
             while session.state().turn.active_player == enemy
                 && matches!(session.state().match_state, Match::Active { .. })
             {
                 self.work += 1;
-                let order = match hard.act_in_session(session) {
-                    Some(play) => play_order(session, &play)?,
+                let order = match hard.order_in_session(session) {
+                    Some(order) => order,
                     None => session
                         .resolve(&Command::EndTurn {
                             player: enemy.clone(),
@@ -824,9 +882,8 @@ impl TurnPlanner<'_> {
             self.nodes_left -= 1;
             Some(self.leaf_value(session))
         })();
-        if let Some(mark) = root {
-            session.rewind(mark);
-        }
+        session.reset(root);
+        self.rollout = Some(hard);
         result
     }
 
@@ -841,7 +898,11 @@ impl TurnPlanner<'_> {
     ) -> Option<Line> {
         let friendly = session.state().turn.active_player.clone();
         let mut entropy = MeanLuck;
-        let mut hard = self.config.baseline.build_greedy(self.seed);
+        let mut hard = self
+            .rollout
+            .take()
+            .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
+        hard.restart(self.seed);
         hard.set_fog(self.fog.clone());
         let mut plays = Vec::new();
         let mut root = None;
@@ -874,11 +935,8 @@ impl TurnPlanner<'_> {
                 }
                 let (play, order) = match next {
                     Some(next) => next,
-                    None => match hard.act_in_session(session) {
-                        Some(play) => {
-                            let order = play_order(session, &play)?;
-                            (play, order)
-                        }
+                    None => match hard.order_in_session(session) {
+                        Some(order) => (Play::from_order(session, order)?, order),
                         None => {
                             let order = session
                                 .resolve(&Command::EndTurn {
@@ -897,6 +955,7 @@ impl TurnPlanner<'_> {
             }
             Some(())
         })();
+        self.rollout = Some(hard);
         self.work += work;
         let scored = result.map(|()| {
             self.nodes_left -= 1;
@@ -907,15 +966,20 @@ impl TurnPlanner<'_> {
             } else {
                 ReplyEstimate::default()
             };
-            (value - self.config.reply_weight * reply.total(), reply)
+            (
+                value - self.config.reply_weight * reply.total(),
+                reply,
+                session.state().clone(),
+            )
         });
         if let Some(mark) = root {
             session.rewind(mark);
         }
-        let (score, reply) = scored?;
+        let (score, reply, end_state) = scored?;
         Some(Line {
             generator,
             plays,
+            end_state,
             score,
             reply,
         })
@@ -939,10 +1003,23 @@ fn target_cell(state: &State, unit: UnitId) -> Option<CellIdx> {
 /// The commander powers that are legal in `session`.
 fn powers(session: &Session) -> impl Iterator<Item = Play> + '_ {
     let mut orders = Vec::new();
-    session.legal().orders(&mut orders);
+    struct Powers<'a>(&'a mut Vec<Order>);
+    impl awvm::session::LegalVisitor for Powers<'_> {
+        fn order(&mut self, order: Order) {
+            if matches!(order.kind(), OrderKind::Power(_)) {
+                self.0.push(order);
+            }
+        }
+    }
+    session.legal().visit_scoped(
+        LegalScope {
+            units: &[],
+            unitless: true,
+        },
+        &mut Powers(&mut orders),
+    );
     orders
         .into_iter()
-        .filter(|order| matches!(order.kind(), OrderKind::Power(_)))
         .filter_map(|order| Play::from_order(session, order))
 }
 

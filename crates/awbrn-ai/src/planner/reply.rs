@@ -19,7 +19,9 @@
 
 use awvm::ruleset::{self, TerrainTrait};
 use awvm::semantic::{CAPTURE_REQUIRED_POINTS, CellIdx, PlayerIdx, TileOwner, UnitId};
-use awvm::session::{AttackCandidate, LegalVisitor, Order, OrderKind, Session};
+use awvm::session::{
+    AttackCandidate, LegalScope, LegalVisitor, Order, OrderKind, OrderMask, Session, TargetKind,
+};
 
 /// The value that the reply estimate puts on our losses, in funds.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -84,6 +86,9 @@ struct Collector {
 
 impl LegalVisitor for Collector {
     const ATTACK_CONTEXT: bool = true;
+    const ACTIONS: OrderMask =
+        OrderMask::from_untargeted(&[OrderKind::Capture]).with_targets(TargetKind::Attack);
+    const DELETE: bool = false;
 
     fn order(&mut self, order: Order) {
         if order.kind() == OrderKind::Capture {
@@ -125,7 +130,22 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
         attacks: Vec::new(),
         captures: Vec::new(),
     };
-    session.legal().visit_orders(&mut collector);
+    let units: Vec<_> = state
+        .units
+        .iter()
+        .filter(|unit| {
+            let profile = ruleset::profile(unit.kind);
+            profile.can_capture || profile.fire_mode != ruleset::FireMode::None
+        })
+        .map(|unit| unit.id)
+        .collect();
+    session.legal().visit_scoped(
+        LegalScope {
+            units: &units,
+            unitless: false,
+        },
+        &mut collector,
+    );
 
     let mut estimate = ReplyEstimate::default();
 

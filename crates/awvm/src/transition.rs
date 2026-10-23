@@ -552,6 +552,7 @@ impl<'a> PreparedMovement<'a> {
         self.prepare_destination_with(maps)
     }
 
+    #[inline(always)]
     pub(crate) fn prepare_destination_with<M>(self, maps: M) -> PreparedDestination<'a, M>
     where
         M: Borrow<TurnMaps<'a>>,
@@ -767,6 +768,7 @@ impl<'a> PreparedActiveUnit<'a> {
     ///
     /// Legal enumeration needs the destination and whether the unit moved.
     /// It materializes the selected route later when it spells the command.
+    #[inline(always)]
     pub(crate) fn movement_summary(
         &self,
         destination: Pos,

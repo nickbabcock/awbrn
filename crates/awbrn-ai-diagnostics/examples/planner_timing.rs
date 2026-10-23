@@ -7,7 +7,7 @@
 //! engine of a Worker. Build it natively to get the ratio for the same games.
 //! The work counts must be equal in the two builds.
 //!
-//! `uncapped` is planner-v2 with no work limit. `v6` is the current Hard
+//! `uncapped` is planner-v2 with no work limit. `v7` is the current Hard
 //! configuration.
 //!
 //! ```text
@@ -15,10 +15,12 @@
 //!   --target wasm32-wasip1
 //! node scripts/run-wasi.mjs \
 //!   target/wasm32-wasip1/release/examples/planner_timing.wasm . \
-//!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v6
+//!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v7
 //! ```
 //!
-//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6>`
+//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7> [map-id]`
+
+use std::time::Instant;
 
 use awbrn_ai::agent::Agent;
 use awbrn_ai::baseline::BaselineConfig;
@@ -37,9 +39,20 @@ const RUN_SEED: u64 = 0x7a11_0002;
 
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
-    let [_, manifest, pairs, mode] = arguments.as_slice() else {
-        eprintln!("usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6>");
+    let [_, manifest, pairs, mode, selected @ ..] = arguments.as_slice() else {
+        eprintln!(
+            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7> [map-id]"
+        );
         std::process::exit(2);
+    };
+    let selected = match selected {
+        [] => None,
+        [map] => {
+            let map = map.parse::<u32>().expect("map ID is a number");
+            assert!(MAPS.contains(&map), "map ID is in the timing set");
+            Some(map)
+        }
+        _ => panic!("expected at most one map ID"),
     };
     let pairs: std::num::NonZeroUsize = pairs.parse().expect("pairs must be positive");
     let config = match mode.as_str() {
@@ -48,18 +61,24 @@ fn main() {
         "v4" => PlannerConfig::V4,
         "v5" => PlannerConfig::V5,
         "v6" => PlannerConfig::V6,
+        "v6-canonical" => PlannerConfig::V6_CANONICAL,
+        "v7" => PlannerConfig::V7,
         other => panic!("unknown mode {other}"),
     };
     let registry = MapRegistry::load(&MapManifest::read(manifest).expect("manifest reads"))
         .expect("maps load");
 
+    let mut match_nanos = 0;
     let mut planner_turns = Vec::new();
     let mut hard_turns = Vec::new();
     let mut fallbacks = 0;
     let mut work = 0;
     let mut max_turn_work = 0;
     let mut plans = 0;
-    for map_id in MAPS {
+    for map_id in MAPS
+        .into_iter()
+        .filter(|map| selected.is_none_or(|selected| selected == *map))
+    {
         let map = registry.get(map_id).expect("map is in the manifest");
         for pair in 0..pairs.get() {
             let match_seed = Rng::mix(RUN_SEED ^ (u64::from(map_id) << 32) ^ pair as u64);
@@ -78,6 +97,7 @@ fn main() {
                 } else {
                     [&mut *hard, &mut planner]
                 };
+                let match_started = Instant::now();
                 let record = play_measured(
                     state,
                     &mut session,
@@ -89,6 +109,8 @@ fn main() {
                     },
                 )
                 .expect("game plays");
+                let elapsed = match_started.elapsed().as_nanos();
+                match_nanos += elapsed;
                 planner_turns.extend(
                     record.complete_turn_times_by_seat[planner_seat]
                         .iter()
@@ -104,12 +126,22 @@ fn main() {
                 work += planner.stats().work;
                 max_turn_work = max_turn_work.max(planner.stats().max_turn_work);
                 eprintln!(
-                    "map {map_id} pair {pair} seat {planner_seat}: {} days",
-                    record.days
+                    "map {map_id} pair {pair} seat {planner_seat}: {} days, {} commands, fingerprints {:x?}, match {:.3} ms, work {}, plans {}, mismatches {}, refusals {}, preflight {}, outcome {:?}",
+                    record.days,
+                    record.commands,
+                    record.command_fingerprints,
+                    elapsed as f64 / 1e6,
+                    planner.stats().work,
+                    planner.stats().plans,
+                    planner.stats().mismatches,
+                    record.refusals,
+                    record.preflight_rejections,
+                    record.outcome
                 );
             }
         }
     }
+    println!("complete match time {:.3} ms", match_nanos as f64 / 1e6);
     let total: u64 = planner_turns.iter().sum();
     report(config.identifier, &mut planner_turns);
     report("hard", &mut hard_turns);

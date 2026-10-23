@@ -434,7 +434,7 @@ struct Routes {
     attack_tiles: Vec<Pos>,
 }
 
-/// Keep at most 32 movement fields and reuse their buffers.
+/// Keep movement fields within a bounded cell budget and reuse their buffers.
 /// A field checks its unit, entry costs, and blockers before it is reused.
 #[derive(Debug, Default)]
 struct Reach {
@@ -797,7 +797,8 @@ impl Session {
             }
             None => None,
         };
-        if reach.held.len() >= 32 {
+        let limit = (262_144 / self.state.board.dimensions().len().max(1)).clamp(1, 256);
+        if reach.held.len() >= limit {
             let (_, _, geometry) = reach.held.remove(0);
             geometry.recycle(&mut reach.scratch);
         }
@@ -1294,9 +1295,12 @@ impl<'a> Legal<'a> {
                 };
                 let attacks = attack_index.targets(cell);
                 if attacks.is_empty()
-                    && only_wait_at(field, unit, position, OrderMask::ALL, self.state())
+                    && let Some(mask) =
+                        simple_actions_at(field, unit, position, OrderMask::ALL, self.state())
                 {
-                    out.push((cell, OrderMask::from_untargeted(&[OrderKind::Wait])));
+                    if !mask.is_empty() {
+                        out.push((cell, mask));
+                    }
                     continue;
                 }
                 let Some(destination) = field.query_destination(position) else {
@@ -1348,6 +1352,28 @@ impl<'a> Legal<'a> {
             let mut routes = self.session.routes.borrow_mut();
             let mut attack_index = std::mem::take(&mut routes.attack_index);
             field.prepare_attack_index(&mut attack_index);
+            let only_attacks = V::ACTIONS.0 & !OrderMask::ATTACK == 0
+                || (V::ACTIONS.0 & !(OrderMask::ATTACK | OrderMask::CAPTURE) == 0
+                    && !ruleset::profile(subject.kind).can_capture);
+            if only_attacks {
+                attack_index.sort_cells();
+                for cell in attack_index.cells() {
+                    if !visitor.continue_unit(unit) {
+                        break;
+                    }
+                    push_orders_at(
+                        self,
+                        &mut routes,
+                        field,
+                        unit,
+                        *cell,
+                        Some(attack_index.targets(*cell)),
+                        visitor,
+                    );
+                }
+                routes.attack_index = attack_index;
+                return;
+            }
             for (position, _) in field.geometry().reach() {
                 if !visitor.continue_unit(unit) {
                     break;
@@ -1803,34 +1829,53 @@ impl<'a> Legal<'a> {
     }
 }
 
-/// Return true when waiting is the only requested action at this tile.
+/// Return simple actions when the tile needs no other action checks.
 #[inline(always)]
-fn only_wait_at<'a, M>(
+fn simple_actions_at<'a, M>(
     field: &PreparedMoveField<'a, M>,
     unit: UnitIdx,
     position: Pos,
     requested: OrderMask,
     state: &State,
-) -> bool
+) -> Option<OrderMask>
 where
     M: std::borrow::Borrow<TurnMaps<'a>>,
 {
-    let Some(subject) = state.units.at(usize::from(unit.get())) else {
-        return false;
-    };
+    let subject = state.units.at(usize::from(unit.get()))?;
     let profile = ruleset::profile(subject.kind);
     let tile = state.board.tile(position);
-    let other_action = (requested.allows(OrderKind::Capture)
-        && profile.can_capture
-        && ruleset::terrain_has(tile.terrain, ruleset::TerrainTrait::Capturable))
-        || (requested.allows(OrderKind::Supply) && profile.supply.is_some())
-        || ((requested.allows(OrderKind::Hide) || requested.allows(OrderKind::Reveal))
-            && profile.concealment.is_some())
+    let other_action = ((requested.allows(OrderKind::Hide) || requested.allows(OrderKind::Reveal))
+        && profile.concealment.is_some())
         || (requested.allows(OrderKind::Explode)
             && profile.special_actions.contains(&ruleset::Command::Explode))
         || (requested.has(TargetKind::Repair) && profile.repair.is_some())
         || (requested.has(TargetKind::Launch) && tile.silo.is_some());
-    !other_action && field.can_wait_at(position)
+    if other_action || !field.can_wait_at(position) {
+        return None;
+    }
+    let mut mask = OrderMask::default();
+    mask.set(OrderMask::WAIT, requested.allows(OrderKind::Wait));
+    mask.set(
+        OrderMask::CAPTURE,
+        requested.allows(OrderKind::Capture)
+            && profile.can_capture
+            && ruleset::terrain_has(tile.terrain, ruleset::TerrainTrait::Capturable)
+            && tile.owner.player().is_none_or(|owner| {
+                state
+                    .players
+                    .get(owner.get())
+                    .zip(state.players.get(subject.owner.get()))
+                    .is_some_and(|(owner, actor)| owner.team != actor.team)
+            }),
+    );
+    mask.set(
+        OrderMask::SUPPLY,
+        requested.allows(OrderKind::Supply)
+            && profile
+                .supply
+                .is_some_and(|supply| supply.relation == ruleset::Relation::Adjacent),
+    );
+    Some(mask)
 }
 
 /// Every order that ends at one arrival tile, appended to `out`.
@@ -1854,10 +1899,10 @@ fn push_orders_at<'a, M, V: LegalVisitor>(
         return;
     };
     if prepared_attacks.is_some_and(<[_]>::is_empty)
-        && only_wait_at(field, unit, position, V::ACTIONS, state)
+        && let Some(mask) = simple_actions_at(field, unit, position, V::ACTIONS, state)
     {
-        if V::ACTIONS.allows(OrderKind::Wait) {
-            visitor.order(Order::new(unit, dest, OrderKind::Wait));
+        for kind in mask.untargeted() {
+            visitor.order(Order::new(unit, dest, kind));
         }
         return;
     }

@@ -1231,6 +1231,20 @@ impl CounterTable {
 /// Both sides are read at whole health and a full magazine, which is the
 /// unit this table is about: the one that has not been built yet.
 fn strike(attacker: UnitKind, defender: UnitKind) -> f64 {
+    static STRIKES: std::sync::LazyLock<[[f64; UnitKind::COUNT]; UnitKind::COUNT]> =
+        std::sync::LazyLock::new(|| {
+            let mut values = [[0.0; UnitKind::COUNT]; UnitKind::COUNT];
+            for attacker in UnitKind::ALL {
+                for defender in UnitKind::ALL {
+                    values[attacker.index()][defender.index()] = neutral_strike(attacker, defender);
+                }
+            }
+            values
+        });
+    STRIKES[attacker.index()][defender.index()]
+}
+
+fn neutral_strike(attacker: UnitKind, defender: UnitKind) -> f64 {
     /// The attack and defense a commander with no combat rule presents.
     const NEUTRAL: i64 = 100;
 
@@ -1263,6 +1277,12 @@ impl GreedyAgent {
     /// all facts that this policy reads. It avoids an observation projection
     /// and a second session for each simulated command.
     pub(crate) fn act_in_session(&mut self, session: &Session) -> Option<Play> {
+        self.order_in_session(session)
+            .and_then(|order| Play::from_order(session, order))
+    }
+
+    /// Select an order for the current session without constructing its command.
+    pub(crate) fn order_in_session(&mut self, session: &Session) -> Option<Order> {
         self.act_in_session_scoped::<false>(session, None, None)
     }
 
@@ -1281,6 +1301,7 @@ impl GreedyAgent {
             }),
             None,
         )
+        .and_then(|order| Play::from_order(session, order))
     }
 
     /// Score every legal order without consuming the tie-break stream.
@@ -1325,7 +1346,7 @@ impl GreedyAgent {
         session: &Session,
         scope: Option<LegalScope<'_>>,
         scored: Option<&mut Vec<ScoredOrder>>,
-    ) -> Option<Play> {
+    ) -> Option<Order> {
         if !session.is_commandable() {
             return None;
         }
@@ -1333,10 +1354,7 @@ impl GreedyAgent {
         if !RECORD {
             if self.selection.matches(session.position_key(), scope) {
                 if self.selection.ready {
-                    return self
-                        .selection
-                        .choose(&mut self.rng)
-                        .and_then(|order| Play::from_order(session, order));
+                    return self.selection.choose(&mut self.rng);
                 }
                 self.selection.ready = true;
             } else {
@@ -1345,6 +1363,28 @@ impl GreedyAgent {
         }
         let state = session.state();
         let seat = state.players.seat(&state.turn.active_player)?;
+        let mut capture_needed = RECORD;
+        let mut advance_needed = RECORD;
+        for unit in state.units.iter().filter(|unit| unit.owner == seat) {
+            let included = scope.is_none_or(|scope| scope.units.contains(&unit.id));
+            match unit.location {
+                Location::Board { .. }
+                    if included && unit.action == awvm::semantic::UnitAction::Ready =>
+                {
+                    if ruleset::profile(unit.kind).can_capture {
+                        capture_needed = true;
+                    } else {
+                        advance_needed = true;
+                    }
+                }
+                Location::Cargo { .. } => {
+                    capture_needed = true;
+                    advance_needed = true;
+                }
+                _ => {}
+            }
+        }
+        let unit_fields_needed = capture_needed || advance_needed;
 
         let Self {
             rng,
@@ -1371,22 +1411,28 @@ impl GreedyAgent {
             seat,
             weights,
         };
-        board.decay_table(decay);
+        if unit_fields_needed {
+            board.decay_table(decay);
+        }
         board.occupants(occupant);
         // A map priced at nothing is never built, and a contest at no discount
         // is priced at nothing: every property then reads the weight its
         // terrain gives it, which is the reading the field shipped with.
-        if weights.contest_decay != 1.0 {
+        if capture_needed && weights.contest_decay != 1.0 {
             contest.build_in(session, seat);
         } else {
             contest.forget();
         }
-        capture_fields.build(session, &board, decay, occupant, contest);
-        board.advance_field(advance_field, advance_for, decay);
+        if capture_needed {
+            capture_fields.build(session, &board, decay, occupant, contest);
+        }
+        if advance_needed {
+            board.advance_field(advance_field, advance_for, decay);
+        }
         // A term priced at nothing decides nothing, so the field it reads is
         // not built. That is what keeps every weighting below `defend` at the
         // throughput its numbers were taken at.
-        if weights.hold != 0.0 {
+        if unit_fields_needed && weights.hold != 0.0 {
             board.hold_field(hold_field);
         } else {
             hold_field.clear();
@@ -1394,7 +1440,7 @@ impl GreedyAgent {
         // A map priced at nothing is never read, so it is never built. That
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
-        if weights.threat != 0.0 {
+        if unit_fields_needed && weights.threat != 0.0 {
             threat.set_overlay(fog.map(|estimate| Arc::clone(&estimate.threat)));
             threat.build(session, seat);
         }
@@ -1423,24 +1469,22 @@ impl GreedyAgent {
         }
 
         let mut min_step = [0; MovementClass::COUNT];
-        if !RECORD && let Some(mut travel) = session.travel(seat) {
+        if !RECORD && let Some(travel) = session.travel(seat) {
             let mut checked = [false; MovementClass::COUNT];
-            for unit in state.units.iter().filter(|unit| unit.owner == seat) {
+            for unit in state.units.iter().filter(|unit| {
+                unit.owner == seat
+                    && unit.action == awvm::semantic::UnitAction::Ready
+                    && scope.is_none_or(|scope| scope.units.contains(&unit.id))
+            }) {
                 let class = ruleset::profile(unit.kind).movement_class;
                 let index = class.index();
                 if !checked[index] {
-                    min_step[index] = travel
-                        .costs(class)
-                        .iter()
-                        .flatten()
-                        .copied()
-                        .min()
-                        .unwrap_or(0);
+                    min_step[index] = travel.minimum_entry_cost(class);
                     checked[index] = true;
                 }
             }
         }
-        let reduction_bound = if policy.target_threat_reduction {
+        let reduction_bound = if unit_fields_needed && policy.target_threat_reduction {
             weights.threat
                 * state
                     .units
@@ -1467,7 +1511,8 @@ impl GreedyAgent {
             counter,
             vision,
             threat,
-            shortfall: board.capturer_shortfall(occupant),
+            shortfall: std::cell::Cell::new(None),
+            bound_weights_valid: !RECORD && Scorer::bound_weights_valid(weights),
             production: [const { std::cell::Cell::new(None) }; UnitKind::COUNT],
             policy: *policy,
             min_step: &min_step,
@@ -1496,15 +1541,14 @@ impl GreedyAgent {
 
         // Nothing scores above zero when every unit has acted and nothing is
         // left worth doing, which is what ends the turn.
-        let chosen = match (visitor.chosen, visitor.denial_sacrifice) {
+        match (visitor.chosen, visitor.denial_sacrifice) {
             (Some(order), Some(sacrifice)) if matches!(order.kind(), OrderKind::Wait) => {
                 Some(sacrifice.order)
             }
             (Some(order), _) => Some(order),
             (None, Some(sacrifice)) => Some(sacrifice.order),
             (None, None) => None,
-        };
-        Play::from_order(session, chosen?)
+        }
     }
 }
 
@@ -2012,7 +2056,8 @@ struct Scorer<'a> {
     counter: &'a CounterTable,
     vision: &'a VisionMap,
     threat: &'a ThreatMap,
-    shortfall: f64,
+    shortfall: std::cell::Cell<Option<f64>>,
+    bound_weights_valid: bool,
     production: [std::cell::Cell<Option<f64>>; UnitKind::COUNT],
     policy: TacticalPolicy,
     min_step: &'a [u16; MovementClass::COUNT],
@@ -2022,10 +2067,7 @@ struct Scorer<'a> {
 }
 
 impl Scorer<'_> {
-    /// Bound every scored action of one unit without a movement search.
-    /// Terrain and blockers can only remove destinations from this bound.
-    fn unit_score_bound(&self, index: UnitIdx) -> Option<f64> {
-        let weights = self.weights();
+    fn bound_weights_valid(weights: &Weights) -> bool {
         if ![
             weights.funds,
             weights.unit_count,
@@ -2049,6 +2091,16 @@ impl Scorer<'_> {
             || !(0.0..=1.0).contains(&weights.scout_focus)
             || !(0.0..=1.0).contains(&weights.scout_decay)
         {
+            return false;
+        }
+        true
+    }
+
+    /// Bound every scored action of one unit without a movement search.
+    /// Terrain and blockers can only remove destinations from this bound.
+    fn unit_score_bound(&self, index: UnitIdx) -> Option<f64> {
+        let weights = self.weights();
+        if !self.bound_weights_valid {
             return None;
         }
         let unit = self.unit(index)?;
@@ -2266,6 +2318,7 @@ impl Scorer<'_> {
     }
 
     /// Standing on a property and turning the crank.
+    #[inline(always)]
     fn capture(&self, order: Order) -> f64 {
         let Some(unit) = order.unit().and_then(|index| self.unit(index)) else {
             return 0.0;
@@ -2489,6 +2542,7 @@ impl Scorer<'_> {
     ///
     /// The pull of the destination, less what the enemy can take off it. This
     /// is the whole of the agent's movement.
+    #[inline(always)]
     fn arrival(&self, order: Order) -> f64 {
         let Some(unit) = order.unit().and_then(|index| self.unit(index)) else {
             return 0.0;
@@ -2501,6 +2555,7 @@ impl Scorer<'_> {
     /// A unit that captures walks at properties; a unit that fights walks at
     /// the enemy. The destination of the reachable set with the strongest
     /// pull is where the unit goes.
+    #[inline(always)]
     fn pull(&self, order: Order) -> f64 {
         let Some(unit) = order.unit().and_then(|index| self.unit(index)) else {
             return 0.0;
@@ -2525,6 +2580,7 @@ impl Scorer<'_> {
     /// The dark tiles the destination lights, and the cover the destination
     /// itself gives. Both are zero with fog off, where the map is not built
     /// at all, and both are zero for a weighting that prices them at nothing.
+    #[inline(always)]
     fn sight(&self, order: Order) -> f64 {
         if !self.vision.is_built() {
             return 0.0;
@@ -2555,6 +2611,7 @@ impl Scorer<'_> {
     /// walked to a firing position is ground this unit may safely hold for a
     /// turn. Merging them gives an agent that never closes.
     ///
+    #[inline(always)]
     fn exposure(&self, cell: CellIdx, unit: &Unit) -> f64 {
         let weights = self.weights();
         let immediate = self.threat.immediate(cell, unit.kind);
@@ -2581,7 +2638,16 @@ impl Scorer<'_> {
         // capture points a turn and one of them costs three times the other.
         let efficiency = (1000.0 / cost(kind).max(1.0)).powf(weights.funds_efficiency);
         if profile.can_capture {
-            score += weights.capturer_shortfall * self.shortfall * efficiency;
+            let shortfall = if weights.capturer_shortfall == 0.0 {
+                0.0
+            } else {
+                self.shortfall.get().unwrap_or_else(|| {
+                    let value = self.board.capturer_shortfall(self.occupant);
+                    self.shortfall.set(Some(value));
+                    value
+                })
+            };
+            score += weights.capturer_shortfall * shortfall * efficiency;
         }
         score += weights.build_cost * cost(kind);
         // The eyes a hull carries, priced where the map is dark. A recon is a
@@ -2794,7 +2860,12 @@ mod tests {
 
         impl Agent for Checker {
             fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play> {
+                let mut reference =
+                    GreedyAgent::with_weights(self.inner.tie_break_state(), self.inner.weights);
+                let expected = reference.act(view, budget);
                 let play = self.inner.act(view, budget);
+                assert_eq!(play, expected);
+                assert_eq!(self.inner.tie_break_state(), reference.tie_break_state());
 
                 let Ok(session) = Session::from_observation(view) else {
                     return play;
@@ -2806,6 +2877,18 @@ mod tests {
                 let Some(seat) = state.players.seat(&state.turn.active_player) else {
                     return play;
                 };
+                if !state.units.iter().any(|unit| {
+                    unit.owner == seat
+                        && match unit.location {
+                            Location::Board { .. } => {
+                                unit.action == UnitAction::Ready
+                                    && ruleset::profile(unit.kind).can_capture
+                            }
+                            Location::Cargo { .. } => true,
+                        }
+                }) {
+                    return play;
+                }
                 let board = Board {
                     state,
                     seat,

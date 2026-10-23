@@ -561,6 +561,9 @@ fn collect_income(
 fn repair_sites(next: &State, incoming: &Incoming) -> Vec<(Pos, UnitId)> {
     let mut sites = Vec::new();
     for (position, tile) in next.board.iter() {
+        if !tile.owner.is_owned_by(incoming.seat) {
+            continue;
+        }
         let Some(unit) = next
             .units
             .iter()
@@ -568,7 +571,7 @@ fn repair_sites(next: &State, incoming: &Incoming) -> Vec<(Pos, UnitId)> {
         else {
             continue;
         };
-        if tile.owner.is_owned_by(incoming.seat) && terrain_repairs_unit(tile.terrain, unit.kind) {
+        if terrain_repairs_unit(tile.terrain, unit.kind) {
             sites.push((position, unit.id));
         }
     }
