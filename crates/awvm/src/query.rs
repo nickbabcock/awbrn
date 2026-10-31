@@ -168,15 +168,16 @@ pub struct MoveField {
     blocking: Arc<BlockingMap>,
     /// This unit's own search result.
     arrivals: Grid<Option<Arrival>>,
+    /// Reached cells in board order, stored as one bit per cell.
+    reached: Vec<u64>,
     budget: u64,
 }
 
 /// The board-sized memory a repeated movement search reuses.
 ///
-/// A search owns two things: the arrival grid, which is board-sized, and
-/// Dial's buckets, one small vector per point of the allowance. Both have the
-/// same shape for every unit of a turn, so a caller that hands the same
-/// scratch back to each search allocates once instead of once per unit.
+/// A search owns an arrival grid and a mask of reached cells. Dial's buckets
+/// hold one vector per point of the allowance. A caller that returns the
+/// grid and mask to this pool can reuse their storage in the next search.
 ///
 /// Nothing here survives a search. A field takes a grid out of the pool and
 /// [`MoveField::recycle`] puts it back. A grid that is never given back is
@@ -185,6 +186,7 @@ pub struct MoveField {
 pub struct MoveScratch {
     /// Arrival grids handed back by spent fields.
     grids: Vec<Grid<Option<Arrival>>>,
+    reached_masks: Vec<Vec<u64>>,
     /// Dial's buckets, cleared and resized rather than rebuilt.
     buckets: Vec<Vec<Pos>>,
     /// Costs used by the early-exit movement probe.
@@ -199,6 +201,7 @@ impl MoveScratch {
     pub const fn new() -> Self {
         Self {
             grids: Vec::new(),
+            reached_masks: Vec::new(),
             buckets: Vec::new(),
             probe_costs: Vec::new(),
             probe_buckets: Vec::new(),
@@ -416,9 +419,11 @@ impl SharedTables {
 
 #[derive(Debug, Default)]
 struct EntryTables {
+    blocking_base: OnceLock<Grid<Blocking>>,
     /// Entry costs, one map per movement class, each built when a unit of that
     /// class first asks.
     entries: [OnceLock<Arc<Grid<EntryCost>>>; MovementClass::COUNT],
+    minimum: [OnceLock<u16>; MovementClass::COUNT],
     travel: [OnceLock<Arc<TravelCosts>>; MovementClass::COUNT],
     masks: [OnceLock<ReachCosts>; MovementClass::COUNT],
 }
@@ -502,7 +507,6 @@ impl ReachCosts {
 struct TravelCosts {
     cells: Arc<[Option<u16>]>,
     widest: u16,
-    minimum: u16,
     distances: Mutex<Vec<TravelDistance>>,
 }
 
@@ -517,6 +521,7 @@ struct TravelDistance {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct EntryContext {
     dimensions: crate::semantic::Dimensions,
+    board: semantic::Board,
     terrain: Vec<TerrainId>,
     weather: WeatherKind,
     commanders: Vec<(CommanderKind, bool)>,
@@ -528,6 +533,7 @@ impl EntryContext {
         let player = state.players.get(seat.get())?;
         Some(Self {
             dimensions: state.board.dimensions(),
+            board: state.board.clone(),
             terrain: state.board.tiles().map(|tile| tile.terrain).collect(),
             weather: state.weather.kind,
             commanders: player
@@ -550,11 +556,12 @@ impl EntryContext {
                 .commanders
                 .iter()
                 .map(|commander| (commander.id, commander.active)))
-            && self
-                .terrain
-                .iter()
-                .copied()
-                .eq(state.board.tiles().map(|tile| tile.terrain))
+            && (self.board == state.board
+                || self
+                    .terrain
+                    .iter()
+                    .copied()
+                    .eq(state.board.tiles().map(|tile| tile.terrain)))
     }
 }
 
@@ -586,6 +593,13 @@ impl TurnTables {
             .as_ref()
             .is_some_and(|context| context.matches(state, seat))
         {
+            let context = self
+                .entries_for
+                .as_mut()
+                .expect("the entry context matches");
+            if context.board != state.board {
+                Arc::make_mut(context).board = state.board.clone();
+            }
             self.shared
                 .as_ref()
                 .and_then(|tables| tables.entries.get())
@@ -738,24 +752,25 @@ impl<'a> TurnMaps<'a> {
 
     /// What each tile denies, worked out once for the whole turn.
     fn blocking(&self) -> &Arc<BlockingMap> {
-        // The table asks about every tile, and every destination queried
-        // through a field asks again. This sits outside the cell on purpose.
-        // The table may already be built, by a turn opened earlier on this
-        // same position, but the index belongs to this turn's view, and a view
-        // without one answers an occupancy question by walking every unit of
-        // the state for every tile.
-        self.prepare_occupancy();
+        let visible = !self.state.settings.fog && !self.has_hidden_board_unit();
+        if !visible {
+            self.prepare_occupancy();
+        }
         self.tables().blocking.get_or_init(|| {
-            let mut blocking = Grid::filled(
-                self.state.board.dimensions(),
-                Blocking {
-                    stop: false,
-                    route: false,
-                },
-            );
-            for (tile, block) in self.state.board.tiles().zip(blocking.cells_mut()) {
-                block.stop = ruleset::terrain_has(tile.terrain, TerrainTrait::Teleporter);
-            }
+            let dimensions = self.state.board.dimensions();
+            let mut blocking = self
+                .tables()
+                .entry_tables()
+                .blocking_base
+                .get_or_init(|| {
+                    let mut base = Grid::filled(dimensions, Blocking::default());
+                    for (tile, block) in self.state.board.tiles().zip(base.cells_mut()) {
+                        block.stop = ruleset::terrain_has(tile.terrain, TerrainTrait::Teleporter);
+                    }
+                    base
+                })
+                .clone();
+            let mut route_mask = vec![0_u64; dimensions.len().div_ceil(64)];
             for unit in self.state.units.iter() {
                 let Location::Board { position } = unit.location else {
                     continue;
@@ -763,28 +778,36 @@ impl<'a> TurnMaps<'a> {
                 let Some(block) = blocking.get_mut(position) else {
                     continue;
                 };
-                if self.view.occupant_disclosed(position) {
+                if visible {
+                    block.stop = true;
+                    block.route = self
+                        .state
+                        .players
+                        .get(unit.owner.get())
+                        .is_none_or(|owner| owner.team != self.state.player(self.seat).team);
+                } else if self.view.occupant_disclosed(position) {
                     block.stop = true;
                     block.route = self.view.occupant_obstructs(position);
                 }
+                let index = dimensions
+                    .index(position)
+                    .expect("a blocker is on the board");
+                let bit = 1 << (index % 64);
+                route_mask[index / 64] =
+                    (route_mask[index / 64] & !bit) | ((u64::from(block.route)) << (index % 64));
             }
             let routes = self
                 .tables()
                 .previous_blocking
                 .as_ref()
                 .filter(|previous| {
-                    previous.cells.dimensions() == blocking.dimensions()
-                        && previous
-                            .cells
-                            .cells()
-                            .map(|cell| cell.route)
-                            .eq(blocking.cells().map(|cell| cell.route))
+                    previous.cells.dimensions() == dimensions && previous.route_mask() == route_mask
                 })
                 .map_or_else(|| Arc::new(()), |previous| Arc::clone(&previous.routes));
             Arc::new(BlockingMap {
                 cells: blocking,
                 routes,
-                route_mask: OnceLock::new(),
+                route_mask: OnceLock::from(route_mask),
             })
         })
     }
@@ -800,15 +823,29 @@ impl<'a> TurnMaps<'a> {
     /// unit of a class.
     fn entry_costs(&self, class: MovementClass) -> &Arc<Grid<EntryCost>> {
         self.tables().entry_tables().entries[class.index()].get_or_init(|| {
+            let mut costs = [None; TerrainId::COUNT];
             Arc::new(Grid::from_fn(self.state.board.dimensions(), |position| {
-                EntryCost::new(entry_cost(
-                    self.state,
-                    self.seat,
-                    class,
-                    position,
-                    self.weather,
-                ))
+                let terrain = self.state.board.tile(position).terrain;
+                *costs[terrain.index()].get_or_insert_with(|| {
+                    EntryCost::new(entry_cost(
+                        self.state,
+                        self.seat,
+                        class,
+                        position,
+                        self.weather,
+                    ))
+                })
             }))
+        })
+    }
+
+    fn minimum_entry_cost(&self, class: MovementClass) -> u16 {
+        *self.tables().entry_tables().minimum[class.index()].get_or_init(|| {
+            self.entry_costs(class)
+                .cells()
+                .filter_map(|entry| entry.points())
+                .min()
+                .unwrap_or(0)
         })
     }
 
@@ -820,11 +857,9 @@ impl<'a> TurnMaps<'a> {
                 .map(|entry| entry.points())
                 .collect();
             let widest = cells.iter().flatten().copied().max().unwrap_or(1).max(1);
-            let minimum = cells.iter().flatten().copied().min().unwrap_or(0);
             Arc::new(TravelCosts {
                 cells,
                 widest,
-                minimum,
                 distances: Mutex::default(),
             })
         })
@@ -832,7 +867,7 @@ impl<'a> TurnMaps<'a> {
 }
 
 impl MoveField {
-    /// Keep routes when the unit and entry costs are equal and no route blocker
+    /// Keep routes when movement inputs and entry costs are equal and no route blocker
     /// changed inside the reached cells. Blocked frontier cells are included.
     /// Read current stop permissions from the shared map.
     pub(crate) fn rebind(&mut self, subject: &Unit, maps: &TurnMaps<'_>) -> bool {
@@ -878,13 +913,11 @@ impl MoveField {
         true
     }
 
-    /// Give the arrival grid back to the pool it came from.
-    ///
-    /// The grid is the only board-sized thing a search owns. A caller done
-    /// with a field that will search again hands it back here, and the next
-    /// search writes into this allocation instead of asking for one.
+    /// Return the arrival grid and the mask of reached cells to their pools.
+    /// The next search can reuse both allocations.
     pub fn recycle(self, scratch: &mut MoveScratch) {
         scratch.grids.push(self.arrivals);
+        scratch.reached_masks.push(self.reached);
     }
 
     /// The unit this field was computed for.
@@ -929,17 +962,13 @@ impl MoveField {
     ///
     /// This is the set an interface highlights.
     pub fn destinations(&self) -> impl Iterator<Item = (Pos, u64)> + '_ {
-        self.arrivals.iter().zip(self.blocking.cells()).filter_map(
-            |((position, arrival), block)| {
-                let arrival = (*arrival)?;
-                (if position == self.origin {
-                    self.origin_can_stop
-                } else {
-                    !block.stop
-                })
-                .then(|| (position, u64::from(arrival.cost)))
-            },
-        )
+        self.reach().filter(|(position, _)| {
+            if *position == self.origin {
+                self.origin_can_stop
+            } else {
+                !self.blocking[*position].stop
+            }
+        })
     }
 
     /// Every tile the unit can arrive at, including those it cannot stop on.
@@ -948,9 +977,26 @@ impl MoveField {
     /// come to rest on alone, so they are asked about against this rather than
     /// against [`MoveField::destinations`].
     pub fn reach(&self) -> impl Iterator<Item = (Pos, u64)> + '_ {
-        self.arrivals
+        let dimensions = self.arrivals.dimensions();
+        self.reached
             .iter()
-            .filter_map(|(position, arrival)| Some((position, u64::from((*arrival)?.cost))))
+            .enumerate()
+            .flat_map(move |(word, bits)| {
+                let mut remaining = *bits;
+                std::iter::from_fn(move || {
+                    if remaining == 0 {
+                        return None;
+                    }
+                    let bit = remaining.trailing_zeros() as usize;
+                    remaining &= remaining - 1;
+                    let cell = crate::semantic::CellIdx::from_raw((word * 64 + bit) as u16);
+                    let position = dimensions
+                        .position_of(cell)
+                        .expect("a reached cell is on the board");
+                    let arrival = self.arrivals[position].expect("a reached cell has an arrival");
+                    Some((position, u64::from(arrival.cost)))
+                })
+            })
     }
 
     /// The route to `position`, origin first, ready to be a command's `path`.
@@ -1079,6 +1125,23 @@ where
         &self.field
     }
 
+    /// Write reached cells and their adjacent cells to a dependency mask.
+    pub(crate) fn cover_reach(&self, out: &mut Vec<u64>) {
+        let maps = self.maps.borrow();
+        let profile = ruleset::profile(self.field.subject.kind);
+        let costs = maps.tables().entry_tables().masks[profile.movement_class.index()]
+            .get_or_init(|| ReachCosts::new(maps.entry_costs(profile.movement_class)));
+        out.resize(self.field.reached.len(), 0);
+        costs.neighbors(
+            &self.field.reached,
+            usize::from(self.field.arrivals.width()),
+            out,
+        );
+        for (covered, reached) in out.iter_mut().zip(&self.field.reached) {
+            *covered |= reached;
+        }
+    }
+
     /// Prepare plausible attack targets for every reachable firing tile.
     ///
     /// Targets drive this index. Direct weapons mark reachable neighbours of
@@ -1136,7 +1199,14 @@ where
         };
 
         let maps = self.maps.borrow();
+        let maximum_distance = range.map(|(_, maximum)| maximum).or_else(|| {
+            let minimum = maps.minimum_entry_cost(profile.movement_class);
+            (minimum > 0).then(|| self.field.budget / u64::from(minimum) + 1)
+        });
         for (unit, position) in maps.attack_units() {
+            if maximum_distance.is_some_and(|maximum| origin.distance(*position) > maximum) {
+                continue;
+            }
             if unit.id != attacker.id
                 && combat::select_weapon(attacker.kind, unit.kind, attacker.ammo).is_some()
             {
@@ -1144,6 +1214,9 @@ where
             }
         }
         for (position, target_kind) in maps.attack_tiles() {
+            if maximum_distance.is_some_and(|maximum| origin.distance(*position) > maximum) {
+                continue;
+            }
             if combat::select_weapon(attacker.kind, *target_kind, attacker.ammo).is_some() {
                 mark(
                     *position,
@@ -1191,6 +1264,7 @@ where
             return None;
         }
         let maps = self.maps.borrow();
+        maps.prepare_occupancy();
         // Walk the predecessor chain once, collecting the route and what each
         // step costs together. Building the route first and pricing it after
         // grew two vectors per candidate destination, and enumeration asks
@@ -1253,6 +1327,7 @@ where
         &'field self,
         position: Pos,
     ) -> Option<PreparedDestination<'a, &'field TurnMaps<'a>>> {
+        self.maps.borrow().prepare_occupancy();
         if self.maps.borrow().has_hidden_board_unit() {
             return self.prepare_destination(position);
         }
@@ -1502,6 +1577,13 @@ pub(crate) fn reachable_with(
         }
         None => Grid::filled(dimensions, None),
     };
+    let mut reached = scratch.reached_masks.pop().unwrap_or_default();
+    reached.clear();
+    reached.resize(dimensions.len().div_ceil(64), 0);
+    let start = dimensions
+        .index(origin)
+        .expect("the origin is on the board");
+    reached[start / 64] |= 1 << (start % 64);
     arrivals[origin] = Some(Arrival {
         cost: 0,
         depth: 1,
@@ -1554,6 +1636,9 @@ pub(crate) fn reachable_with(
                 if arrival.is_some_and(|arrival| arrival.cost <= total) {
                     continue;
                 }
+                let index =
+                    usize::from(next.y) * usize::from(dimensions.width()) + usize::from(next.x);
+                reached[index / 64] |= 1 << (index % 64);
                 *arrival = Some(Arrival {
                     cost: total,
                     // A hint and not a length, as `Arrival::depth` says: a
@@ -1578,6 +1663,7 @@ pub(crate) fn reachable_with(
         entry,
         blocking,
         arrivals,
+        reached,
         budget,
     })
 }
@@ -1792,6 +1878,7 @@ impl<'a> Sweep<'a> {
             bucket.fill(0);
         }
         scratch.pending[0][origin_word] = origin_bit;
+        let zero_cost = costs.groups.iter().any(|(step, _)| *step == 0);
         for cost in 0..=budget {
             loop {
                 let mut any = false;
@@ -1816,6 +1903,9 @@ impl<'a> Sweep<'a> {
                         scratch.pending[next][index] |=
                             scratch.neighbors[index] & mask & !scratch.reached[index];
                     }
+                }
+                if !zero_cost {
+                    break;
                 }
             }
         }
@@ -1903,7 +1993,7 @@ pub struct Travel<'a> {
 impl<'a> Travel<'a> {
     /// Return the smallest entry cost for this class. Return zero if none exists.
     pub fn minimum_entry_cost(&self, class: MovementClass) -> u16 {
-        self.maps.travel_costs(class).minimum
+        self.maps.minimum_entry_cost(class)
     }
 
     /// Open the tables for one seat. `None` when the roster has no such seat.
@@ -1954,6 +2044,13 @@ impl<'a> Travel<'a> {
     pub fn costs(&mut self, class: MovementClass) -> &[Option<u16>] {
         self.flatten(class);
         &self.costs
+    }
+
+    /// Return the entry-cost table with shared ownership. A retained table
+    /// can use pointer equality before it compares the cell values.
+    pub fn shared_costs(&mut self, class: MovementClass) -> Arc<[Option<u16>]> {
+        self.flatten(class);
+        Arc::clone(&self.costs)
     }
 
     /// The cheapest movement points from each tile to the nearest target.
