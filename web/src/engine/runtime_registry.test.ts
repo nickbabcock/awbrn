@@ -10,25 +10,40 @@ describe("GameRuntimeRegistry", () => {
     const registry = new GameRuntimeRegistry(() => new TestRunner());
     const runner = registry.getReplayRunner();
 
-    registry.syncPathname("/");
-    registry.syncPathname("/");
+    registry.syncPathname("/replay");
+    registry.syncPathname("/replay");
 
     expect(registry.getReplayRunner()).toBe(runner);
     expect(runner.dispose).not.toHaveBeenCalled();
   });
 
-  it("disposes only the replay runner when leaving the home route", () => {
+  it("disposes only the replay runner when leaving the replay route", () => {
     const onDisposeGameState = vi.fn();
     const registry = new GameRuntimeRegistry(() => new TestRunner(), { onDisposeGameState });
     const replayRunner = registry.getReplayRunner();
     const activeRunner = registry.getActiveMatchRunner();
 
-    registry.syncPathname("/");
+    registry.syncPathname("/replay");
     registry.syncPathname("/matches/new");
 
     expect(replayRunner.dispose).toHaveBeenCalledTimes(1);
     expect(onDisposeGameState).toHaveBeenCalledTimes(1);
     expect(activeRunner.dispose).not.toHaveBeenCalled();
+  });
+
+  // The planner board, its luck and its strikes must not stay in the store or
+  // the engine for the next page that uses the runner.
+  it("disposes the replay runner when moving from the planner to the replay", () => {
+    const onDisposeGameState = vi.fn();
+    const registry = new GameRuntimeRegistry(() => new TestRunner(), { onDisposeGameState });
+    const plannerRunner = registry.getReplayRunner();
+
+    registry.syncPathname("/planner");
+    registry.syncPathname("/replay");
+
+    expect(plannerRunner.dispose).toHaveBeenCalledTimes(1);
+    expect(onDisposeGameState).toHaveBeenCalledTimes(1);
+    expect(registry.getReplayRunner()).not.toBe(plannerRunner);
   });
 
   // The lobby draws the map from the picture the import rendered, so no runner

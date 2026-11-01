@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as PlannerRouteImport } from './routes/planner'
 import { Route as RankedRouteImport } from './routes/ranked'
 import { Route as ReplayRouteImport } from './routes/replay'
 import { Route as MapsIndexRouteImport } from './routes/maps/index'
@@ -41,6 +42,11 @@ const AboutRoute = AboutRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlannerRoute = PlannerRouteImport.update({
+  id: '/planner',
+  path: '/planner',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RankedRoute = RankedRouteImport.update({
@@ -125,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/planner': typeof PlannerRoute
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
@@ -145,6 +152,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/planner': typeof PlannerRoute
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
@@ -166,6 +174,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/planner': typeof PlannerRoute
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
@@ -188,6 +197,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
+    | '/planner'
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
@@ -208,6 +218,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
+    | '/planner'
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
@@ -228,6 +239,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
+    | '/planner'
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
@@ -249,6 +261,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   AuthRoute: typeof AuthRoute
+  PlannerRoute: typeof PlannerRoute
   RankedRoute: typeof RankedRoute
   ReplayRoute: typeof ReplayRoute
   MapsMapIdRoute: typeof MapsMapIdRoute
@@ -287,6 +300,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/planner': {
+      id: '/planner'
+      path: '/planner'
+      fullPath: '/planner'
+      preLoaderRoute: typeof PlannerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ranked': {
@@ -401,6 +421,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   AuthRoute: AuthRoute,
+  PlannerRoute: PlannerRoute,
   RankedRoute: RankedRoute,
   ReplayRoute: ReplayRoute,
   MapsMapIdRoute: MapsMapIdRoute,

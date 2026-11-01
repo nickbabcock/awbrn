@@ -21,21 +21,16 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::core::coords::{TILE_SIZE, position_to_world_translation};
-use crate::core::{RenderLayer, SpriteSize};
+use crate::render::outline::{
+    OUTLINE_SPRITE_SIZE, OUTLINE_WIDTH, OUTLINE_Z, boundary_edges, edge_is_horizontal,
+    spawn_segment,
+};
 
 use crate::features::event_bus::{
     EventSink, InspectedSight, InspectedUnitReadout, UnitInspectionChanged,
 };
 
 use super::{PendingMoveDestination, PlayUnitSelectionParams, SelectedUnit};
-
-/// Outlines share the movement field's layer and separate by their own depth,
-/// so the three fields stack in one predictable order.
-const OUTLINE_SPRITE_SIZE: SpriteSize = SpriteSize {
-    width: TILE_SIZE,
-    height: TILE_SIZE,
-    z_index: RenderLayer::MOVE_RANGE_OVERLAY,
-};
 
 /// The unit the board is currently reporting on.
 ///
@@ -607,19 +602,6 @@ pub struct InspectionVisionOutline;
 const FIRE_OUTLINE_COLOR: Color = Color::srgba(0.92, 0.08, 0.12, 0.85);
 /// Sight, in the amber the interface already spends on a low supply.
 const VISION_OUTLINE_COLOR: Color = Color::srgba(0.98, 0.74, 0.09, 0.88);
-const OUTLINE_WIDTH: f32 = 1.0;
-/// The ink every field boundary is drawn on.
-///
-/// The board underneath is pixel art in every hue the tileset owns, and a
-/// coloured hairline laid straight onto it disappears — amber over grass, red
-/// over a road, and either one over the cyan glass the movement field already
-/// put there. Sprite art has always solved this by outlining a shape in dark
-/// ink before colouring it, so the fields do the same: a boundary reads against
-/// the map rather than against luck.
-const OUTLINE_CASING_COLOR: Color = Color::srgba(0.05, 0.06, 0.08, 0.6);
-/// How far the casing stands out past its line, across both axes. Half a world
-/// unit a side, which is the one pixel the art itself would have used.
-const OUTLINE_CASING_BLEED: f32 = 1.0;
 /// The stipple that marks a tile a unit is watching and cannot see into.
 ///
 /// A dot screen, not the diagonal hatch: the danger zone claims the hatch, and
@@ -638,65 +620,6 @@ const BLIND_DOT_PITCH: f32 = 4.0;
 /// same on every edge. An outline whose dashes do not divide the tile reads as
 /// a rendering fault rather than as a line style.
 const VISION_DASH: f32 = TILE_SIZE / 5.0;
-
-/// Where the outlines sit: above the movement glass and below the units, so a
-/// field never covers the sprite it describes.
-const OUTLINE_Z: f32 = 0.02;
-/// How far under its own line a casing sits.
-const CASING_Z: f32 = 0.005;
-
-/// Draw one segment of a field boundary, on its casing.
-///
-/// Both fields go through here, so neither can be given the casing and the
-/// other left without it — which would read as one field being drawn more
-/// carefully than the other rather than as two fields that differ in form.
-fn spawn_segment<C: Component + Clone>(
-    commands: &mut Commands,
-    marker: C,
-    color: Color,
-    size: Vec2,
-    translation: Vec3,
-) {
-    commands.spawn((
-        marker.clone(),
-        Sprite::from_color(
-            OUTLINE_CASING_COLOR,
-            size + Vec2::splat(OUTLINE_CASING_BLEED),
-        ),
-        OUTLINE_SPRITE_SIZE,
-        Transform::from_translation(translation - Vec3::Z * CASING_Z),
-    ));
-    commands.spawn((
-        marker,
-        Sprite::from_color(color, size),
-        OUTLINE_SPRITE_SIZE,
-        Transform::from_translation(translation),
-    ));
-}
-
-/// The four sides of `tile` that face out of `field`.
-///
-/// An outline is only drawn where the field stops. Drawing every side of every
-/// tile would put a grid over the board instead of a boundary around a region.
-fn boundary_edges(tile: Pos, field: &HashSet<Pos>) -> impl Iterator<Item = usize> + '_ {
-    let neighbors = [
-        (Pos::new(tile.x, tile.y.saturating_sub(1)), tile.y > 0),
-        (Pos::new(tile.x.saturating_sub(1), tile.y), tile.x > 0),
-        (Pos::new(tile.x, tile.y + 1), true),
-        (Pos::new(tile.x + 1, tile.y), true),
-    ];
-    neighbors
-        .into_iter()
-        .enumerate()
-        .filter_map(move |(index, (neighbor, in_bounds))| {
-            (!(in_bounds && field.contains(&neighbor))).then_some(index)
-        })
-}
-
-/// Whether the edge at `index` runs across the tile rather than down it.
-const fn edge_is_horizontal(index: usize) -> bool {
-    index == 0 || index == 2
-}
 
 /// Where the edge at `index` sits, relative to the middle of its tile.
 fn edge_offset(index: usize) -> Vec3 {

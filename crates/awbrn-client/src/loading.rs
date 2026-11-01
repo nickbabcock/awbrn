@@ -1,6 +1,7 @@
 use crate::UiAtlasAsset;
 use crate::core::{AppState, GameMode, LoadingState};
 use crate::features::event_bus::{EventSink, ReplayLoaded, ReplayLoadedPlayer};
+use crate::modes::planner::PlannerToOpen;
 use crate::render::UiAtlasResource;
 use awbrn_bevy::world::GameMap;
 use awbrn_content::co_portrait_by_awbw_id;
@@ -58,6 +59,19 @@ impl AwbwMapAsset {
 #[derive(Debug, Resource)]
 pub struct ReplayToLoad(pub Vec<u8>);
 
+/// A move planner board to open in play mode.
+///
+/// The replay has one game entry and no turns. `previewed_player` is the
+/// player whose area-strike power the board shows, if there is one.
+#[derive(Debug, Resource)]
+pub struct MovePlannerToLoad {
+    pub replay: AwbwReplay,
+    pub previewed_player: Option<awbrn_types::AwbwGamePlayerId>,
+    /// How many powers each player's CO used before, which raises the cost
+    /// of the next one. A player without an entry used none.
+    pub power_uses: Vec<(awbrn_types::AwbwGamePlayerId, u64)>,
+}
+
 /// Resource containing the loaded replay data
 #[derive(Debug, Resource)]
 pub struct LoadedReplay(pub crate::replay_archive::ReplayArchive);
@@ -110,6 +124,17 @@ pub(crate) struct StaticPathResolver(pub(crate) Arc<dyn StaticAssetPathResolver>
 #[derive(Resource)]
 pub(crate) struct MapAssetHandle(Handle<AwbwMapAsset>);
 
+impl MapAssetHandle {
+    pub(crate) fn id(&self) -> AssetId<AwbwMapAsset> {
+        self.0.id()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new(handle: Handle<AwbwMapAsset>) -> Self {
+        Self(handle)
+    }
+}
+
 #[derive(Resource)]
 pub(crate) struct PendingLoadedMatchMap(AwbrnMap);
 
@@ -149,6 +174,26 @@ pub(crate) struct ReplayAssetInputs<'w> {
     maps: Res<'w, Assets<AwbwMapAsset>>,
     ui_atlases: Res<'w, Assets<UiAtlasAsset>>,
     replay: Option<Res<'w, LoadedReplay>>,
+    planner: Option<Res<'w, PlannerToOpen>>,
+}
+
+/// The AWBW map that the current board loaded, once it is loaded.
+pub(crate) fn loaded_awbw_map(world: &World) -> Option<&AwbwMapData> {
+    let handle = world.get_resource::<MapAssetHandle>()?;
+    world
+        .get_resource::<Assets<AwbwMapAsset>>()?
+        .get(&handle.0)
+        .map(|asset| &asset.0)
+}
+
+/// Make `map` the loaded AWBW map of the current board.
+#[cfg(test)]
+pub(crate) fn insert_loaded_awbw_map(world: &mut World, map: AwbwMapData) {
+    world.init_resource::<Assets<AwbwMapAsset>>();
+    let handle = world
+        .resource_mut::<Assets<AwbwMapAsset>>()
+        .add(AwbwMapAsset(map));
+    world.insert_resource(MapAssetHandle(handle));
 }
 
 impl ClientAssetLoader<'_> {
@@ -201,6 +246,47 @@ pub(crate) fn detect_replay_to_load(
         }
     };
 
+    // A planner that never finished loading must not open over this board.
+    commands.remove_resource::<PlannerToOpen>();
+    begin_replay(&mut commands, replay, &mut transitions, &asset_loader);
+}
+
+pub(crate) fn detect_move_planner_to_load(
+    mut commands: Commands,
+    mut planner: ResMut<MovePlannerToLoad>,
+    mut transitions: LoadingTransitions,
+    asset_loader: ClientAssetLoader,
+) {
+    commands.remove_resource::<MovePlannerToLoad>();
+    // The planner is a local game, not a replay, so a replay that was open
+    // before must not give the board its buildings.
+    commands.remove_resource::<LoadedReplay>();
+    commands.remove_resource::<crate::modes::replay::presentation::ReplayTransitionSource>();
+    let map_id = planner
+        .replay
+        .games
+        .first()
+        .map_or(162795, |game| game.maps_id.as_u32());
+    commands.insert_resource(MapAssetHandle(asset_loader.load_map(map_id)));
+    commands.insert_resource(PlannerToOpen {
+        replay: AwbwReplay {
+            games: std::mem::take(&mut planner.replay.games),
+            turns: Vec::new(),
+        },
+        previewed_player: planner.previewed_player,
+        power_uses: std::mem::take(&mut planner.power_uses),
+    });
+    commands.insert_resource(asset_loader.load_pending_ui_atlas());
+    transitions.begin_loading(GameMode::Game);
+    info!("Started loading a move planner board");
+}
+
+fn begin_replay(
+    commands: &mut Commands,
+    replay: crate::replay_archive::ReplayArchive,
+    transitions: &mut LoadingTransitions,
+    asset_loader: &ClientAssetLoader,
+) {
     match &replay {
         crate::replay_archive::ReplayArchive::Awbw(awbw) => {
             if let Some(replay_loaded) = replay_loaded_event(awbw) {
@@ -267,6 +353,7 @@ pub(crate) fn detect_pending_game_start(
     let map_handle = asset_loader.load_map(pending_game.0);
     commands.insert_resource(MapAssetHandle(map_handle));
     commands.remove_resource::<PendingGameStart>();
+    commands.remove_resource::<PlannerToOpen>();
 
     commands.insert_resource(asset_loader.load_pending_ui_atlas());
 
@@ -284,6 +371,7 @@ pub(crate) fn detect_pending_match_map(
 
     commands.insert_resource(PendingLoadedMatchMap(awbrn_map));
     commands.remove_resource::<PendingMatchMap>();
+    commands.remove_resource::<PlannerToOpen>();
     commands.insert_resource(asset_loader.load_pending_ui_atlas());
 
     transitions.begin_loading(GameMode::Game);
@@ -302,6 +390,7 @@ pub(crate) fn detect_pending_live_match(
         observation: pending.observation.clone(),
     });
     commands.remove_resource::<PendingLiveMatch>();
+    commands.remove_resource::<PlannerToOpen>();
     commands.insert_resource(asset_loader.load_pending_ui_atlas());
     transitions.begin_loading(GameMode::Game);
     info!("Started loading active match from typed observation");
@@ -344,6 +433,11 @@ pub(crate) fn check_assets_loaded(
             }
         }
         apply_replay_building_overrides(&mut awbw_map, &first_game.buildings);
+    }
+    if let Some(planner) = assets.planner
+        && let Some(game) = planner.replay.games.first()
+    {
+        apply_replay_building_overrides(&mut awbw_map, &game.buildings);
     }
     let awbrn_map = AwbrnMap::from_map(&awbw_map);
 
@@ -517,6 +611,7 @@ impl Plugin for LoadingPlugin {
                 Update,
                 (
                     detect_replay_to_load.run_if(resource_exists::<ReplayToLoad>),
+                    detect_move_planner_to_load.run_if(resource_exists::<MovePlannerToLoad>),
                     detect_pending_game_start.run_if(resource_exists::<PendingGameStart>),
                     detect_pending_match_map.run_if(resource_exists::<PendingMatchMap>),
                     detect_pending_live_match.run_if(resource_exists::<PendingLiveMatch>),
