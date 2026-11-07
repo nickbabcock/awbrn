@@ -1904,18 +1904,35 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
         return;
     };
 
+    seed_live_presentation(world, &bootstrap.players, &bootstrap.observation);
+    let transition = awvm::semantic::ObservedTransition {
+        post: bootstrap.observation,
+        events: Vec::new(),
+    };
+    if let Err(error) = awbrn_bevy::replay::apply_observed_transition(world, &transition) {
+        error!("Could not initialize live typed presentation state: {error}");
+    }
+    crate::features::player_roster::emit_player_roster_updated(world);
+}
+
+/// Put the roster, the player registry and the viewpoint of a played board in
+/// `world`, from the players and the viewer's first observation.
+///
+/// The board itself comes from the first transition, which the caller applies.
+pub(crate) fn seed_live_presentation(
+    world: &mut World,
+    players: &[crate::loading::LiveMatchPlayer],
+    observation: &awvm::semantic::Observation,
+) {
     let (config, funds, unit_costs, power_meters) =
-        crate::features::player_roster::player_roster_seed_from_live_match(
-            &bootstrap.players,
-            &bootstrap.observation,
-        );
+        crate::features::player_roster::player_roster_seed_from_live_match(players, observation);
     world.insert_resource(config);
     world.insert_resource(funds);
     world.insert_resource(unit_costs);
     world.insert_resource(power_meters);
 
     let mut registry = awbrn_bevy::replay::ReplayPlayerRegistry::default();
-    for player in &bootstrap.players {
+    for player in players {
         let Some(faction) = awbrn_types::PlayerFaction::from_id(player.faction_id) else {
             warn!(
                 "Ignoring invalid faction {} for live player {}",
@@ -1929,8 +1946,7 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
             0,
         );
     }
-    let recipient = bootstrap
-        .observation
+    let recipient = observation
         .recipient
         .as_str()
         .parse::<u32>()
@@ -1948,14 +1964,6 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
             .map(awbrn_bevy::replay::ReplayViewpoint::Player)
             .unwrap_or(awbrn_bevy::replay::ReplayViewpoint::Spectator),
     );
-    let transition = awvm::semantic::ObservedTransition {
-        post: bootstrap.observation,
-        events: Vec::new(),
-    };
-    if let Err(error) = awbrn_bevy::replay::apply_observed_transition(world, &transition) {
-        error!("Could not initialize live typed presentation state: {error}");
-    }
-    crate::features::player_roster::emit_player_roster_updated(world);
 }
 
 pub(crate) fn apply_pending_live_transition(
@@ -1974,6 +1982,22 @@ pub(crate) fn apply_pending_live_transition(
     else {
         return;
     };
+    settle_unload(&mut committed, &mut selection);
+    commands.queue(LiveTransitionCommand { transition });
+}
+
+/// Let go of the transport of an unload that the board accepted.
+///
+/// A board that runs its own reducer, such as a move planner, calls this when
+/// it shows the result of an order.
+pub(crate) fn settle_committed_unload(
+    mut committed: ResMut<CommittedCommand>,
+    mut selection: PlaySelectionState<'_>,
+) {
+    settle_unload(&mut committed, &mut selection);
+}
+
+fn settle_unload(committed: &mut CommittedCommand, selection: &mut PlaySelectionState<'_>) {
     if committed
         .0
         .as_ref()
@@ -1983,9 +2007,8 @@ pub(crate) fn apply_pending_live_transition(
         // The unloaded unit is a new blocker beside the transport, so its
         // cached movement field is stale. Drop the selection; a transport with
         // more cargo remains selectable even when it is spent.
-        clear_selection_state(&mut selection);
+        clear_selection_state(selection);
     }
-    commands.queue(LiveTransitionCommand { transition });
 }
 
 /// The player picked an order off the destination menu.

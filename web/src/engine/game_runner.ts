@@ -16,10 +16,12 @@ import type {
   EndTurnRequested,
   GameEvent,
   MoveCommandRequested,
+  MovePlannerSetup,
+  MovePlannerSummary,
   UnloadCommandRequested,
 } from "#/wasm/awbrn_wasm.js";
 import type { PlayerCommand } from "#/matches/match_protocol.ts";
-import type { LiveMatchPlayer } from "./worker_module";
+import type { LiveMatchPlayer, PlannerLuck } from "./worker_module";
 import { gameAssetConfig } from "./asset_manifest";
 import { useGameStore } from "./store";
 import type { GameWorker } from "./worker_types";
@@ -80,7 +82,84 @@ export class GameRunner {
   ): Promise<void> {
     const game = await this.requireGame();
     if (isCurrent && !isCurrent()) return;
+    useGameStore.getState().actions.setAreaStrikes(null);
+    useGameStore.getState().actions.setPlannerSelection(null);
     await game.newReplay(source);
+  }
+
+  /** The name, game and players of a move planner file, read without a board. */
+  async readMovePlanner(data: Uint8Array): Promise<MovePlannerSummary> {
+    return this.getWorker().readMovePlanner(data);
+  }
+
+  /**
+   * Put a move planner board on the screen as a local game with `setup`. The
+   * first player has the turn, and the board shows where that player's super
+   * power strikes.
+   */
+  async loadMovePlanner(data: Uint8Array, setup: MovePlannerSetup): Promise<void> {
+    const game = await this.requireGame();
+    useGameStore.getState().actions.setAreaStrikes(null);
+    useGameStore.getState().actions.setPlannerSelection(null);
+    await game.loadMovePlanner(data, setup);
+  }
+
+  /**
+   * Give an order on the planner board for the army whose turn it is. The
+   * engine runs it, and puts the board's selection back if the rules refuse
+   * it.
+   */
+  async plannerOrder(command: PlayerCommand): Promise<void> {
+    const game = await this.requireGame();
+    await game.plannerOrder(command);
+  }
+
+  /** Change the planner board. The engine reports the result as new strikes. */
+  async editPlanner(
+    edit:
+      | { type: "undo" }
+      | { type: "redo" }
+      | { type: "reset" }
+      | { type: "setHp"; unitId: number; hp: number }
+      | { type: "delete"; unitId: number },
+  ): Promise<void> {
+    const game = await this.requireGame();
+    switch (edit.type) {
+      case "undo":
+        return game.plannerUndo();
+      case "redo":
+        return game.plannerRedo();
+      case "reset":
+        return game.plannerReset();
+      case "setHp":
+        return game.plannerSetHp(edit.unitId, edit.hp);
+      case "delete":
+        return game.plannerDeleteUnit(edit.unitId);
+    }
+  }
+
+  /**
+   * Preview the super power strikes of `playerId` on the planner board, on
+   * every army's turn, or preview no strikes.
+   */
+  async setPlannerPreviewedPlayer(playerId: number | null): Promise<void> {
+    const game = await this.requireGame();
+    await game.plannerSetPreviewedPlayer(playerId);
+  }
+
+  /**
+   * Show each unit's HP after all planned strikes on the planner board, or
+   * show its current HP again.
+   */
+  async setPlannerAfterStrikes(on: boolean): Promise<void> {
+    const game = await this.requireGame();
+    await game.plannerSetAfterStrikes(on);
+  }
+
+  /** Set where each luck roll of a planner attack lands in its range. */
+  async setPlannerLuck(luck: PlannerLuck): Promise<void> {
+    const game = await this.requireGame();
+    await game.plannerSetLuck(luck);
   }
 
   /**
@@ -245,6 +324,14 @@ export class GameRunner {
         // seat, and the seat the last archive was watched from is not one this
         // archive need have.
         useGameStore.getState().actions.setReplayViewpoint(null);
+        break;
+      }
+      case "AreaStrikesPreviewed": {
+        useGameStore.getState().actions.setAreaStrikes(event);
+        break;
+      }
+      case "PlannerSelectionChanged": {
+        useGameStore.getState().actions.setPlannerSelection(event.unit ?? null);
         break;
       }
       case "ReplayViewpointChanged": {

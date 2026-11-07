@@ -230,6 +230,16 @@ impl ReplayTimeline {
         }
     }
 
+    /// The authoritative state before the first action of an AWBW archive.
+    ///
+    /// An AWBRN archive starts from its setup, so it has no stored state.
+    pub fn initial_state(&self) -> Option<&awvm::semantic::State> {
+        match self {
+            Self::Awbw { initial, .. } => Some(initial.state()),
+            Self::Awbrn { .. } => None,
+        }
+    }
+
     pub fn initial_observations(&self) -> Result<Vec<Observation>, String> {
         match self {
             Self::Awbw { initial, .. } => observe_awbw_state(initial),

@@ -86,6 +86,7 @@ impl Plugin for AwbrnPlugin {
             crate::render::RenderPlugin,
             crate::modes::replay::ReplayPlugin,
             crate::modes::play::PlayPlugin,
+            crate::modes::planner::PlannerPlugin,
             // After the play mode, whose selection a reading follows.
             crate::modes::play::inspect::InspectionPlugin,
         ));

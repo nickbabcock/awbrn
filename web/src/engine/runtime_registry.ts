@@ -15,8 +15,15 @@ interface RuntimeRegistryOptions {
 
 const MATCH_LOBBY_PATH_PATTERN = /^\/matches\/[^/]+$/;
 
+/**
+ * The pages that share the replay runner. Each page loads its own board, so
+ * the runner and its state stop when the page changes, also from one of these
+ * pages to the other.
+ */
+const REPLAY_RUNNER_PATHS = new Set(["/replay", "/planner"]);
+
 function isReplayPath(pathname: string): boolean {
-  return pathname === "/";
+  return REPLAY_RUNNER_PATHS.has(pathname);
 }
 
 function isMatchLobbyPath(pathname: string): boolean {
@@ -51,7 +58,7 @@ export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
       return;
     }
 
-    if (isReplayPath(previousPathname) && !isReplayPath(pathname)) {
+    if (isReplayPath(previousPathname)) {
       this.disposeReplayRunner();
     }
 

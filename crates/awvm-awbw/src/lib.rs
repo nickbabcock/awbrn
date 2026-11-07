@@ -451,7 +451,13 @@ fn lower_unit(
         hp: exact_hp(unit)?,
         fuel: u64::from(unit.fuel),
         ammo: u64::from(unit.ammo),
-        action: UnitAction::Ready,
+        // AWBW marks a unit that acted this turn. It becomes ready at the
+        // start of its owner's next turn.
+        action: if unit.moved > 0 {
+            UnitAction::Spent
+        } else {
+            UnitAction::Ready
+        },
         concealment: if unit.sub_dive {
             Concealment::Hidden
         } else {

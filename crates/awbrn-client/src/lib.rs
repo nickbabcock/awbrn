@@ -21,7 +21,11 @@ pub use features::event_bus::{
 };
 pub use json_plugin::*;
 pub use loading::{
-    LiveMatchPlayer, MapAssetPathResolver, PendingGameStart, PendingLiveMatch,
+    LiveMatchPlayer, MapAssetPathResolver, MovePlannerToLoad, PendingGameStart, PendingLiveMatch,
     PendingLiveTransitions, PendingMatchMap, ReplayToLoad, StaticAssetPathResolver,
+};
+pub use modes::planner::{
+    AreaStrikePreview, AreaStrikesPreviewed, PlannerAfterStrikes, PlannerEdit, PlannerLuck,
+    PlannerSelectedUnit, PlannerSelectionChanged, PreviewedAreaStrike, StruckUnit,
 };
 pub use ui_atlas::*;

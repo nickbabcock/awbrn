@@ -53,6 +53,12 @@ impl ReplayTransitionSource {
         self.timeline.initial_observations()
     }
 
+    /// The authoritative state before the first action, when the archive
+    /// stores one.
+    pub fn initial_state(&self) -> Option<&awvm::semantic::State> {
+        self.timeline.initial_state()
+    }
+
     /// The turn every boundary of the archive falls in.
     pub(crate) fn outline(
         &self,
@@ -169,6 +175,33 @@ impl Command for LiveTransitionCommand {
             return;
         }
         apply_recipient_transition(&self.transition, world);
+    }
+}
+
+/// Apply one transition for every player, through the same animation path as
+/// archived replay playback.
+///
+/// A local board that holds the whole state, such as a move planner, uses
+/// this. Every unit keeps its own ID, because no projection hides one.
+#[derive(Debug)]
+pub struct CompleteTransitionCommand {
+    pub transitions: Vec<ObservedTransition>,
+}
+
+impl Command for CompleteTransitionCommand {
+    type Out = ();
+
+    fn apply(self, world: &mut World) {
+        if start_typed_movement_animation(
+            &self.transitions,
+            DeferredTransitions::Complete(self.transitions.clone()),
+            world,
+        ) {
+            return;
+        }
+        if let Err(error) = apply_typed_transitions(&self.transitions, world, true) {
+            log::error!("Could not apply a complete presentation transition: {error}");
+        }
     }
 }
 

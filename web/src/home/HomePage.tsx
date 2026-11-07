@@ -476,6 +476,7 @@ function StartPanel({ isSignedIn }: { isSignedIn: boolean }) {
           <RouterButton label="New match" to="/matches/new" variant="secondary" />
           {isSignedIn ? <RouterButton label="Ranked" to="/ranked" variant="secondary" /> : null}
           <RouterButton label="Review a replay" to="/replay" variant="secondary" />
+          <RouterButton label="Plan a turn" to="/planner" variant="secondary" />
           {isSignedIn ? null : <RouterButton label="Browse maps" to="/maps" variant="secondary" />}
         </HStack>
         {isSignedIn ? (

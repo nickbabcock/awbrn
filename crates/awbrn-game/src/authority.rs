@@ -386,7 +386,19 @@ pub(crate) fn commands(
     command: &GameCommand,
     state: &State,
 ) -> Result<Vec<Command>, CommandError> {
-    let player = player_id(player);
+    awvm_commands(player_id(player), command, state)
+}
+
+/// The AWVM commands that `player` gives with the wire command `command` on
+/// `state`, in the order that they execute.
+///
+/// A client that runs AWVM locally, such as a move planner, uses this to
+/// read a board order the same way that the authority reads it.
+pub fn awvm_commands(
+    player: PlayerId,
+    command: &GameCommand,
+    state: &State,
+) -> Result<Vec<Command>, CommandError> {
     let one = |command| Ok(vec![command]);
     match command {
         GameCommand::Build {

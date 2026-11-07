@@ -3,6 +3,7 @@ use crate::features::player_display::{
     PlayerDisplayFactionOverrides, display_faction_for_actual_faction,
 };
 use crate::features::player_roster::PlayerRosterConfig;
+use crate::render::units::HealthOverlayOverride;
 use awbrn_bevy::MapPosition;
 use awbrn_bevy::replay::{
     AwbwUnitId, ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
@@ -77,6 +78,7 @@ type UnitProjectionItem<'a> = (
     Has<HasCargo>,
     Has<Hiding>,
     Option<&'a GraphicalHp>,
+    Option<&'a HealthOverlayOverride>,
     Has<CarriedBy>,
     Option<&'a ProjectedUnitRenderState>,
 );
@@ -245,6 +247,7 @@ pub(crate) fn project_unit_render_state(
         has_cargo,
         is_hiding,
         hp,
+        hp_override,
         is_carried,
         current,
     ) in &units
@@ -264,7 +267,7 @@ pub(crate) fn project_unit_render_state(
             visible: unit_visible_to_viewer(&resources, unit_id, is_carried),
             active: unit_is_active(is_active, *faction, active_faction),
             overlays: ProjectedUnitOverlayFlags {
-                health: projected_health(hp),
+                health: projected_health(hp_override.map(|shown| &shown.0).or(hp)),
                 capturing: is_capturing,
                 cargo: has_cargo,
                 dive: is_hiding,

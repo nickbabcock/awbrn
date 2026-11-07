@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type {
+  AreaStrikesPreviewed,
   AttackPreviewChanged,
+  PlannerSelectedUnit,
   ReplayPositionChanged,
   ReplayViewpointChanged,
   PlayerRosterSnapshot,
@@ -32,6 +34,10 @@ interface GameState {
    * board the moment one was pressed.
    */
   replayViewpoint: ReplayViewpointChanged | null;
+  /** Where the previewed super power strikes on a move planner board. */
+  areaStrikes: AreaStrikesPreviewed | null;
+  /** The unit selected on a move planner board, or null without one. */
+  plannerSelection: PlannerSelectedUnit | null;
 }
 
 interface GameActions {
@@ -45,6 +51,8 @@ interface GameActions {
   setInspectedUnit: (inspectedUnit: InspectedUnitReadout | null) => void;
   setReplayPosition: (replayPosition: ReplayPositionChanged | null) => void;
   setReplayViewpoint: (replayViewpoint: ReplayViewpointChanged | null) => void;
+  setAreaStrikes: (areaStrikes: AreaStrikesPreviewed | null) => void;
+  setPlannerSelection: (plannerSelection: PlannerSelectedUnit | null) => void;
   reset: () => void;
 }
 
@@ -59,6 +67,8 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
   inspectedUnit: null,
   replayPosition: null,
   replayViewpoint: null,
+  areaStrikes: null,
+  plannerSelection: null,
   actions: {
     setCurrentDay: (day) => set({ currentDay: day }),
     setPlayerRoster: (playerRoster) => set({ playerRoster }),
@@ -70,6 +80,8 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
     setInspectedUnit: (inspectedUnit) => set({ inspectedUnit }),
     setReplayPosition: (replayPosition) => set({ replayPosition }),
     setReplayViewpoint: (replayViewpoint) => set({ replayViewpoint }),
+    setAreaStrikes: (areaStrikes) => set({ areaStrikes }),
+    setPlannerSelection: (plannerSelection) => set({ plannerSelection }),
     reset: () =>
       set({
         currentDay: 1,
@@ -82,6 +94,8 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
         inspectedUnit: null,
         replayPosition: null,
         replayViewpoint: null,
+        areaStrikes: null,
+        plannerSelection: null,
       }),
   },
 }));

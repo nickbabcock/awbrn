@@ -406,6 +406,58 @@ fn every_accepted_fixture_command_was_offered() {
     }
 }
 
+/// The area strikes a planner is shown are the ones activation fires.
+#[test]
+fn area_strike_query_agrees_with_activation() {
+    let mut checked = 0_u32;
+    for (relative, case) in corpus() {
+        let Some(mut state) = states(&case).into_iter().next() else {
+            continue;
+        };
+        for step in case["steps"].as_array().into_iter().flatten() {
+            let Ok(command) = serde_json::from_value::<Command>(step["command"].clone()) else {
+                continue;
+            };
+            let random: Vec<RandomToken> =
+                serde_json::from_value(step["random"].clone()).unwrap_or_default();
+            let Ok(ExecuteOutcome::Accepted(execution)) = execute(&state, command.clone(), &random)
+            else {
+                continue;
+            };
+            if let Command::ActivatePower { player, level } = &command {
+                let fired = execution
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        Event::AreaStrikeResolved {
+                            policy,
+                            center,
+                            radius,
+                            damage,
+                            ..
+                        } => Some(query::AreaStrike {
+                            policy: *policy,
+                            center: *center,
+                            radius: *radius,
+                            damage: *damage,
+                        }),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let aimed = query::area_strikes(&state, player, *level).expect("area strikes");
+                // Sturm and Von Bolt also emit strike events, through effects
+                // this query does not read.
+                if !aimed.is_empty() || fired.is_empty() {
+                    assert_eq!(aimed, fired, "{relative}: {}", step["id"]);
+                    checked += u32::from(!aimed.is_empty());
+                }
+            }
+            state = execution.state;
+        }
+    }
+    assert!(checked > 0, "no fixture activates an area-strike power");
+}
+
 /// Every way of asking what is legal at a destination gives the verdict
 /// execution gives.
 #[test]

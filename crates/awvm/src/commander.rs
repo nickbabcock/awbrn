@@ -741,6 +741,22 @@ pub fn power_activation_cost(
         .map(|activation| activation.map(|activation| activation.cost))
 }
 
+/// Whether the commander's `level` power fires area strikes when it starts.
+///
+/// A planner asks this to offer a strike preview only for a commander that
+/// has strikes to preview. [`crate::query::area_strikes`] gives where they land.
+pub fn power_fires_area_strikes(commander: CommanderKind, level: PowerLevel) -> bool {
+    power_activation(commander, level, 0)
+        .ok()
+        .flatten()
+        .is_some_and(|activation| {
+            activation
+                .instant_effects
+                .iter()
+                .any(|effect| matches!(effect, InstantEffect::FireAreaStrikes { .. }))
+        })
+}
+
 /// Return the charge that one power star is worth at the given use count.
 ///
 /// A power meter is drawn in stars, so a renderer needs the value of one
@@ -1360,8 +1376,24 @@ pub fn player_weather(state: &State, seat: PlayerIdx) -> WeatherKind {
 mod tests {
     use super::{
         CommanderKind, InstantEffect, PowerLevel, UnitTarget, maximum_power_charge,
-        power_activation, power_activation_cost, power_star_charge,
+        power_activation, power_activation_cost, power_fires_area_strikes, power_star_charge,
     };
+
+    #[test]
+    fn only_strike_powers_fire_area_strikes() {
+        assert!(power_fires_area_strikes(
+            CommanderKind::Rachel,
+            PowerLevel::Scop
+        ));
+        assert!(!power_fires_area_strikes(
+            CommanderKind::Rachel,
+            PowerLevel::Cop
+        ));
+        assert!(!power_fires_area_strikes(
+            CommanderKind::Jess,
+            PowerLevel::Scop
+        ));
+    }
 
     #[test]
     fn adder_power_costs_scale_from_pre_activation_uses_and_cap() {

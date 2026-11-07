@@ -1,6 +1,6 @@
 import { env, waitUntil } from "cloudflare:workers";
-import { parseAwbwUsername } from "./parsers";
-import { awbwMapDataSchema, type AwbwMapData } from "./schemas";
+import { parseAwbwGame, parseAwbwUsername } from "./parsers";
+import { awbwMapDataSchema, type AwbwGameSnapshot, type AwbwMapData } from "./schemas";
 import { rateLimitBindings, requestActorKey, requireRateLimit } from "#/rate_limit.ts";
 
 const AWBW_FETCH_TIMEOUT_MS = 5000;
@@ -56,6 +56,42 @@ export async function fetchAwbwUsername(userId: number): Promise<Response> {
         status: 502,
       },
     );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/** What reading an AWBW game gives, or why it gives no game. */
+export type AwbwGameResult =
+  | { status: "found"; game: AwbwGameSnapshot }
+  | { status: "notFound" | "rateLimited" | "unavailable" };
+
+/**
+ * The armies, map and turn of an AWBW game, read from its game page.
+ *
+ * A game changes on every turn, so nothing keeps the answer.
+ */
+export async function readAwbwGame(request: Request, gameId: number): Promise<AwbwGameResult> {
+  try {
+    await requireAwbwRateLimit(request, "game");
+  } catch (error) {
+    if (error instanceof Response && error.status === 429) return { status: "rateLimited" };
+    throw error;
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, AWBW_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetchThroughGateway("game", gameId, controller.signal);
+    if (!response.ok) return { status: "unavailable" };
+
+    const game = parseAwbwGame(await response.text(), gameId);
+    if (game === null || game.armies.length === 0) return { status: "notFound" };
+    return { status: "found", game };
+  } catch {
+    return { status: "unavailable" };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -160,7 +196,7 @@ export async function fetchAwbwMapData(mapId: number): Promise<AwbwMapData> {
   return parsed.data;
 }
 
-type AwbwResourceKind = "map" | "smallmap" | "user";
+type AwbwResourceKind = "map" | "smallmap" | "user" | "game";
 
 async function fetchThroughGateway(
   kind: AwbwResourceKind,

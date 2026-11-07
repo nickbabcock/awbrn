@@ -45,7 +45,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::combat::{self, Forecast};
-use crate::commander::{self, Holdings};
+use crate::commander::{self, AreaStrikePolicy, Holdings, InstantEffect, PowerLevel};
 use crate::event::AttackTarget;
 use crate::ruleset::{self, CommanderKind, FireMode, MovementClass, TerrainTrait};
 use crate::semantic::{
@@ -53,8 +53,9 @@ use crate::semantic::{
     PowerState, State, TerrainId, Unit, UnitId, Viewpoint, WeatherKind,
 };
 use crate::transition::{
-    ActiveTurn, ExecuteError, PreparedActiveUnit, PreparedDestination, board_position,
-    forecast_tile_attack, forecast_unit_attack, prepare_active_unit, prepare_movement,
+    ActiveTurn, ExecuteError, PreparedActiveUnit, PreparedDestination, ReducerError,
+    area_strike_centers, board_position, forecast_tile_attack, forecast_unit_attack,
+    prepare_active_unit, prepare_movement,
 };
 use crate::violation::Violation;
 
@@ -107,6 +108,95 @@ pub fn income(state: &State, seat: PlayerIdx) -> Option<u64> {
     u64::try_from(properties)
         .ok()?
         .checked_mul(commander::effective_income_per_property(state, seat))
+}
+
+/// One strike of a commander area-strike power, as activation would aim it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AreaStrike {
+    pub policy: AreaStrikePolicy,
+    pub center: Pos,
+    pub radius: usize,
+    pub damage: u8,
+}
+
+impl AreaStrike {
+    /// Whether this strike hits `position`.
+    pub fn covers(&self, position: Pos) -> bool {
+        self.center.distance(position) <= self.radius as u64
+    }
+}
+
+/// Where `player`'s `level` power would fire its area strikes from this state.
+///
+/// `spec/semantics/powers.md` (`fire-area-strikes`) gives the selection. The
+/// reducer aims each strike with the same function, so the answer is the
+/// centers that activation would emit as `area-strike-resolved`. This query
+/// does not check the turn, the power meter or the power toggle: a planner
+/// asks where a power would land before it is available.
+///
+/// The result is empty when the active commander's power at `level` has no
+/// `fire-area-strikes` effect.
+pub fn area_strikes(
+    state: &State,
+    player: &PlayerId,
+    level: PowerLevel,
+) -> Result<Vec<AreaStrike>, QueryError> {
+    let seat = state
+        .player_index(player)
+        .ok_or(QueryError::Unprojectable("the player is not on the roster"))?;
+    let Some(commander) = state
+        .player(seat)
+        .commanders
+        .iter()
+        .find(|candidate| candidate.active)
+    else {
+        return Ok(Vec::new());
+    };
+    let activation = commander::power_activation(commander.id, level, commander.power_uses)
+        .map_err(|error| {
+            ExecuteError::InvalidState(
+                format!("commander power profile cannot activate: {error:?}").into(),
+            )
+        })?;
+    let mut strikes = Vec::new();
+    for effect in activation
+        .map(|activation| activation.instant_effects)
+        .unwrap_or_default()
+    {
+        let InstantEffect::FireAreaStrikes {
+            radius,
+            damage,
+            selection_policies,
+            ..
+        } = effect
+        else {
+            continue;
+        };
+        let centers =
+            area_strike_centers(state, player, radius, &selection_policies).map_err(|error| {
+                match error {
+                    ReducerError::InvalidState(error) => ExecuteError::InvalidState(error),
+                    ReducerError::InvalidRandom(error) => ExecuteError::InvalidRandom(error),
+                    ReducerError::UnsupportedCommand => ExecuteError::UnsupportedCommand,
+                    ReducerError::UnsupportedRuleset => ExecuteError::UnsupportedRuleset,
+                    ReducerError::Violation(violation) => ExecuteError::InvalidState(
+                        format!("area-strike selection was refused: {violation:?}").into(),
+                    ),
+                }
+            })?;
+        strikes.extend(
+            selection_policies
+                .into_iter()
+                .zip(centers)
+                .map(|(policy, center)| AreaStrike {
+                    policy,
+                    center,
+                    radius,
+                    damage,
+                }),
+        );
+    }
+    Ok(strikes)
 }
 
 /// Why the reducer would refuse to act with this unit at all, if it would.

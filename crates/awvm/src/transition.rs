@@ -31,6 +31,7 @@ pub(crate) use attack::*;
 pub(crate) use elimination::*;
 pub use initialization::{InitializeError, initialize_match};
 pub(crate) use movement::*;
+pub(crate) use powers::area_strike_centers;
 pub(crate) use property::*;
 pub(crate) use transport::*;
 pub(crate) use turn::*;

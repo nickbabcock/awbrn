@@ -23,6 +23,9 @@ impl RenderLayer {
     pub const MOVE_RANGE_OVERLAY: i8 = 3;
     pub const UNIT: i8 = 4;
     pub const COURSE_ARROW: i8 = 5;
+    /// Marks that sit above the units and their HP digits, such as the aim
+    /// point of an area strike.
+    pub const STRIKE_MARK: i8 = 6;
     pub const CURSOR: i8 = 10;
 }
 
