@@ -170,7 +170,12 @@ export function ReplayPage() {
         />
 
         {replayError ? (
-          <Banner description={replayError} status="error" title="Replay failed to load" />
+          <Banner
+            description={replayError}
+            role="alert"
+            status="error"
+            title="Replay failed to load"
+          />
         ) : null}
 
         {/* The board leads: it takes the width the viewport has and the armies

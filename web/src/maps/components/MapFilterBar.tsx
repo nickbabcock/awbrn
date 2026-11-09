@@ -51,6 +51,8 @@ export function MapFilterBar({
     <VStack gap={4}>
       <HStack align="end" gap={4} justify="between" wrap="wrap">
         <TextInput
+          enterKeyHint="search"
+          hasAutoCorrect={false}
           hasClear
           label="Search the map catalog"
           onChange={onSearchChange}

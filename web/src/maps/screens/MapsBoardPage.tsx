@@ -34,7 +34,11 @@ import {
 } from "#/maps/map_board_search.ts";
 import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
-import { MAP_BOARD_COLUMNS, MAP_BOARD_LOADING_PLATES, mapBoardSummary } from "#/maps/map_board.ts";
+import {
+  MAP_BOARD_COLUMNS,
+  MAP_BOARD_LOADING_PLATES,
+  useMapBoardSummary,
+} from "#/maps/map_board.ts";
 import type { MapCatalogFilter } from "#/maps/schemas.ts";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 
@@ -75,6 +79,15 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
   // A failed read holds nothing, which is not the same as a board that holds
   // nothing. The banner above says why, so the empty state stays out of it.
   const isBoardEmpty = !catalogQuery.isPending && !catalogQuery.isError && maps.length === 0;
+  const summary = useMapBoardSummary({
+    count: maps.length,
+    filters,
+    hasMore: catalogQuery.hasNextPage,
+    isError: catalogQuery.isError,
+    isNarrowed,
+    isPending: catalogQuery.isPending,
+    search: text,
+  });
 
   return (
     <Page>
@@ -93,18 +106,14 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
               onFiltersChange={handleFiltersChange}
               onSearchChange={setTyped}
               search={typed}
-              summary={mapBoardSummary({
-                count: maps.length,
-                hasMore: catalogQuery.hasNextPage,
-                isNarrowed,
-                isPending: catalogQuery.isPending,
-              })}
+              summary={summary}
             />
           </Card>
 
           {catalogQuery.isError ? (
             <Banner
               description="The map catalog could not be read. Try again in a moment."
+              role="alert"
               status="error"
               title="Catalog unavailable"
             />

@@ -617,6 +617,7 @@ function PanelFrame({ children, kit }: { children: React.ReactNode; kit: PanelKi
         purpose="form"
         snapPoints={[0.5]}
         xstyle={styles.sheet}
+        padding={0}
       >
         {/* The sheet takes the focus a modal has to place somewhere. Without a
             target the browser falls to the first control in the panel, which
@@ -878,7 +879,7 @@ function FighterFields({
         size="sm"
         startIcon={<StatIcon art={HP} />}
         value={bars}
-        xstyle={styles.healthField}
+        controlXstyle={styles.healthField}
       />
 
       {/* The trigger shows the tile square alone and the grid shows the whole
@@ -917,7 +918,7 @@ function FighterFields({
           size="sm"
           startIcon={<StatIcon art={AMMO} />}
           value={fighter.ammo ?? entry.maxAmmo}
-          xstyle={styles.ammoField}
+          controlXstyle={styles.ammoField}
         />
       ) : null}
     </HStack>

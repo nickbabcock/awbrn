@@ -50,6 +50,7 @@ export function MatchesBrowsePage() {
             endContent={
               <Button clickAction={handleLoadMore} label="Retry" size="sm" variant="secondary" />
             }
+            role="alert"
             status="error"
             title="More lobbies failed to load"
           />

@@ -17,11 +17,11 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "theme:build": "pnpm exec astryx theme build src/themes/awbrnTheme.ts"
+    "theme:build": "pnpm exec astryx theme build src/themes/awbrnTheme.ts && pnpm exec oxfmt src/themes"
   },
   "dependencies": {
-    "@astryxdesign/core": "^0.5.0",
-    "@astryxdesign/theme-neutral": "^0.5.0",
+    "@astryxdesign/core": "^0.7.11",
+    "@astryxdesign/theme-neutral": "^0.7.11",
     "@fontsource/bungee": "5.3.0",
     "@fontsource/nunito": "5.3.0",
     "@fontsource/silkscreen": "5.3.0",
@@ -40,7 +40,7 @@
     "zustand": "5.0.15"
   },
   "devDependencies": {
-    "@astryxdesign/cli": "^0.5.0",
+    "@astryxdesign/cli": "^0.7.11",
     "@cloudflare/vite-plugin": "1.54.0",
     "@cloudflare/vitest-plugin": "1.1.0",
     "@stylexjs/unplugin": "0.19.0",

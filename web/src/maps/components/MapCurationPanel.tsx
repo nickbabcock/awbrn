@@ -184,7 +184,9 @@ function RankBench({
         value={reason}
       />
 
-      {error ? <Banner description={error} status="error" title="Rank not written" /> : null}
+      {error ? (
+        <Banner description={error} role="alert" status="error" title="Rank not written" />
+      ) : null}
 
       <HStack gap={3} wrap="wrap">
         <Button
@@ -299,7 +301,9 @@ function TagBench({
         />
       ) : null}
 
-      {error ? <Banner description={error} status="error" title="Tags not written" /> : null}
+      {error ? (
+        <Banner description={error} role="alert" status="error" title="Tags not written" />
+      ) : null}
 
       <HStack gap={3} wrap="wrap">
         <Button

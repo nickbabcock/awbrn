@@ -280,6 +280,7 @@ export function RankedPendingPage({
                 <Banner
                   collapsible={false}
                   description="The match opens as soon as the other player is ready."
+                  role="status"
                   status="success"
                   title="You are ready"
                 />

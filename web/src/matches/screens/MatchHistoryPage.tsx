@@ -89,6 +89,7 @@ export function MatchHistoryPage() {
             endContent={
               <Button clickAction={handleLoadMore} label="Retry" size="sm" variant="secondary" />
             }
+            role="alert"
             status="error"
             title="More completed games failed to load"
           />

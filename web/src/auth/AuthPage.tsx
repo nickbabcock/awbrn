@@ -101,7 +101,12 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
                 />
               </FormLayout>
               {error ? (
-                <Banner status="error" title="Authentication failed" description={error} />
+                <Banner
+                  role="alert"
+                  status="error"
+                  title="Authentication failed"
+                  description={error}
+                />
               ) : null}
               <Button
                 isDisabled={isPending}

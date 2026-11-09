@@ -58,6 +58,7 @@ export function MapPage({ mapId }: { mapId: string }) {
         {mapQuery.isError ? (
           <Banner
             description="The catalog could not be read. Try again in a moment."
+            role="alert"
             status="error"
             title="Map unavailable"
           />

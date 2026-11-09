@@ -253,6 +253,7 @@ function MenuSheet({ children, footer, label, onDismiss, onRestoreFocus }: Board
       onOpenChange={handleOpenChange}
       purpose="info"
       xstyle={styles.sheet}
+      padding={0}
     >
       {/* The sheet itself takes the focus a modal must place somewhere. Without
           a target the browser falls to the scrolling list, which then wears a
