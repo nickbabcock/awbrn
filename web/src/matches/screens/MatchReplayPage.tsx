@@ -145,7 +145,12 @@ export function MatchReplayPage({
         </VStack>
 
         {loadError ? (
-          <Banner description={loadError} status="error" title="The replay could not be opened" />
+          <Banner
+            description={loadError}
+            role="alert"
+            status="error"
+            title="The replay could not be opened"
+          />
         ) : null}
 
         <Grid align="start" gap={4} xstyle={styles.reviewLayout}>

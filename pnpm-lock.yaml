@@ -137,11 +137,11 @@ importers:
   web:
     dependencies:
       '@astryxdesign/core':
-        specifier: ^0.5.0
-        version: 0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: ^0.7.11
+        version: 0.7.11(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@astryxdesign/theme-neutral':
-        specifier: ^0.5.0
-        version: 0.5.0(@astryxdesign/core@0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+        specifier: ^0.7.11
+        version: 0.7.11(@astryxdesign/core@0.7.11(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@fontsource/bungee':
         specifier: 5.3.0
         version: 5.3.0
@@ -192,8 +192,8 @@ importers:
         version: 5.0.15(@types/react@19.2.18)(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
     devDependencies:
       '@astryxdesign/cli':
-        specifier: ^0.5.0
-        version: 0.5.0(@astryxdesign/core@0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@astryxdesign/theme-neutral@0.5.0(@astryxdesign/core@0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8))(gpt-tokenizer@3.4.0)(supports-color@10.2.2)
+        specifier: ^0.7.11
+        version: 0.7.11(@astryxdesign/core@0.7.11(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(supports-color@10.2.2)
       '@cloudflare/vite-plugin':
         specifier: 1.54.0
         version: 1.54.0(vite@8.2.2(@types/node@24.12.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))(wrangler@4.126.0)
@@ -236,37 +236,27 @@ importers:
 
 packages:
 
-  '@astryxdesign/cli@0.5.0':
-    resolution: {integrity: sha512-RiRhSSMu4V07ZcbxS49r64Of04AuEnEWfoKovK7r11+3PxHalsQzP3elqothOTs49JaGVHGSHtBoLwh5o7RF9A==}
+  '@astryxdesign/cli@0.7.11':
+    resolution: {integrity: sha512-nCmG4bvA2d/RazTHwRRD7gckrTh1GEj1NBNZjfb2mPrLNgWpSPy2YVS/ICEj2O9fuGrac1vCdPfloeWkaRk+Lg==}
     engines: {node: '>=22.13.0'}
     hasBin: true
     peerDependencies:
-      '@astryxdesign/charts': '*'
       '@astryxdesign/core': '*'
-      '@astryxdesign/lab': '*'
-      '@astryxdesign/theme-neutral': '*'
-      gpt-tokenizer: ^3.4.0
     peerDependenciesMeta:
-      '@astryxdesign/charts':
-        optional: true
       '@astryxdesign/core':
         optional: true
-      '@astryxdesign/lab':
-        optional: true
-      '@astryxdesign/theme-neutral':
-        optional: true
 
-  '@astryxdesign/core@0.5.0':
-    resolution: {integrity: sha512-O2lYXrU8+/iRNV9TqOHCj3zhz1NSJxdtytfoQ0Dy/TY7g2CjZTb4/zUpl0EA5hIi4Si1tJxlVf9Uh3LMVALnmg==}
+  '@astryxdesign/core@0.7.11':
+    resolution: {integrity: sha512-sbPCVnxu9Qc1awAmzmzbxNgGZ/PMTTz8yrsmoAJuxWIvqP7sfubjWoRE7b2to+d0XwL2Buug5OLkepCrvQemVA==}
     peerDependencies:
       '@stylexjs/stylex': ^0.19.0
       react: '>=19.0.0'
       react-dom: '>=19.0.0'
 
-  '@astryxdesign/theme-neutral@0.5.0':
-    resolution: {integrity: sha512-7EVMNJ3BCzq4lVyRzDQ9SLt0v03atQCpkXiE2BvdmH3B/nRVQvd+qfMBoUhL6EGsVTqnS3b+PSVU6unNcqulgQ==}
+  '@astryxdesign/theme-neutral@0.7.11':
+    resolution: {integrity: sha512-zjI+6g/tv6TAY6i5gk2/x8zrf/Gn/io2TGXnd6IhRkhGdIhkb+zdL2bHOf4F8S5bjonHqdDiKzQ2P2AZEDyO/A==}
     peerDependencies:
-      '@astryxdesign/core': 0.5.0
+      '@astryxdesign/core': 0.7.11
       react: '>=19'
 
   '@babel/code-frame@7.27.1':
@@ -2182,6 +2172,10 @@ packages:
     resolution: {integrity: sha512-6t10qk83GOG8p0vKmaCr8eiilZwO171AvbROMtvvNiwrTly62t+7XkA8RdIIVbpMhCASAsxgAzdRSwh6nw/5Dg==}
     engines: {node: '>=4'}
 
+  ast-types@0.16.3:
+    resolution: {integrity: sha512-FvWoWYfSCM6kRxCSH+MGLHIKKGRL6A6AW7Zek2O32REPQRdg131428uRTKMBYAeRd3XXAaHDS60Wpri7CdKDrA==}
+    engines: {node: '>=4'}
+
   babel-dead-code-elimination@1.0.12:
     resolution: {integrity: sha512-GERT7L2TiYcYDtYk1IpD+ASAYXjKbLTDPhBtYj7X1NuRMDTMtAx9kyBenub1Ev41lo91OHCKdmP+egTDmfQ7Ig==}
 
@@ -2311,6 +2305,11 @@ packages:
 
   css-mediaquery@0.1.2:
     resolution: {integrity: sha512-COtn4EROW5dBGlE/4PiKnh6rZpAPxDeFLaEEwt4i10jpDMFt2EhQGS79QmmrO+iKCHv0PU/HrOWEhijFd1x99Q==}
+
+  cssesc@3.0.0:
+    resolution: {integrity: sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg==}
+    engines: {node: '>=4'}
+    hasBin: true
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
@@ -2525,9 +2524,6 @@ packages:
   get-tsconfig@4.14.3:
     resolution: {integrity: sha512-++QEw4DIY7WGoukz+/+A/8dGYPT9l9yIadnmSgZ8Rjr3YVSVDipQSO9CdnJo9ePqFqUUqh+wk9uIaoiAwsiPkA==}
 
-  gpt-tokenizer@3.4.0:
-    resolution: {integrity: sha512-wxFLnhIXTDjYebd9A9pGl3e31ZpSypbpIJSOswbgop5jLte/AsZVDvjlbEuVFlsqZixVKqbcoNmRlFDf6pz/UQ==}
-
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
@@ -2540,6 +2536,10 @@ packages:
     peerDependenciesMeta:
       crossws:
         optional: true
+
+  ignore@7.0.14:
+    resolution: {integrity: sha512-wCBiZ77u1tuWde6G/nfOtLaCTYcFDU5yCzARzK10y+rLhzYoL7a7yEemcopcc2Mzow7gZOIjnV2ym1NYmdiJOQ==}
+    engines: {node: '>= 4'}
 
   imurmurhash@0.1.4:
     resolution: {integrity: sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA==}
@@ -2728,6 +2728,10 @@ packages:
   neo-async@2.6.2:
     resolution: {integrity: sha512-Yd3UES5mWCSqR+qNT93S3UoYUkqAZ9lLg8a7g9rimsWmYGK8cVToA4/sF3RrshdyV3sAGMXVUmpMYOw+dLpOuw==}
 
+  node-diff3@3.2.1:
+    resolution: {integrity: sha512-eKZcJ8RtMQ3cIaA15EgmtwG927fYnRlhtdA4Q9HAcCpAZPQhhU2XptnTH9GeAkMiX2bAXxlJSAFa9shFbztPgw==}
+    engines: {bun: '>=1.3.10'}
+
   node-releases@2.0.53:
     resolution: {integrity: sha512-D9UOmYG3UH1V+ENW56t5QXBwJw1YEY18ruVeus89Rw+SyIgjPkCO84bRzO3uNIYosJbNwiabWVn48o3uJLjxFQ==}
     engines: {node: '>=18'}
@@ -2808,6 +2812,10 @@ packages:
   pkg-dir@3.0.0:
     resolution: {integrity: sha512-/E57AYkoeQ25qkxMj5PBOVgF8Kiu/h7cYS30Z5+R7WaiCCBfLq58ZI/dSeaEKb9WVJV5n/03QwrN3IeWIFllvw==}
     engines: {node: '>=6'}
+
+  postcss-selector-parser@7.1.7:
+    resolution: {integrity: sha512-wWBro/7hJ40ye6TPiXkUQoXKCw23xSsjriUvqd7Uls9Sso3oLiON1flc18cCdnjgCRXw4fBVqUJJeOdDTh3P3g==}
+    engines: {node: '>=4'}
 
   postcss-value-parser@4.2.0:
     resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
@@ -3033,6 +3041,9 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
+  util-deprecate@1.0.2:
+    resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
+
   vite@8.2.2:
     resolution: {integrity: sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -3200,30 +3211,39 @@ packages:
 
 snapshots:
 
-  '@astryxdesign/cli@0.5.0(@astryxdesign/core@0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@astryxdesign/theme-neutral@0.5.0(@astryxdesign/core@0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8))(gpt-tokenizer@3.4.0)(supports-color@10.2.2)':
+  '@astryxdesign/cli@0.7.11(@astryxdesign/core@0.7.11(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(supports-color@10.2.2)':
     dependencies:
+      '@babel/core': 7.29.7(supports-color@10.2.2)
+      '@babel/parser': 7.29.8
+      '@babel/plugin-transform-typescript': 7.29.7(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2)
+      '@babel/types': 7.29.8
+      '@stylexjs/babel-plugin': 0.19.0(supports-color@10.2.2)
+      ast-types: 0.16.3
       commander: 12.1.0
-      gpt-tokenizer: 3.4.0
+      ignore: 7.0.14
       jiti: 2.7.0
       jscodeshift: 17.4.0(supports-color@10.2.2)
+      node-diff3: 3.2.1
+      postcss: 8.5.26
+      postcss-selector-parser: 7.1.7
+      recast: 0.23.21
       zod: 4.4.3
     optionalDependencies:
-      '@astryxdesign/core': 0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@astryxdesign/theme-neutral': 0.5.0(@astryxdesign/core@0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+      '@astryxdesign/core': 0.7.11(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     transitivePeerDependencies:
       - '@babel/preset-env'
       - supports-color
 
-  '@astryxdesign/core@0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@astryxdesign/core@0.7.11(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@stylexjs/stylex': 0.19.0
       intl-messageformat: 11.2.14
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@astryxdesign/theme-neutral@0.5.0(@astryxdesign/core@0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
+  '@astryxdesign/theme-neutral@0.7.11(@astryxdesign/core@0.7.11(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@astryxdesign/core': 0.5.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@astryxdesign/core': 0.7.11(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react: 1.34.0(react@19.2.8)
       react: 19.2.8
 
@@ -4672,6 +4692,10 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
+  ast-types@0.16.3:
+    dependencies:
+      tslib: 2.8.1
+
   babel-dead-code-elimination@1.0.12(supports-color@10.2.2):
     dependencies:
       '@babel/core': 7.29.7(supports-color@10.2.2)
@@ -4763,6 +4787,8 @@ snapshots:
   cookie@1.1.1: {}
 
   css-mediaquery@0.1.2: {}
+
+  cssesc@3.0.0: {}
 
   csstype@3.2.3: {}
 
@@ -4954,14 +4980,14 @@ snapshots:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
-  gpt-tokenizer@3.4.0: {}
-
   graceful-fs@4.2.11: {}
 
   h3@2.0.1-rc.20:
     dependencies:
       rou3: 0.8.1
       srvx: 0.11.22
+
+  ignore@7.0.14: {}
 
   imurmurhash@0.1.4: {}
 
@@ -5122,6 +5148,8 @@ snapshots:
 
   neo-async@2.6.2: {}
 
+  node-diff3@3.2.1: {}
+
   node-releases@2.0.53: {}
 
   obug@2.1.4: {}
@@ -5203,6 +5231,11 @@ snapshots:
   pkg-dir@3.0.0:
     dependencies:
       find-up: 3.0.0
+
+  postcss-selector-parser@7.1.7:
+    dependencies:
+      cssesc: 3.0.0
+      util-deprecate: 1.0.2
 
   postcss-value-parser@4.2.0: {}
 
@@ -5421,6 +5454,8 @@ snapshots:
   use-sync-external-store@1.6.0(react@19.2.8):
     dependencies:
       react: 19.2.8
+
+  util-deprecate@1.0.2: {}
 
   vite@8.2.2(@types/node@24.12.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12):
     dependencies:

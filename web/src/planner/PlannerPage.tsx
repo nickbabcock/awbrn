@@ -5,7 +5,8 @@ import { Center } from "@astryxdesign/core/Center";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { FileInput } from "@astryxdesign/core/FileInput";
 import { Grid } from "@astryxdesign/core/Grid";
-import { useMediaQuery } from "@astryxdesign/core/hooks";
+import { useAnnounce, useMediaQuery } from "@astryxdesign/core/hooks";
+import { InfoTip } from "@astryxdesign/core/InfoTip";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
@@ -14,6 +15,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { compactDefinition } from "@astryxdesign/core/theme";
 import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -86,8 +88,12 @@ const NO_CO_LABEL = "No CO";
 const NO_PREVIEW_LABEL = "None";
 const CO_OPTIONS = [NO_CO_LABEL, ...coRoster.map((co) => co.displayName)];
 
-/** Below this width, the board menus open as a sheet on the bottom edge. */
-const SHEET_MEDIA = "(max-width: 767px)";
+/**
+ * On a phone-sized screen, the board menus open as a sheet on the bottom edge.
+ * This is the rule that Astryx uses for its own sheets, so the board menus and
+ * the selectors beside them change at the same point.
+ */
+const SHEET_MEDIA = compactDefinition().query;
 
 /** How long a press on the board can still be the one that opened a menu. */
 const BOARD_PRESS_MAX_AGE_MS = 2000;
@@ -121,6 +127,13 @@ export function PlannerPage() {
   const [gameLink, setGameLink] = useState("");
   const [isFillingFromGame, setIsFillingFromGame] = useState(false);
   const [filledFrom, setFilledFrom] = useState<string | null>(null);
+  const announce = useAnnounce();
+
+  /** Show the result of a fill, and tell a screen reader, which cannot see it appear. */
+  function reportFilled(message: string) {
+    setFilledFrom(message);
+    announce(message);
+  }
   /** A game read before its planner file was chosen, to apply to the file. */
   const [pendingGame, setPendingGame] = useState<AwbwGameSnapshot | null>(null);
   const [firstPlayerId, setFirstPlayerId] = useState("");
@@ -272,7 +285,7 @@ export function PlannerPage() {
     if (setup.firstPlayerId !== null) setFirstPlayerId(setup.firstPlayerId);
     setSeats(setup.seats);
     changePreview(setup.previewedPlayerId);
-    setFilledFrom(
+    reportFilled(
       game.armies.some((army) => army.funds === null)
         ? `Filled from game ${game.gameId}. Fog hides some funds, so enter them.`
         : `Filled from game ${game.gameId}.`,
@@ -289,7 +302,7 @@ export function PlannerPage() {
         applyGame(game, planner.summary, seats);
       } else {
         setPendingGame(game);
-        setFilledFrom(`Read game ${gameId}. Choose a move planner file from it to fill the setup.`);
+        reportFilled(`Read game ${gameId}. Choose a move planner file from it to fill the setup.`);
       }
     } catch (cause) {
       reportError(cause, "The AWBW game could not be read.");
@@ -455,7 +468,9 @@ export function PlannerPage() {
           title="Move planner"
         />
 
-        {error ? <Banner description={error} status="error" title="Planner error" /> : null}
+        {error ? (
+          <Banner description={error} role="alert" status="error" title="Planner error" />
+        ) : null}
 
         <Grid align="start" gap={4} xstyle={styles.layout}>
           <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
@@ -643,7 +658,12 @@ export function PlannerPage() {
 
             {areaStrikes?.error ? (
               <Card padding={3}>
-                <Banner description={areaStrikes.error} status="error" title="No board" />
+                <Banner
+                  description={areaStrikes.error}
+                  role="alert"
+                  status="error"
+                  title="No board"
+                />
               </Card>
             ) : !hasStrikes && isPreviewedTurn && previewedArmy?.activePower !== undefined ? (
               <Card padding={3}>
@@ -658,13 +678,19 @@ export function PlannerPage() {
                   hasDividers
                   header={
                     <VStack gap={1} padding={3}>
-                      <Text type="label">{previewedName} missiles, in firing order</Text>
+                      {/* Each strike row shows the HP it removes, so the damage
+                          rule is reference text behind the info button. */}
+                      <HStack align="center" gap={1}>
+                        <Text type="label">{previewedName} missiles, in firing order</Text>
+                        <InfoTip
+                          content="Each missile removes 3 HP from every unit within 2 tiles of its center, and leaves at least 0.1 HP."
+                          label="How missiles do damage"
+                        />
+                      </HStack>
                       <Text type="supporting">
                         {isPreviewedTurn
                           ? `Where the missiles land if ${previewedName} starts the super power now.`
-                          : `Where the missiles would land if ${previewedName} started the super power now. They aim again after each order, so plan this turn around them.`}{" "}
-                        Each missile removes 3 HP from every unit within 2 tiles of its center, and
-                        leaves at least 0.1 HP.
+                          : `Where the missiles would land if ${previewedName} started the super power now. They aim again after each order, so plan this turn around them.`}
                       </Text>
                       {previewedArmy ? (
                         <Text type="supporting">{superPowerCharge(previewedArmy)}</Text>
@@ -689,7 +715,11 @@ export function PlannerPage() {
               <VStack gap={4}>
                 <VStack gap={2}>
                   <TextInput
+                    autoCapitalize="none"
                     description="Fills the map, each army's CO, power meter and team, and the army to move. The planner file does not record them."
+                    enterKeyHint="go"
+                    hasAutoCorrect={false}
+                    inputMode="url"
                     label="AWBW game"
                     onChange={(link) => {
                       setGameLink(link);
@@ -731,6 +761,8 @@ export function PlannerPage() {
                     <VStack gap={1}>
                       <TextInput
                         description="The planner does not record its map."
+                        enterKeyHint="go"
+                        inputMode="numeric"
                         isRequired
                         label="AWBW map ID"
                         onChange={setMapId}
@@ -786,6 +818,7 @@ export function PlannerPage() {
                           />
                           <HStack gap={2}>
                             <TextInput
+                              inputMode="numeric"
                               label="Funds"
                               onChange={(funds) => updateSeat(player.playerId, { funds })}
                               size="sm"
@@ -797,6 +830,7 @@ export function PlannerPage() {
                               value={seat.funds}
                             />
                             <TextInput
+                              inputMode="decimal"
                               label="Power stars"
                               onChange={(powerStars) =>
                                 updateSeat(player.playerId, {

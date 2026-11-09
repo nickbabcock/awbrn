@@ -82,6 +82,7 @@ export function MapJudgementRecord({ actor, map }: { actor: Actor | null; map: M
         ) : isFailed ? (
           <Banner
             description="The moderation log could not be read. Try again in a moment."
+            role="alert"
             status="error"
             title="Record unavailable"
           />

@@ -10,6 +10,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
+import { compactDefinition } from "@astryxdesign/core/theme";
 import {
   borderVars,
   colorVars,
@@ -78,10 +79,11 @@ interface BoardPress {
 }
 
 /**
- * Below this width the board has no room beside it for a menu, so the build
- * order becomes a sheet on the bottom edge whatever pressed the board.
+ * On a phone-sized screen the board has no room beside it for a menu, so the
+ * build order becomes a sheet on the bottom edge whatever pressed the board.
+ * This is the rule that Astryx uses for its own sheets.
  */
-const BUILD_SHEET_MEDIA = "(max-width: 767px)";
+const BUILD_SHEET_MEDIA = compactDefinition().query;
 
 /**
  * A device whose primary input is a finger. The board's own menus read this
@@ -677,12 +679,24 @@ export function MatchActivePage({
   return (
     <Page width="full">
       <VStack gap={6}>
-        {matchError ? <Banner description={matchError} status="error" title="Match error" /> : null}
+        {matchError ? (
+          <Banner description={matchError} role="alert" status="error" title="Match error" />
+        ) : null}
         {reviewError ? (
-          <Banner description={reviewError} status="error" title="The match could not be read" />
+          <Banner
+            description={reviewError}
+            role="alert"
+            status="error"
+            title="The match could not be read"
+          />
         ) : null}
         {boardError ? (
-          <Banner description={boardError} status="error" title="The board could not be loaded." />
+          <Banner
+            description={boardError}
+            role="alert"
+            status="error"
+            title="The board could not be loaded."
+          />
         ) : null}
         {spectatorFogActive === null ? null : (
           <Banner

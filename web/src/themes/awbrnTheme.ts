@@ -144,8 +144,18 @@ export const awbrnTheme = defineTheme({
     },
   },
 
-  // Menu snap, not web easing. Short durations, hard exponential settle.
-  motion: { fast: 90, medium: 150, slow: 520, ratio: 0.7, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+  // Menu snap, not web easing. Short durations, hard exponential settle. The
+  // duration scale and easing set every CSS motion token. Tempo only times the
+  // springs of touch motion (sheets, switches, segmented controls), which the
+  // scale cannot reach. 0.75 is the quickest tempo, to match the scale.
+  motion: {
+    tempo: 0.75,
+    fast: 90,
+    medium: 150,
+    slow: 520,
+    ratio: 0.7,
+    easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+  },
 
   tokens: {
     // -- Ground and chrome -------------------------------------------------
@@ -550,7 +560,7 @@ export const awbrnTheme = defineTheme({
       },
       ...factionTokenVariants,
     },
-    statusdot: {
+    "status-dot": {
       base: {
         border: `2px solid ${INK}`,
       },
@@ -618,7 +628,7 @@ export const awbrnTheme = defineTheme({
     },
     // A moderator writes the reason for a judgement here, so it sinks into the
     // panel exactly as the one-line fields beside it do.
-    textarea: {
+    "text-area": {
       base: {
         backgroundColor: "#fffdf7",
         border: `2px solid ${INK}`,
@@ -641,7 +651,7 @@ export const awbrnTheme = defineTheme({
         borderRadius: "var(--radius-element)",
       },
     },
-    checkbox: {
+    "checkbox-indicator": {
       base: {
         border: `2px solid ${INK}`,
         borderRadius: "var(--radius-inner)",

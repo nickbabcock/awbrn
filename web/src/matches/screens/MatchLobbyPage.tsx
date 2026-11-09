@@ -353,7 +353,12 @@ export function MatchLobbyPage({
             record is polled, so they are announced rather than only drawn. */}
         <VStack as="output" gap={3}>
           {actionError ? (
-            <Banner description={actionError} status="error" title="Lobby update failed" />
+            <Banner
+              description={actionError}
+              role="alert"
+              status="error"
+              title="Lobby update failed"
+            />
           ) : null}
           {seatError ? (
             <HStack gap={3}>
@@ -366,7 +371,11 @@ export function MatchLobbyPage({
             </HStack>
           ) : null}
           {match.phase === "starting" ? (
-            <Banner status="info" title="All players are ready. Starting the match…" />
+            <Banner
+              role="status"
+              status="info"
+              title="All players are ready. Starting the match…"
+            />
           ) : null}
           {match.phase === "active" ? (
             <Banner status="info" title="The match is active. Lobby controls are locked." />

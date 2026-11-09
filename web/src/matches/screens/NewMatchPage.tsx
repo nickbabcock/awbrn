@@ -261,6 +261,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             {catalogQuery.isError ? (
               <Banner
                 description="The map catalog could not be read. Try again in a moment."
+                role="alert"
                 status="error"
                 title="Catalog unavailable"
               />
@@ -494,7 +495,7 @@ function FirstMapPanel({
           </Text>
         ) : null}
         {importer.error ? (
-          <Banner description={importer.error} status="error" title="Import failed" />
+          <Banner description={importer.error} role="alert" status="error" title="Import failed" />
         ) : null}
       </VStack>
     </Card>
@@ -636,7 +637,12 @@ function MapBriefing({
 
       <VStack gap={3} xstyle={styles.setupFoot}>
         {createError ? (
-          <Banner description={createError} status="error" title="The lobby did not open" />
+          <Banner
+            description={createError}
+            role="alert"
+            status="error"
+            title="The lobby did not open"
+          />
         ) : null}
         {session ? null : (
           <Text weight="medium">
