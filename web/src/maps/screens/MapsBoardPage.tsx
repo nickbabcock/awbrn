@@ -20,9 +20,8 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid } from "@astryxdesign/core/Grid";
-import { useAnnounce } from "@astryxdesign/core/hooks";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "#/ui/Button.tsx";
 import { RouterButton } from "#/ui/astryx-links.tsx";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
@@ -35,7 +34,11 @@ import {
 } from "#/maps/map_board_search.ts";
 import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
-import { MAP_BOARD_COLUMNS, MAP_BOARD_LOADING_PLATES, mapBoardSummary } from "#/maps/map_board.ts";
+import {
+  MAP_BOARD_COLUMNS,
+  MAP_BOARD_LOADING_PLATES,
+  useMapBoardSummary,
+} from "#/maps/map_board.ts";
 import type { MapCatalogFilter } from "#/maps/schemas.ts";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 
@@ -76,24 +79,15 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
   // A failed read holds nothing, which is not the same as a board that holds
   // nothing. The banner above says why, so the empty state stays out of it.
   const isBoardEmpty = !catalogQuery.isPending && !catalogQuery.isError && maps.length === 0;
-  const summary = mapBoardSummary({
+  const summary = useMapBoardSummary({
     count: maps.length,
+    filters,
     hasMore: catalogQuery.hasNextPage,
+    isError: catalogQuery.isError,
     isNarrowed,
     isPending: catalogQuery.isPending,
+    search: text,
   });
-
-  // The count changes only on screen, so a screen reader hears it each time a
-  // search or a filter settles. The first count arrives with the page, and the
-  // page already says it, so it is not announced.
-  const announceCount = useAnnounce({ hasReplace: true });
-  const lastCount = useRef<string | null>(null);
-  useEffect(() => {
-    if (catalogQuery.isPending || summary === lastCount.current) return;
-    const isFirstCount = lastCount.current === null;
-    lastCount.current = summary;
-    if (!isFirstCount) announceCount(summary);
-  }, [announceCount, catalogQuery.isPending, summary]);
 
   return (
     <Page>

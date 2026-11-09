@@ -30,6 +30,16 @@ export const DEFAULT_SEAT: SeatInput = {
   powerOn: "none",
 };
 
+/**
+ * The stars that a power-stars field holds, such as 3 or 2.5, or null when it
+ * holds no star count. Some decimal keyboards type a comma for the decimal
+ * point, so "2,5" is 2.5 too.
+ */
+export function parseStars(value: string): number | null {
+  const stars = value.trim().replace(",", ".");
+  return /^\d+(\.\d+)?$/.test(stars) ? Number(stars) : null;
+}
+
 /** The seat that the board opens with, from what the fields hold. */
 export function seatSetup(
   playerId: number,
@@ -42,7 +52,7 @@ export function seatSetup(
     funds: Number(seat.funds),
     powerCharge:
       seat.importedCharge ??
-      Math.round(Number(seat.powerStars) * starChargeAt(starCharges, seat.powerUses)),
+      Math.round((parseStars(seat.powerStars) ?? 0) * starChargeAt(starCharges, seat.powerUses)),
     powerUses: seat.powerUses,
     powerOn: seat.powerOn,
     team: seat.team,

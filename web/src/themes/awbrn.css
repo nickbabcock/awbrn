@@ -1395,6 +1395,15 @@
   }
   }
 }
+
+@media (pointer: coarse) {
+  @scope ([data-astryx-theme="awbrn"]) to ([data-astryx-theme]) {
+    :scope {
+    --text-heading-3-weight: 800;
+    --text-heading-4-weight: 800;
+  }
+  }
+}
 }
 
 @layer astryx-theme {

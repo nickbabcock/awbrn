@@ -1174,6 +1174,17 @@ export const awbrnTheme = {
             }
           }
         }
+      },
+      {
+        "when": {
+          "pointer": "coarse"
+        },
+        "value": {
+          "tokens": {
+            "--text-heading-3-weight": "800",
+            "--text-heading-4-weight": "800"
+          }
+        }
       }
     ]
   },

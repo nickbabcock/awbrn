@@ -45,6 +45,7 @@ import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import {
   DEFAULT_SEAT,
   NO_CO_ID,
+  parseStars,
   seatSetup,
   setupFromAwbwGame,
   type SeatInput,
@@ -89,11 +90,12 @@ const NO_PREVIEW_LABEL = "None";
 const CO_OPTIONS = [NO_CO_LABEL, ...coRoster.map((co) => co.displayName)];
 
 /**
- * On a phone-sized screen, the board menus open as a sheet on the bottom edge.
- * This is the rule that Astryx uses for its own sheets, so the board menus and
- * the selectors beside them change at the same point.
+ * Below this width, the board menus open as a sheet on the bottom edge. The
+ * width is the one at which Astryx makes its own sheets compact. The height
+ * part of the Astryx rule is not used, so a short, wide window keeps the menus
+ * on the board.
  */
-const SHEET_MEDIA = compactDefinition().query;
+const SHEET_MEDIA = `(width < ${compactDefinition().widthBelow}px)`;
 
 /** How long a press on the board can still be the one that opened a menu. */
 const BOARD_PRESS_MAX_AGE_MS = 2000;
@@ -128,6 +130,13 @@ export function PlannerPage() {
   const [isFillingFromGame, setIsFillingFromGame] = useState(false);
   const [filledFrom, setFilledFrom] = useState<string | null>(null);
   const announce = useAnnounce();
+  /**
+   * Count the changes to the game link and to the planner file. A read keeps
+   * the counts from when it started, so that it can find out when it finishes
+   * whether the inputs that it read are still there.
+   */
+  const gameLinkChanges = useRef(0);
+  const plannerFileChanges = useRef(0);
 
   /** Show the result of a fill, and tell a screen reader, which cannot see it appear. */
   function reportFilled(message: string) {
@@ -135,11 +144,16 @@ export function PlannerPage() {
     announce(message);
   }
   /** A game read before its planner file was chosen, to apply to the file. */
-  const [pendingGame, setPendingGame] = useState<AwbwGameSnapshot | null>(null);
+  const pendingGame = useRef<AwbwGameSnapshot | null>(null);
   const [firstPlayerId, setFirstPlayerId] = useState("");
   /** The army whose missiles the board previews, or "" for none. */
   const [previewedPlayerId, setPreviewedPlayerId] = useState("");
   const [seats, setSeats] = useState<Record<number, SeatInput>>({});
+  // The reads below finish after later renders, so they read the planner and
+  // the seats from here, not from the render that started them.
+  const loadedPlanner = useRef<LoadedPlanner | null>(null);
+  const seatsRef = useRef(seats);
+  seatsRef.current = seats;
   const [error, setError] = useState<string | null>(null);
   const [isBoardRequested, setIsBoardRequested] = useState(false);
   const [isAfterStrikes, setIsAfterStrikes] = useState(false);
@@ -186,7 +200,12 @@ export function PlannerPage() {
 
   async function handlePlannerFileChange(files: File | File[] | null) {
     const file = Array.isArray(files) ? files[0] : files;
+    // Only a newer file makes this read stale. A game link changed during the
+    // read makes the game that was waiting stale, not the file.
+    const fileChange = ++plannerFileChanges.current;
+    const linkChange = gameLinkChanges.current;
     setError(null);
+    loadedPlanner.current = null;
     setPlanner(null);
     setFirstPlayerId("");
     setPreviewedPlayerId("");
@@ -197,16 +216,22 @@ export function PlannerPage() {
     try {
       const data = new Uint8Array(await file.arrayBuffer());
       const summary = await runner.readMovePlanner(data);
-      setPlanner({ data, summary });
-      if (pendingGame) {
-        applyGame(pendingGame, summary, {});
-        setPendingGame(null);
+      if (fileChange !== plannerFileChanges.current) return;
+      loadedPlanner.current = { data, summary };
+      setPlanner(loadedPlanner.current);
+      // Both branches read the game link from when the read started.
+      if (linkChange !== gameLinkChanges.current) return;
+      const game = pendingGame.current;
+      if (game) {
+        pendingGame.current = null;
+        applyGame(game, summary, {});
       } else if (gameLink.trim() === "" && summary.gameId) {
         // The file names the game that it was saved from, which is most often
         // the game to fill the setup from.
         setGameLink(`https://awbw.amarriner.com/game.php?games_id=${summary.gameId}`);
       }
     } catch (cause) {
+      if (fileChange !== plannerFileChanges.current) return;
       reportError(cause, "The move planner file could not be read.");
     }
   }
@@ -294,17 +319,30 @@ export function PlannerPage() {
 
   async function fillFromAwbwGame() {
     if (gameId === null) return;
+    // A changed game link makes this read stale. A changed planner file does
+    // too, when the game was to fill the file that was open. With no file
+    // open, the game waits for the next file, so a file chosen during the read
+    // is the one to fill.
+    const fileChange = plannerFileChanges.current;
+    const linkChange = gameLinkChanges.current;
+    const hadPlanner = loadedPlanner.current !== null;
+    const isStale = () =>
+      linkChange !== gameLinkChanges.current ||
+      (hadPlanner && fileChange !== plannerFileChanges.current);
     setError(null);
     setIsFillingFromGame(true);
     try {
       const game = await readGame(gameId);
-      if (planner) {
-        applyGame(game, planner.summary, seats);
+      if (isStale()) return;
+      const current = loadedPlanner.current;
+      if (current) {
+        applyGame(game, current.summary, seatsRef.current);
       } else {
-        setPendingGame(game);
+        pendingGame.current = game;
         reportFilled(`Read game ${gameId}. Choose a move planner file from it to fill the setup.`);
       }
     } catch (cause) {
+      if (isStale()) return;
       reportError(cause, "The AWBW game could not be read.");
     } finally {
       setIsFillingFromGame(false);
@@ -722,9 +760,10 @@ export function PlannerPage() {
                     inputMode="url"
                     label="AWBW game"
                     onChange={(link) => {
+                      gameLinkChanges.current += 1;
                       setGameLink(link);
                       setFilledFrom(null);
-                      setPendingGame(null);
+                      pendingGame.current = null;
                     }}
                     onEnter={() => void fillFromAwbwGame()}
                     placeholder="https://awbw.amarriner.com/game.php?games_id=…"
@@ -917,9 +956,9 @@ function isWholeNumber(value: string): boolean {
   return /^\d+$/.test(value.trim());
 }
 
-/** A star count, such as 3 or 2.5. */
+/** A star count, such as 3, 2.5 or 2,5. */
 function isStarCount(value: string): boolean {
-  return /^\d+(\.\d+)?$/.test(value.trim());
+  return parseStars(value) !== null;
 }
 
 function SelectedUnitCard({

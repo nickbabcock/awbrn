@@ -16,6 +16,16 @@ import { neutralTheme } from "@astryxdesign/theme-neutral";
 
 /** Ink: the outline on every piece of chrome. The system has exactly one black. */
 const INK = "#16181D";
+
+/**
+ * Small headings drop the signage face, so they need weight to stay a step
+ * above body copy. Component declarations take precedence over these tokens,
+ * so the weight lives here alone instead of being overridden later.
+ */
+const SMALL_HEADING_WEIGHTS = {
+  "--text-heading-3-weight": "800",
+  "--text-heading-4-weight": "800",
+} as const;
 /** The cast shadow under a menu panel. Translucent, so panels sit on terrain. */
 const CAST = "rgba(22, 24, 29, 0.34)";
 const CAST_SOFT = "rgba(22, 24, 29, 0.16)";
@@ -144,6 +154,20 @@ export const awbrnTheme = defineTheme({
     },
   },
 
+  // The neutral theme gives narrow touch screens their own type scale, and
+  // that scale writes every heading weight from the root heading weight. This
+  // rule comes after the inherited rule, so it keeps the small headings at
+  // their weight. It matches every coarse pointer, so it still covers the
+  // inherited rule if that rule changes its width.
+  adaptations: {
+    rules: [
+      {
+        when: { pointer: "coarse" },
+        value: { tokens: SMALL_HEADING_WEIGHTS },
+      },
+    ],
+  },
+
   // Menu snap, not web easing. Short durations, hard exponential settle. The
   // duration scale and easing set every CSS motion token. Tempo only times the
   // springs of touch motion (sheets, switches, segmented controls), which the
@@ -254,11 +278,7 @@ export const awbrnTheme = defineTheme({
     "--color-icon-gray": "#5a5a5a",
     "--color-text-gray": "#2e2626",
 
-    // Small headings drop the signage face, so they need weight to stay a
-    // step above body copy. Component declarations take precedence over these
-    // tokens, so the weight lives here alone instead of being overridden later.
-    "--text-heading-3-weight": "800",
-    "--text-heading-4-weight": "800",
+    ...SMALL_HEADING_WEIGHTS,
 
     // -- Chrome is square. Pixel art has no radius. ------------------------
     "--radius-inner": "0px",

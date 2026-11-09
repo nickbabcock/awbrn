@@ -349,17 +349,19 @@ export function MatchLobbyPage({
   return (
     <Page width="wide">
       <VStack gap={4}>
+        {/* A failed action is urgent, so it is an alert. It sits outside the
+            polite output region below, so that it is spoken once. */}
+        {actionError ? (
+          <Banner
+            description={actionError}
+            role="alert"
+            status="error"
+            title="Lobby update failed"
+          />
+        ) : null}
         {/* These messages arrive without the viewer acting, now that the
             record is polled, so they are announced rather than only drawn. */}
         <VStack as="output" gap={3}>
-          {actionError ? (
-            <Banner
-              description={actionError}
-              role="alert"
-              status="error"
-              title="Lobby update failed"
-            />
-          ) : null}
           {seatError ? (
             <HStack gap={3}>
               <Text role="alert">Could not save your choice: {seatError}</Text>
@@ -371,11 +373,7 @@ export function MatchLobbyPage({
             </HStack>
           ) : null}
           {match.phase === "starting" ? (
-            <Banner
-              role="status"
-              status="info"
-              title="All players are ready. Starting the match…"
-            />
+            <Banner status="info" title="All players are ready. Starting the match…" />
           ) : null}
           {match.phase === "active" ? (
             <Banner status="info" title="The match is active. Lobby controls are locked." />

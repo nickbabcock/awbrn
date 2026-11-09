@@ -42,7 +42,6 @@ export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
             </Text>
             <Banner
               description={<ErrorComponent error={error} />}
-              role="alert"
               status="error"
               title="Route error"
             />

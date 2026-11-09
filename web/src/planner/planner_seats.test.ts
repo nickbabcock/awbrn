@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AwbwGameArmy, AwbwGameSnapshot } from "#/awbw/schemas.ts";
-import { DEFAULT_SEAT, seatSetup, setupFromAwbwGame } from "./planner_seats.ts";
+import { DEFAULT_SEAT, parseStars, seatSetup, setupFromAwbwGame } from "./planner_seats.ts";
 
 /** The charge of a star after 0, 1 and 2 power uses. */
 const STAR_CHARGES = [9000, 10800, 12600];
@@ -80,6 +80,18 @@ describe("planner setup from an AWBW game", () => {
     const typed = { ...rachel, powerStars: "5", importedCharge: undefined };
     expect(seatSetup(2, typed, STAR_CHARGES).powerCharge).toBe(54000);
     expect(seatSetup(4, { ...DEFAULT_SEAT, powerStars: "2.5" }, STAR_CHARGES).powerCharge).toBe(
+      22500,
+    );
+  });
+
+  it("reads stars typed with a decimal point or a decimal comma", () => {
+    expect(parseStars("3")).toBe(3);
+    expect(parseStars(" 2.5 ")).toBe(2.5);
+    expect(parseStars("2,5")).toBe(2.5);
+    expect(parseStars("2.")).toBeNull();
+    expect(parseStars("2,5,1")).toBeNull();
+    expect(parseStars("")).toBeNull();
+    expect(seatSetup(4, { ...DEFAULT_SEAT, powerStars: "2,5" }, STAR_CHARGES).powerCharge).toBe(
       22500,
     );
   });

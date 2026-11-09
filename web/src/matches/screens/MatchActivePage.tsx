@@ -79,11 +79,12 @@ interface BoardPress {
 }
 
 /**
- * On a phone-sized screen the board has no room beside it for a menu, so the
- * build order becomes a sheet on the bottom edge whatever pressed the board.
- * This is the rule that Astryx uses for its own sheets.
+ * Below this width the board has no room beside it for a menu, so the build
+ * order becomes a sheet on the bottom edge whatever pressed the board. The
+ * width is the one at which Astryx makes its own sheets compact. Only the
+ * width is used, so that this rule agrees with BOARD_BLEED_MEDIA.
  */
-const BUILD_SHEET_MEDIA = compactDefinition().query;
+const BUILD_SHEET_MEDIA = `(width < ${compactDefinition().widthBelow}px)`;
 
 /**
  * A device whose primary input is a finger. The board's own menus read this
@@ -95,9 +96,10 @@ const COARSE_POINTER_MEDIA = "(pointer: coarse)";
 /**
  * Below this width the board gives up the page inset and runs to both edges.
  * This is the same breakpoint the build order uses to become a sheet: the width
- * at which the phone, not the desk, is the machine being designed for.
+ * at which the phone, not the desk, is the machine being designed for. StyleX
+ * needs a literal media key, so keep 768px equal to BUILD_SHEET_MEDIA.
  */
-const BOARD_BLEED_MEDIA = "@media (max-width: 767px)";
+const BOARD_BLEED_MEDIA = "@media (width < 768px)";
 
 /**
  * The AWBW page for a map, so a player can read the map the match is played on

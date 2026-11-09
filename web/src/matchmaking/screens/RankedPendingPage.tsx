@@ -154,7 +154,6 @@ export function RankedPendingPage({
         <Banner
           collapsible={false}
           description="A ranked pairing is readable only by the two players in it."
-          role="alert"
           status="error"
           title="This pairing is not yours"
         />

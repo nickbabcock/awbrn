@@ -30,6 +30,7 @@ import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid, GridSpan } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
+import { useAnnounce } from "@astryxdesign/core/hooks";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { MapThumb } from "#/maps/components/MapThumb.tsx";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
@@ -50,7 +51,11 @@ import { CoBoard } from "#/components/CoBoard.tsx";
 import { importAwbwMapFn } from "#/maps/maps.functions.ts";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
 import { MapLoadingPlate, MapSelectPlate } from "#/maps/components/MapPlate.tsx";
-import { MAP_BOARD_COLUMNS, MAP_BOARD_LOADING_PLATES, mapBoardSummary } from "#/maps/map_board.ts";
+import {
+  MAP_BOARD_COLUMNS,
+  MAP_BOARD_LOADING_PLATES,
+  useMapBoardSummary,
+} from "#/maps/map_board.ts";
 import { mapCatalogQueryOptions, mapQueryOptions } from "#/maps/maps.queries.ts";
 import { mapKeys } from "#/maps/maps.keys.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
@@ -229,6 +234,15 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   }
 
   const isBoardEmpty = !catalogQuery.isPending && !catalogQuery.isError && catalogMaps.length === 0;
+  const summary = useMapBoardSummary({
+    count: catalogMaps.length,
+    filters,
+    hasMore: catalogQuery.hasNextPage,
+    isError: catalogQuery.isError,
+    isNarrowed,
+    isPending: catalogQuery.isPending,
+    search,
+  });
 
   return (
     <Page>
@@ -248,12 +262,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
                   onFiltersChange={setFilters}
                   onSearchChange={setSearchInput}
                   search={searchInput}
-                  summary={mapBoardSummary({
-                    count: catalogMaps.length,
-                    hasMore: catalogQuery.hasNextPage,
-                    isNarrowed,
-                    isPending: catalogQuery.isPending,
-                  })}
+                  summary={summary}
                 />
               </Card>
             )}
@@ -495,7 +504,7 @@ function FirstMapPanel({
           </Text>
         ) : null}
         {importer.error ? (
-          <Banner description={importer.error} role="alert" status="error" title="Import failed" />
+          <Banner description={importer.error} status="error" title="Import failed" />
         ) : null}
       </VStack>
     </Card>
@@ -682,10 +691,21 @@ function SetupPlaceholder() {
   );
 }
 
-/** Shared behavior of the two places a map is imported. */
+/**
+ * Shared behavior of the two places a map is imported.
+ *
+ * A failed import is announced here. The import plate shows its error as
+ * plain text in its label, so the announcement cannot depend on a banner.
+ */
 function useAwbwImport(onImported: (map: MapCatalogEntry) => void | Promise<void>) {
   const [sourceMapId, setSourceMapId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const announce = useAnnounce();
+
+  function fail(message: string): void {
+    setError(message);
+    announce(message, "assertive");
+  }
 
   const mutation = useMutation({
     mutationFn: importAwbwMapFn,
@@ -697,14 +717,14 @@ function useAwbwImport(onImported: (map: MapCatalogEntry) => void | Promise<void
 
   async function run(): Promise<void> {
     if (sourceMapId === null || sourceMapId <= 0) {
-      setError("Enter the map's AWBW id.");
+      fail("Enter the map's AWBW id.");
       return;
     }
     setError(null);
     try {
       await mutation.mutateAsync({ data: { sourceMapId } });
     } catch (importError) {
-      setError(formatImportError(importError));
+      fail(formatImportError(importError));
     }
   }
 
