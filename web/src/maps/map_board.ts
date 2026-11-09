@@ -55,8 +55,9 @@ export function mapBoardSummary({
  *
  * The count changes only on screen, so it is announced each time a search or
  * a filter settles, even when the count is the same as the last one, and each
- * time more maps load. The first count arrives with the page, which already
- * says it, so it is not announced. Nothing is announced while the board says
+ * time more maps load. It is also announced when a read succeeds after a
+ * failed one, because the error banner goes away without a word. The first
+ * count arrives with the page, which already says it, so it is not announced. Nothing is announced while the board says
  * the result in another way: an empty board shows an empty state, and a failed
  * read shows an error banner, which both announce themselves.
  */
@@ -87,16 +88,22 @@ export function useMapBoardSummary({
     normalizeMapCatalogFilters(filters),
   ]);
   const announce = useAnnounce({ hasReplace: true });
-  const last = useRef<{ searchKey: string; summary: string } | null>(null);
+  const last = useRef<{ isError: boolean; searchKey: string; summary: string } | null>(null);
 
   useEffect(() => {
     if (isPending) return;
     const previous = last.current;
-    if (previous?.searchKey === searchKey && previous.summary === summary) return;
-    last.current = { searchKey, summary };
+    if (
+      previous?.isError === isError &&
+      previous.searchKey === searchKey &&
+      previous.summary === summary
+    ) {
+      return;
+    }
+    last.current = { isError, searchKey, summary };
     if (previous === null || isAnnouncedElsewhere) return;
     announce(summary);
-  }, [announce, isAnnouncedElsewhere, isPending, searchKey, summary]);
+  }, [announce, isAnnouncedElsewhere, isError, isPending, searchKey, summary]);
 
   return summary;
 }

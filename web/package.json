@@ -17,7 +17,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "theme:build": "pnpm exec astryx theme build src/themes/awbrnTheme.ts"
+    "theme:build": "pnpm exec astryx theme build src/themes/awbrnTheme.ts && pnpm exec oxfmt src/themes"
   },
   "dependencies": {
     "@astryxdesign/core": "^0.7.11",
