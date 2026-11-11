@@ -17,11 +17,9 @@
 //!    gives a decisive capture. It keeps the other powers back, steers one or
 //!    two capturers to tiles near the enemy headquarters, and keeps the
 //!    decisive power back until a capturer is in reach.
-//! 3. [`powered_captures`] finds the enemy captures of our headquarters that
-//!    an affordable enemy power makes possible. The reply estimate reads it
-//!    ([`super::reply::ReplyOptions::power_reach`]). With the swing rule, it
-//!    also finds the other properties of ours that the enemy capturers take
-//!    with that power ([`super::reply::ReplyOptions::power_swing`]).
+//! 3. [`powered_captures`] finds the enemy captures of our headquarters, and
+//!    of our other properties, that an affordable enemy power makes possible.
+//!    The reply estimate reads it ([`super::reply::ReplyOptions::march`]).
 //! 4. [`swing_turn`] is the swing rule. It uses a decisive power when the
 //!    properties that it takes in this turn, less those taken without it,
 //!    are a large part of the properties of the map, and it holds the other
@@ -555,7 +553,7 @@ pub(crate) const LARGE_SWING_SHARE: f64 = 0.12;
 
 /// The own turns within which a capturer of the march plan must get to a
 /// staging tile for the plan to wait for the headquarters capture.
-pub(crate) const NEAR_SNIPE: u32 = 2;
+pub(crate) const NEAR_STAGING: u32 = 2;
 
 /// What the swing rule does in one turn.
 #[derive(Clone, Debug, PartialEq)]
@@ -596,7 +594,7 @@ pub(crate) fn swing_share(state: &State, seat: PlayerIdx, level: PowerLevel) -> 
 ///
 /// - When the meter can pay for the decisive power now, the power is legal,
 ///   and the gain is at least [`SWING_SHARE`], the rule fires the power. When
-///   the march plan `snipe` has a capturer within [`NEAR_SNIPE`] turns of a
+///   the march plan `plan` has a capturer within [`NEAR_STAGING`] turns of a
 ///   staging tile, the rule fires only for a gain of at least
 ///   [`LARGE_SWING_SHARE`], and otherwise waits for the headquarters.
 /// - When the meter pays within [`HORIZON`] turns and the gain is at least
@@ -606,7 +604,7 @@ pub(crate) fn swing_turn(
     session: &Session,
     seat: PlayerIdx,
     rate: Option<f64>,
-    snipe: Option<&March>,
+    plan: Option<&March>,
 ) -> SwingTurn {
     let state = session.state();
     let Some(player) = state.players.get(seat.get()) else {
@@ -638,7 +636,7 @@ pub(crate) fn swing_turn(
             scop: level != PowerLevel::Scop,
         });
     }
-    let near = snipe.is_some_and(|plan| plan.runner_turns <= NEAR_SNIPE);
+    let near = plan.is_some_and(|plan| plan.runner_turns <= NEAR_STAGING);
     if near && share < LARGE_SWING_SHARE {
         return SwingTurn::None;
     }
@@ -814,7 +812,7 @@ pub(crate) fn swing(state: &State, seat: PlayerIdx, level: Option<PowerLevel>) -
 /// reply estimate reads those already.
 #[cfg(test)]
 pub(crate) fn powered_headquarters_captures(state: &State, ours: PlayerIdx) -> Vec<CellIdx> {
-    powered_captures(state, ours, false)
+    powered_captures(state, ours)
         .into_iter()
         .filter_map(|(cell, headquarters)| headquarters.then_some(cell))
         .collect()
@@ -825,15 +823,10 @@ pub(crate) fn powered_headquarters_captures(state: &State, ours: PlayerIdx) -> V
 /// in one capture, as `(cell, decisive)`.
 ///
 /// `decisive` is true for a headquarters, or for our last lab on a map with
-/// no headquarters. When `swing` is false, the result has only those. When
-/// `swing` is true, it also has the other properties of ours that the enemy
-/// capturers take with the power, one property for each capturer
+/// no headquarters. The result also has the other properties of ours that
+/// the enemy capturers take with the power, one property for each capturer
 /// ([`swing`]).
-pub(crate) fn powered_captures(
-    state: &State,
-    ours: PlayerIdx,
-    swing: bool,
-) -> Vec<(CellIdx, bool)> {
+pub(crate) fn powered_captures(state: &State, ours: PlayerIdx) -> Vec<(CellIdx, bool)> {
     let Some(enemy) = state.players.seat(&state.turn.active_player) else {
         return Vec::new();
     };
@@ -881,9 +874,6 @@ pub(crate) fn powered_captures(
             .collect();
         if labs.len() == 1 { labs } else { Vec::new() }
     };
-    if ours_decisive.is_empty() && !swing {
-        return Vec::new();
-    }
     let dimensions = state.board.dimensions();
     let cells: Vec<CellIdx> = ours_decisive
         .iter()
@@ -917,9 +907,6 @@ pub(crate) fn powered_captures(
             })
             .map(|unit| unit.id)
             .collect();
-        if near.is_empty() && !swing {
-            continue;
-        }
         let session = Session::new(powered_state);
         let state = session.state();
         for order in orders_of(&session, &near, |order| {
@@ -949,14 +936,12 @@ pub(crate) fn powered_captures(
                 found.push((cell, true));
             }
         }
-        if swing {
-            for (_, cell, _) in completed_captures(&session, enemy) {
-                let owned = dimensions.position_of(cell).is_some_and(|position| {
-                    state.board.tile(position).owner == TileOwner::Owned(ours)
-                });
-                if owned && !found.iter().any(|(other, _)| *other == cell) {
-                    found.push((cell, false));
-                }
+        for (_, cell, _) in completed_captures(&session, enemy) {
+            let owned = dimensions
+                .position_of(cell)
+                .is_some_and(|position| state.board.tile(position).owner == TileOwner::Owned(ours));
+            if owned && !found.iter().any(|(other, _)| *other == cell) {
+                found.push((cell, false));
             }
         }
     }

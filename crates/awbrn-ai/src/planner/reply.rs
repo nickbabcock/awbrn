@@ -302,7 +302,7 @@ pub fn estimate(
         }
     }
     if march {
-        for (cell, decisive) in super::march::powered_captures(state, ours, true) {
+        for (cell, decisive) in super::march::powered_captures(state, ours) {
             let worth = if decisive {
                 estimate.headquarters_lost = true;
                 values.headquarters

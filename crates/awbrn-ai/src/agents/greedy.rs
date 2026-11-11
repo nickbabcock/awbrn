@@ -2017,10 +2017,6 @@ impl Board<'_> {
         })
     }
 
-    /// How much each tile wants a unit that fights.
-    ///
-    /// The nearest enemy, priced by what it costs to build. This is the term
-    /// that keeps an army walking when nothing is in range of it yet.
     /// Build the firing position field of each indirect kind that we hold on
     /// the board. Return whether a field changed.
     ///
@@ -2030,7 +2026,7 @@ impl Board<'_> {
     /// the neutral strike ([`strike`]) times the day-to-day attack of our
     /// commander, and at most the whole enemy unit. The tiles are those in
     /// the attack range of the kind, with the range that our commander adds
-    /// day to day ([`crate::build_policy`]). An enemy unit that can capture
+    /// day to day ([`crate::threat::seat_day_to_day`]). An enemy unit that can capture
     /// and stands on a property that is ours or neutral counts 1.5 times,
     /// because the strike stops a capture.
     fn fire_fields(
@@ -2132,6 +2128,10 @@ impl Board<'_> {
         true
     }
 
+    /// How much each tile wants a unit that fights.
+    ///
+    /// The nearest enemy, priced by what it costs to build. This is the term
+    /// that keeps an army walking when nothing is in range of it yet.
     fn advance_field(
         &self,
         out: &mut Vec<f64>,

@@ -820,27 +820,24 @@ fn a_predicted_loss_of_sight_does_not_require_a_replan() {
     assert_ne!(unprojected.last(), Some(actual.state()));
 }
 
-/// The configuration of the candidate.
-const CANDIDATE: PlannerConfig = PlannerConfig::V8;
-
-/// The candidate without the march plan.
+/// planner-v8 without the march plan.
 const WITHOUT_MARCH: PlannerConfig = PlannerConfig {
     march: false,
-    ..CANDIDATE
+    ..PlannerConfig::V8
 };
 
-/// The candidate without the power policy. Its seed plan does not use a
+/// planner-v8 without the power policy. Its seed plan does not use a
 /// power first. On a board of [`win_board`], only the march plan finds the
 /// power that wins at once.
 const MARCH_ONLY: PlannerConfig = PlannerConfig {
     baseline: crate::baseline::BaselineConfig {
         weights: crate::agents::Weights {
             power_policy: false,
-            ..CANDIDATE.baseline.weights
+            ..PlannerConfig::V8.baseline.weights
         },
-        ..CANDIDATE.baseline
+        ..PlannerConfig::V8.baseline
     },
-    ..CANDIDATE
+    ..PlannerConfig::V8
 };
 
 /// The new fields and configurations do not change the fingerprints of the
@@ -875,8 +872,9 @@ fn the_earlier_fingerprints_do_not_change() {
 /// The largest number of nodes that one plan can use.
 ///
 /// Each complete line uses one node: the seed, the winning capture of the
-/// march plan, each kill plan, at most two powers (three positions for each
-/// with the power placement), each safety and block plan, and each reroute
+/// march plan, each kill plan, at most four power positions with the power
+/// policy (three for the power of the seed plan, one for the other power),
+/// each safety and block plan, and each reroute
 /// plan. Each reply check uses one node: the seed and each checked
 /// alternative.
 fn plan_node_bound(config: &PlannerConfig) -> usize {
@@ -884,7 +882,7 @@ fn plan_node_bound(config: &PlannerConfig) -> usize {
         + usize::from(config.march)
         + config.kill_plans
         + if config.baseline.weights.power_policy {
-            6
+            4
         } else {
             usize::from(config.power_first) * 2
         }
@@ -901,17 +899,18 @@ fn plan_node_bound(config: &PlannerConfig) -> usize {
 
 #[test]
 fn the_node_budget_does_not_limit_the_wide_configurations() {
-    // The Hard profile and the v7 plans use a node budget of 32.
+    // The v7 plans use a node budget of 32.
     assert_eq!(plan_node_bound(&PlannerConfig::V7), 29);
-    // The plans of the wide configurations use a node budget of 256.
+    // The Hard profile and the plans of the wide configurations use a node
+    // budget of 256.
     assert_eq!(plan_node_bound(&PlannerConfig::V7_WIDE), 212);
-    assert_eq!(plan_node_bound(&CANDIDATE), 217);
+    assert_eq!(plan_node_bound(&PlannerConfig::V8), 215);
 }
 
-/// A game of the candidate against planner-v7 has no refused command, and
+/// A game of planner-v8 against planner-v7 has no refused command, and
 /// the same seeds give the same game.
 #[test]
-fn a_candidate_game_is_legal_and_repeatable() {
+fn a_planner_v8_game_is_legal_and_repeatable() {
     let game = || {
         let state = arena(false, 3);
         let mut session = Session::new(state.clone());
@@ -919,7 +918,7 @@ fn a_candidate_game_is_legal_and_repeatable() {
             1,
             PlannerConfig {
                 plans_per_turn: 4,
-                ..CANDIDATE
+                ..PlannerConfig::V8
             },
         );
         let mut second = PlannerAgent::with_config(2, PlannerConfig::V7);
@@ -1547,12 +1546,12 @@ fn andy_board(hp: u8) -> State {
     state
 }
 
-/// Eagle's super power lets the units that acted act again. The candidate
+/// Eagle's super power lets the units that acted act again. planner-v8
 /// keeps it last, so it goes after the attacks, and the placement does not
 /// move it.
 #[test]
-fn the_candidate_keeps_the_eagle_super_power_after_the_attacks() {
-    let (placed, chosen) = placement_probe(eagle_board(), &CANDIDATE);
+fn planner_v8_keeps_the_eagle_super_power_after_the_attacks() {
+    let (placed, chosen) = placement_probe(eagle_board(), &PlannerConfig::V8);
     println!("eagle: {placed:#?}\nchosen {:?}", power_position(&chosen));
     assert_eq!(placed.len(), 1, "the placement adds no position");
     assert!(placed[0].attacks.0 >= 4, "{placed:?}");
@@ -1565,7 +1564,7 @@ fn the_candidate_keeps_the_eagle_super_power_after_the_attacks() {
 #[test]
 fn the_first_placement_puts_the_grit_super_power_first() {
     for distance in [3, 5] {
-        let (placed, chosen) = placement_probe(grit_board(distance), &CANDIDATE);
+        let (placed, chosen) = placement_probe(grit_board(distance), &PlannerConfig::V8);
         println!(
             "grit distance {distance}: {placed:#?}\nchosen {:?}",
             power_position(&chosen)
@@ -1580,7 +1579,7 @@ fn the_first_placement_puts_the_grit_super_power_first() {
 #[test]
 fn the_first_placement_moves_the_andy_super_power_only_past_the_margin() {
     for hp in [100, 50] {
-        let (placed, chosen) = placement_probe(andy_board(hp), &CANDIDATE);
+        let (placed, chosen) = placement_probe(andy_board(hp), &PlannerConfig::V8);
         println!(
             "andy hp {hp}: {placed:#?}\nchosen {:?}",
             power_position(&chosen)
@@ -1781,7 +1780,7 @@ fn win_board() -> (State, PlayerIdx) {
 
 /// The march planner plays the winning Victory March. The planner with no
 /// march plan also finds it: its power plan uses the power first, and the
-/// Hard policy then captures. The candidate finds it in its seed plan,
+/// Hard policy then captures. planner-v8 finds it in its seed plan,
 /// because its seed plan uses the power first.
 #[test]
 fn the_march_planner_wins_with_victory_march() {
@@ -1803,9 +1802,9 @@ fn the_march_planner_wins_with_victory_march() {
     play_turn(&mut base, &mut session);
     assert!(won(session.state(), ours));
 
-    let mut candidate = PlannerAgent::with_config(7, CANDIDATE);
+    let mut v8 = PlannerAgent::with_config(7, PlannerConfig::V8);
     let mut session = Session::new(state);
-    play_turn(&mut candidate, &mut session);
+    play_turn(&mut v8, &mut session);
     assert!(won(session.state(), ours));
 }
 
@@ -1997,7 +1996,7 @@ fn the_march_planner_answers_an_enemy_victory_march() {
         );
         !march::powered_headquarters_captures(session.state(), ours).is_empty()
     };
-    assert!(!threat_after(CANDIDATE));
+    assert!(!threat_after(PlannerConfig::V8));
     // Without the march switch, the simulated enemy reply does not use the
     // power, so the planner attacks the infantry and leaves the capture.
     assert!(threat_after(WITHOUT_MARCH));
@@ -2089,7 +2088,7 @@ fn swing_board(filler: u8) -> (State, PlayerIdx) {
 /// properties, and not below. It holds the normal power when the meter pays
 /// soon. A near headquarters plan waits unless the swing is 12% or more.
 #[test]
-fn the_swing_rule_follows_the_threshold_and_the_snipe() {
+fn the_swing_rule_follows_the_threshold_and_the_march_plan() {
     use awvm::commander::PowerLevel;
     use awvm::semantic::Pos;
     // 3 of 50 properties is 6%: fire.
@@ -2167,13 +2166,13 @@ fn the_swing_rule_follows_the_threshold_and_the_snipe() {
     let _ = Pos::new(0, 0);
 }
 
-/// The march2 planner uses the power on the swing turn and takes the
+/// The march planner uses the power on the swing turn and takes the
 /// properties, one capturer each.
 #[test]
-fn the_march2_planner_takes_the_swing() {
+fn the_march_planner_takes_the_swing() {
     use awvm::semantic::{Pos, TileOwner};
     let (state, ours) = swing_board(10);
-    let mut agent = PlannerAgent::with_config(7, CANDIDATE);
+    let mut agent = PlannerAgent::with_config(7, PlannerConfig::V8);
     let mut session = Session::new(state);
     let plays = play_turn(&mut agent, &mut session);
     assert!(matches!(
@@ -2315,7 +2314,7 @@ fn the_placement_does_not_use_a_power_that_the_march_plan_holds() {
         "the meter pays for the normal power"
     );
 
-    let config = CANDIDATE;
+    let config = PlannerConfig::V8;
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut replay = config.replay_score.map(ReplayReader::new);
     let mut planner = probe_planner(&config, &mut evaluator, replay.as_mut(), ours);
@@ -2356,7 +2355,7 @@ fn the_placement_does_not_use_a_power_that_the_march_plan_holds() {
 fn the_placement_keeps_the_swing_power_first_and_once() {
     use awvm::commander::PowerLevel;
     use awvm::semantic::{Pos, TileOwner};
-    let config = CANDIDATE;
+    let config = PlannerConfig::V8;
     let (state, ours) = swing_board(10);
 
     let mut evaluator = Evaluator::new(config.eval_weights);

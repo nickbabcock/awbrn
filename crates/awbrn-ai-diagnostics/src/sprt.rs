@@ -38,7 +38,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use awbrn_ai::agent::{Agent, NodeBudget};
+use awbrn_ai::agent::{Agent, AgentTiming, NodeBudget};
 use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai::harness::{Limits, play_measured};
 use awbrn_ai::planner::PlannerStats;
@@ -611,15 +611,54 @@ struct PairOutput {
 /// plays (`awbrn_server::AiSeat`), from a seed of the match seed, the seat
 /// and the day. This wrapper does the same from the agent seed of the seat,
 /// so a run measures the play of the host. An agent that keeps state over
-/// turns loses it here, as it does in the host. The planner counters are the
-/// sums over the agents of the turns.
+/// turns loses it here, as it does in the host. The counters (planner,
+/// search, timing) are the sums over the agents of the turns.
 struct RebuiltEachTurn<'a> {
     factory: &'a dyn AgentFactory,
     seed: u64,
     agent: Box<dyn Agent>,
     turn: Option<(awvm::semantic::PlayerId, u64)>,
-    /// The planner counters of the agents of the earlier turns.
-    stats: Option<PlannerStats>,
+    /// The counters of the agents of the earlier turns.
+    earlier: EarlierCounters,
+}
+
+/// The counters of the agents that a [`RebuiltEachTurn`] has replaced.
+#[derive(Default)]
+struct EarlierCounters {
+    planner: Option<PlannerStats>,
+    search: Option<awbrn_ai::agent::SearchStats>,
+    decision_times: Option<Vec<u64>>,
+    timing: Option<AgentTiming>,
+}
+
+impl EarlierCounters {
+    fn keep(&mut self, agent: &dyn Agent) {
+        if let Some(stats) = agent.planner_stats() {
+            self.planner
+                .get_or_insert_with(PlannerStats::default)
+                .add(&stats);
+        }
+        if let Some(stats) = agent.search_stats() {
+            self.search.get_or_insert_with(Default::default).add(stats);
+        }
+        if let Some(times) = agent.search_decision_times_nanos() {
+            self.decision_times
+                .get_or_insert_with(Vec::new)
+                .extend(times);
+        }
+        if let Some(timing) = agent.timing() {
+            self.timing = Some(add_timing(self.timing.unwrap_or_default(), timing));
+        }
+    }
+}
+
+fn add_timing(left: AgentTiming, right: AgentTiming) -> AgentTiming {
+    AgentTiming {
+        plan_construction_nanos: left.plan_construction_nanos + right.plan_construction_nanos,
+        plan_refresh_nanos: left.plan_refresh_nanos + right.plan_refresh_nanos,
+        baseline_selection_nanos: left.baseline_selection_nanos + right.baseline_selection_nanos,
+        trace_recording_nanos: left.trace_recording_nanos + right.trace_recording_nanos,
+    }
 }
 
 impl<'a> RebuiltEachTurn<'a> {
@@ -629,7 +668,7 @@ impl<'a> RebuiltEachTurn<'a> {
             seed,
             agent: factory.create(seed),
             turn: None,
-            stats: None,
+            earlier: EarlierCounters::default(),
         })
     }
 }
@@ -650,11 +689,7 @@ impl Agent for RebuiltEachTurn<'_> {
     fn start_turn(&mut self, view: &Observation) {
         let turn = (view.turn.active_player.clone(), view.turn.day);
         if self.turn.as_ref() != Some(&turn) {
-            if let Some(stats) = self.agent.planner_stats() {
-                self.stats
-                    .get_or_insert_with(PlannerStats::default)
-                    .add(&stats);
-            }
+            self.earlier.keep(&*self.agent);
             // The host seeds each turn from the match seed, the seat and the
             // day (`AiProfile::turn_seed`).
             let seed = Rng::mix(self.seed ^ turn.1.wrapping_mul(0x9e37_79b9));
@@ -689,16 +724,59 @@ impl Agent for RebuiltEachTurn<'_> {
         self.agent.classify_command(view, command);
     }
 
+    fn finalize_trace(
+        &mut self,
+        reason: awbrn_ai::TurnEndReason,
+    ) -> Result<(), awbrn_ai::TraceError> {
+        self.agent.finalize_trace(reason)
+    }
+
+    fn trace(&self) -> Option<&awbrn_ai::DecisionTrace> {
+        self.agent.trace()
+    }
+
+    fn clear_trace(&mut self) {
+        self.agent.clear_trace();
+    }
+
+    fn timing(&self) -> Option<AgentTiming> {
+        match (self.earlier.timing, self.agent.timing()) {
+            (Some(earlier), Some(current)) => Some(add_timing(earlier, current)),
+            (earlier, current) => current.or(earlier),
+        }
+    }
+
+    fn search_stats(&self) -> Option<awbrn_ai::agent::SearchStats> {
+        match (&self.earlier.search, self.agent.search_stats()) {
+            (Some(earlier), Some(current)) => {
+                let mut total = earlier.clone();
+                total.add(current);
+                Some(total)
+            }
+            (earlier, current) => current.or_else(|| earlier.clone()),
+        }
+    }
+
+    fn search_decision_times_nanos(&self) -> Option<Vec<u64>> {
+        match (
+            &self.earlier.decision_times,
+            self.agent.search_decision_times_nanos(),
+        ) {
+            (Some(earlier), Some(current)) => {
+                Some(earlier.iter().copied().chain(current).collect())
+            }
+            (earlier, current) => current.or_else(|| earlier.clone()),
+        }
+    }
+
     fn planner_stats(&self) -> Option<PlannerStats> {
-        let current = self.agent.planner_stats();
-        match (&self.stats, current) {
+        match (&self.earlier.planner, self.agent.planner_stats()) {
             (Some(earlier), Some(current)) => {
                 let mut total = earlier.clone();
                 total.add(&current);
                 Some(total)
             }
-            (Some(earlier), None) => Some(earlier.clone()),
-            (None, current) => current,
+            (earlier, current) => current.or_else(|| earlier.clone()),
         }
     }
 }
@@ -1171,6 +1249,7 @@ mod tests {
             assert_eq!(plan.run_id, name);
             assert_eq!(plan.maps.len(), 14);
             assert_eq!(plan.fog == Some(true), name.contains("-fog-"));
+            assert_eq!(plan.rebuild_agent_each_turn, name.contains("-rebuilt-"));
             assert_eq!(plan.limits.day_limit, 35);
             assert_eq!(plan.limits.node_budget, 256);
             let registry = plan_registry(&plan, &path).unwrap();
@@ -1185,10 +1264,11 @@ mod tests {
             plans += 1;
             pairs += plan.max_pairs;
         }
-        // The Andy mirror, seven commander mirrors, and the Andy mirror in
-        // fog.
-        assert_eq!(plans, 9);
-        assert_eq!(pairs, 280 + 7 * 56 + 56);
+        // The Andy mirror, seven commander mirrors, the Andy mirror in fog,
+        // and the Andy and Sami mirrors with an agent built again in each
+        // turn.
+        assert_eq!(plans, 11);
+        assert_eq!(pairs, 280 + 7 * 56 + 56 + 280 + 56);
     }
 
     #[test]

@@ -236,6 +236,9 @@ with a day limit of 35:
 - `planner-v8-vs-v7-<commander>-fixed56.json`: the mirrors of Drake, Eagle,
   Grit, Kindle, Lash, Max and Sami, 56 pairs each.
 - `planner-v8-vs-v7-fog-fixed56.json`: the Andy mirror in fog, 56 pairs.
+- `planner-v8-vs-v7-rebuilt-fixed280.json` and
+  `planner-v8-vs-v7-sami-rebuilt-fixed56.json`: the Andy and Sami mirrors with
+  an agent built again in each turn, as the host does (see below).
 
 ```text
 cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
@@ -245,8 +248,8 @@ cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
 
 The host builds a new agent for each turn (`awbrn_server::AiSeat`). Set
 `"rebuild_agent_each_turn": true` in a plan to do the same: each agent is
-built again at the start of each own turn from a seed of its match seed, its
-seat and the day. The march plan of `planner-v8` keeps a log of the meter
+built again at the start of each own turn, from a seed of its agent seed and
+the day. The march plan of `planner-v8` keeps a log of the meter
 over the own turns, so its play in a host is the play with this option.
 
 The source fingerprint of a plan reads every untracked file that

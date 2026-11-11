@@ -927,25 +927,27 @@ impl TurnPlanner<'_> {
 
     fn plan(&mut self, root: &Session) -> Option<Line> {
         let mut session = Session::new(root.state().clone());
-        // The opening plays come first in every line: the ferry plays, the march
-        // steers and, on a swing turn, the power and its captures.
+        // The opening plays come first in every line: the ferry plays, the moves
+        // of the march plan that steer capturers and, on a swing turn, the
+        // power and its captures.
         let mut opening = if self.config.ferry {
             ferry_plays(root)
         } else {
             Vec::new()
         };
-        // The march steers come after the ferry plays, in every line.
-        let snipe = if self.config.march {
+        // The moves that steer capturers come after the ferry plays, in every
+        // line.
+        let march_plan = if self.config.march {
             march::prepare(root, self.seat, self.march.rate, self.march.held)
         } else {
             None
         };
         let swing = if self.config.march {
-            march::swing_turn(root, self.seat, self.march.rate, snipe.as_ref())
+            march::swing_turn(root, self.seat, self.march.rate, march_plan.as_ref())
         } else {
             march::SwingTurn::None
         };
-        if let Some(plan) = snipe {
+        if let Some(plan) = march_plan {
             self.march.live = true;
             self.march.hold = Some(plan.hold);
             self.march.holding = plan.holding;
