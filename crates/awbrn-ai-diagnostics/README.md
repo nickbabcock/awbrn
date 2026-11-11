@@ -235,7 +235,10 @@ Wall-clock limits are excluded from CI; tests check deterministic work limits.
 
 ## Measure planner-v8
 
-`planner-v8` is the planner of the Hard profile. It is `planner-v7` with:
+`planner-v8` is the planner of the Hard profile. The results of each part,
+and of the experiments that were not kept, are in
+`crates/awbrn-ai/diagnostics/planner-v8-experiments.md`. It is `planner-v7`
+with:
 
 - the wider search of `planner-v7-wide`: no work threshold, and about four
   times the plans and reply checks. One plan uses at most 215 nodes, so its
