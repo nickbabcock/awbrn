@@ -1059,6 +1059,148 @@ fn island_board(seed: u64) -> (State, PlayerIdx, PlayerIdx) {
     (state, ours, theirs)
 }
 
+/// Our infantry guards our headquarters on a landmass with nothing left to
+/// take, and an empty transport stands next to it. An enemy infantry can walk
+/// onto the headquarters. The ferry would load the guard, but the block plan
+/// keeps it on the headquarters, and the planner chooses the block.
+#[test]
+fn a_block_keeps_a_guard_that_the_ferry_would_load() {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, ours, theirs) = island_board(5);
+    set_property(
+        &mut state,
+        Pos::new(0, 0),
+        Terrain::Hq,
+        TileOwner::Owned(ours),
+    );
+    let board = |position| Location::Board { position };
+    state.units.push(board_unit(
+        1,
+        UnitKind::Infantry,
+        ours,
+        board(Pos::new(0, 0)),
+    ));
+    state.units.push(board_unit(
+        2,
+        UnitKind::TCopter,
+        ours,
+        board(Pos::new(1, 0)),
+    ));
+    state.units.push(board_unit(
+        91,
+        UnitKind::Infantry,
+        theirs,
+        board(Pos::new(1, 2)),
+    ));
+    // The ferry loads the guard.
+    let session = Session::new(state.clone());
+    assert_eq!(
+        ferry_plays(&session).first().and_then(|play| play.unit()),
+        Some(UnitId::new(1))
+    );
+    let config = PlannerConfig {
+        march: false,
+        ..PlannerConfig::V8
+    };
+    let mut evaluator = Evaluator::new(config.eval_weights);
+    let mut replay = config.replay_score.map(ReplayReader::new);
+    let mut planner = probe_planner(&config, &mut evaluator, replay.as_mut(), ours);
+    let line = planner.plan(&session).unwrap();
+    assert_eq!(line.generator, Generator::Block, "{:?}", line.plays);
+    let guard = line.end_state.units.get(UnitId::new(1)).unwrap();
+    assert_eq!(
+        guard.location,
+        Location::Board {
+            position: Pos::new(0, 0)
+        },
+        "{:?}",
+        line.plays
+    );
+    assert!(
+        !line
+            .plays
+            .iter()
+            .any(|play| play.unit() == Some(UnitId::new(1)) && play.kind() == OrderKind::Load)
+    );
+}
+
+/// An alternative leaves out the opening plays of the units that it gives an
+/// order to, and keeps the other opening plays in their order. The power and
+/// the captures of a swing turn stay, and the power of the seed plan goes
+/// before the prefix.
+#[test]
+fn an_alternative_leaves_out_the_opening_plays_of_its_units() {
+    use awvm::commander::PowerLevel;
+    use awvm::ruleset::UnitKind;
+    let (mut root, ours, _) = empty_board(5);
+    let dimensions = root.board.dimensions();
+    let cell = CellIdx::from_raw;
+    // The transport 7 stands on the cell that the load goes to.
+    let transport_at = dimensions.position_of(cell(2)).unwrap();
+    root.units.push(board_unit(
+        7,
+        UnitKind::Apc,
+        ours,
+        Location::Board {
+            position: transport_at,
+        },
+    ));
+    let power = Play::unitless(cell(0), OrderKind::Power(PowerLevel::Scop));
+    let swing_capture = Play::new(UnitId::new(5), cell(1), OrderKind::Capture);
+    let load = Play::new(UnitId::new(1), cell(2), OrderKind::Load);
+    let transport_move = Play::new(UnitId::new(2), cell(3), OrderKind::Wait);
+    let unload = Play::unload(UnitId::new(3), UnitId::new(4), cell(4), 0);
+    let steer = Play::new(UnitId::new(6), cell(5), OrderKind::Wait);
+    let opening = [power, swing_capture, load, transport_move, unload, steer];
+    let seed_power = Play::unitless(cell(0), OrderKind::Power(PowerLevel::Cop));
+
+    // A block of the loaded capturer leaves out its load only.
+    let block = Play::new(UnitId::new(1), cell(9), OrderKind::Wait);
+    assert_eq!(
+        alternative_plays(&root, &opening[2..], 0, None, vec![block]),
+        vec![transport_move, unload, steer, block]
+    );
+    // A unit carried as cargo is named too, and a steered capturer as well.
+    let hold = Play::new(UnitId::new(4), cell(9), OrderKind::Wait);
+    let kill = Play::new(UnitId::new(6), cell(9), OrderKind::Wait);
+    assert_eq!(
+        alternative_plays(&root, &opening[2..], 0, Some(seed_power), vec![hold, kill]),
+        vec![load, transport_move, seed_power, hold, kill]
+    );
+    // An order to the transport of a load leaves out the load.
+    let reroute = Play::new(UnitId::new(7), cell(9), OrderKind::Wait);
+    assert_eq!(
+        alternative_plays(&root, &opening[2..], 0, None, vec![reroute]),
+        vec![transport_move, unload, steer, reroute]
+    );
+    // An order to the transport of an unload leaves out the unload.
+    let wait = Play::new(UnitId::new(3), cell(9), OrderKind::Wait);
+    assert_eq!(
+        alternative_plays(&root, &opening[2..], 0, None, vec![wait]),
+        vec![load, transport_move, steer, wait]
+    );
+    // The power and the captures of a swing turn stay.
+    let safety = Play::new(UnitId::new(5), cell(9), OrderKind::Wait);
+    assert_eq!(
+        alternative_plays(&root, &opening, 2, None, vec![safety]),
+        vec![
+            power,
+            swing_capture,
+            load,
+            transport_move,
+            unload,
+            steer,
+            safety
+        ]
+    );
+    // With no opening plays, the line is the power and the prefix.
+    assert_eq!(
+        alternative_plays(&root, &[], 0, Some(seed_power), vec![block]),
+        vec![seed_power, block]
+    );
+}
+
 /// The ferry loads a spare capturer, carries it to the island, and puts it
 /// down on the city. Each play is legal when it is played.
 #[test]

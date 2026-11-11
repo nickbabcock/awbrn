@@ -149,10 +149,13 @@ pub struct PlannerConfig {
     /// Whether spare capturers go by transport to properties that they cannot
     /// reach on foot ([`ferry`]).
     ///
-    /// The ferry plays come before the plays of the plan generators in every
-    /// own line. On a swing turn of the march plan, the power and its
-    /// captures come before the ferry plays. The line of a capture that wins
-    /// at once has no ferry plays.
+    /// The ferry plays come before the plays of the plan generators in the
+    /// seed plan, and in each other own line except as follows. On a swing
+    /// turn of the march plan, the power and its captures come before the
+    /// ferry plays. The line of a capture that wins at once has no ferry
+    /// plays. A plan generator that gives an order to a unit of a ferry play,
+    /// or to the transport that a ferry play loads, keeps that unit: the ferry
+    /// play is left out of that plan ([`alternative_plays`]).
     #[serde(skip_serializing_if = "is_false")]
     pub ferry: bool,
     /// Whether the planner plays and prepares decisive captures, and reads
@@ -178,6 +181,13 @@ pub struct PlannerConfig {
     ///   turns and the swing is large enough now, the other power is held.
     /// - The reply estimate reads the enemy captures of our properties that
     ///   an affordable enemy power of that kind makes possible.
+    ///
+    /// The moves that steer capturers come after the ferry plays in the seed
+    /// plan and in the other own lines. A plan generator that gives an order
+    /// to a steered capturer keeps that unit: the move is left out of that
+    /// plan. The power and the captures of a swing turn stay in every
+    /// alternative line ([`alternative_plays`]). The line of a capture that
+    /// wins at once has no opening plays.
     ///
     /// A commander with no such power, against an enemy with no such power,
     /// plays as before.
@@ -926,11 +936,15 @@ impl TurnPlanner<'_> {
 
     fn plan(&mut self, root: &Session) -> Option<Line> {
         let mut session = Session::new(root.state().clone());
-        // The opening plays come first in every line of this call. On a swing
+        // The opening plays come first in the lines of this call. On a swing
         // turn they are the power and its captures, then the ferry plays.
         // On other turns they are the ferry plays, then the moves of the march
         // plan that steer capturers. The line of a capture that wins at once
-        // has no opening plays.
+        // has no opening plays. An alternative can leave out some opening
+        // plays ([`alternative_plays`]). `fixed` is the number of opening plays
+        // that every alternative keeps: the power and the captures of a swing
+        // turn.
+        let mut fixed = 0;
         let mut opening = if self.config.ferry {
             ferry_plays(root)
         } else {
@@ -972,16 +986,10 @@ impl TurnPlanner<'_> {
                 self.march.swing_expected = u32::try_from(captures.len()).unwrap_or(u32::MAX);
                 self.march.hold = None;
                 self.march.holding = false;
+                fixed = 1 + captures.len();
                 opening.splice(0..0, std::iter::once(play).chain(captures));
             }
         }
-        let opened = |prefix: Vec<Play>| -> Vec<Play> {
-            if opening.is_empty() {
-                prefix
-            } else {
-                opening.iter().copied().chain(prefix).collect()
-            }
-        };
         let seed = self.line(&mut session, Generator::Seed, &opening)?;
         if self.config.march
             && Evaluator::terminal_value(&seed.end_state, self.seat)
@@ -999,9 +1007,9 @@ impl TurnPlanner<'_> {
         let seed_score = best.score;
 
         // Each alternative is the generator, the prefix, whether the opening
-        // plays go before the prefix, and whether it puts the power later
-        // than the seed plan does. A prefix that copies the seed plan already
-        // has the opening plays.
+        // plays that `alternative_plays` keeps go before the prefix, and
+        // whether it puts the power later than the seed plan does. A prefix
+        // that copies the seed plan already has the opening plays.
         let mut alternatives: Vec<(Generator, Vec<Play>, bool, bool)> = Vec::new();
         let placing = self.config.baseline.weights.power_policy;
         if placing && !self.out_of_work() {
@@ -1089,16 +1097,17 @@ impl TurnPlanner<'_> {
         let better = seed_score + self.config.seed_margin;
         let mut contenders: Vec<Line> = Vec::new();
         let seed_meter = self.meter_term(&best.end_state);
-        for (generator, prefix, opening, later) in alternatives {
+        for (generator, prefix, opening_first, later) in alternatives {
             if self.out_of_work() {
                 break;
             }
-            let prefix = match first_power {
-                Some(power) if opening && !later => {
-                    opened(std::iter::once(power).chain(prefix).collect())
-                }
-                _ if opening => opened(prefix),
-                _ => prefix,
+            // A prefix that puts the power later has no opening plays and no
+            // seed power: it copies the seed plan.
+            let prefix = if opening_first {
+                let power = if later { None } else { first_power };
+                alternative_plays(root.state(), &opening, fixed, power, prefix)
+            } else {
+                prefix
             };
             let Some(mut line) = self.line(&mut session, generator, &prefix) else {
                 continue;
@@ -1592,6 +1601,51 @@ impl TurnPlanner<'_> {
             penalty: 0.0,
         })
     }
+}
+
+/// The plays of an alternative: the opening plays, then the power of the
+/// seed plan `power` (when present), then `prefix`.
+///
+/// The first `fixed` opening plays stay in every line: the power and the
+/// captures of a swing turn. Another opening play of a unit that `prefix`
+/// gives an order to is left out, so that a block, a safety plan or a kill
+/// keeps its unit: the ferry or the march plan does not move or load the
+/// unit first. The units of an opening play are its unit, its cargo and, for
+/// a load, the transport on its destination in `root`.
+fn alternative_plays(
+    root: &State,
+    opening: &[Play],
+    fixed: usize,
+    power: Option<Play>,
+    prefix: Vec<Play>,
+) -> Vec<Play> {
+    let named = |unit: UnitId| {
+        prefix
+            .iter()
+            .any(|play| play.unit() == Some(unit) || play.cargo() == Some(unit))
+    };
+    let dimensions = root.board.dimensions();
+    let transport = |play: &Play| {
+        let position = (play.kind() == OrderKind::Load)
+            .then(|| dimensions.position_of(play.destination()))??;
+        root.units
+            .iter()
+            .find(|unit| unit.location == Location::Board { position })
+            .map(|unit| unit.id)
+    };
+    let (kept, rest) = opening.split_at(fixed.min(opening.len()));
+    let mut plays: Vec<Play> = kept.to_vec();
+    plays.extend(rest.iter().copied().filter(|play| {
+        !play
+            .unit()
+            .into_iter()
+            .chain(play.cargo())
+            .chain(transport(play))
+            .any(named)
+    }));
+    plays.extend(power);
+    plays.extend(prefix);
+    plays
 }
 
 /// The unit plays of `plays`, with only the first play of each unit.
