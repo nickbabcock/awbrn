@@ -123,8 +123,9 @@ tells otherwise:
   against 0.25 s for v7. Wasm p95 2.2 s, maximum 2.8 s. Many chained AI
   turns in one server wake could pass a CPU limit; this is not measured.
 - Fog is measured only on the Andy mirror (56 pairs).
-- Deferred review items: the ferry can take a unit that guards the
-  headquarters, and the seed power is put first in the plan.
+- An alternative line drops an opening play only when the line gives an
+  order to the same unit. An opening play of a different unit can still take
+  the cell that a block needs (see the open ideas).
 - The host builds a new agent for each turn, so the march plan loses its
   log of the power meter of the earlier turns. The runs with an agent built
   again in each turn measure this play.
