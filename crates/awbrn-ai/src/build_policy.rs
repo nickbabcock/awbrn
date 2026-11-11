@@ -7,9 +7,10 @@
 //! vector over the features of the kind itself. A softmax over the legal
 //! choices gives the probabilities.
 //!
-//! The features use only the board that the player can see. The replay
-//! extractor and the greedy policy call the same function,
-//! [`BuildContext::site`], so the fit and the play read the same values.
+//! The features use only the board that the player can see. The greedy
+//! policy calls [`BuildContext::site`]. The tools that fit the model (not in
+//! this repository, see `assets/ai-diagnostics/build-policy/README.md`) read
+//! the same function, so the fit and the play read the same values.
 
 use std::sync::LazyLock;
 
@@ -185,7 +186,7 @@ const HEAVY_STRIKE: f64 = 0.55;
 const LIGHT_STRIKE: f64 = 0.25;
 
 /// The names of the decision features, in vector order.
-pub fn decision_feature_names() -> &'static [String] {
+pub(crate) fn decision_feature_names() -> &'static [String] {
     static NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
         let mut names: Vec<String> = BASE_FEATURES
             .iter()
@@ -687,8 +688,8 @@ fn exchange(kind: UnitKind, health: &[f64; UnitKind::COUNT]) -> f64 {
 /// The state does not record the builds of a turn. A new unit is spent, has
 /// full health, fuel and ammunition, and stands on our production site. A
 /// unit that waits on our site without a move also agrees, but that is rare
-/// at the time of a build. The replay extractor and the play path read the
-/// same state, so they agree.
+/// at the time of a build. A session of the observation and the full state
+/// give the same result.
 fn built_this_turn(state: &State, seat: PlayerIdx, unit: &awvm::semantic::Unit) -> bool {
     let Location::Board { position } = unit.location else {
         return false;
@@ -709,7 +710,7 @@ fn built_this_turn(state: &State, seat: PlayerIdx, unit: &awvm::semantic::Unit) 
 fn co_combat(state: &State, seat: PlayerIdx, funds: u64, kind: UnitKind) -> (f64, f64) {
     static NO_CAPABILITIES: LazyLock<std::collections::HashSet<String>> =
         LazyLock::new(std::collections::HashSet::new);
-    let unit = plain_combatant(kind, state.weather.kind, &NO_CAPABILITIES);
+    let unit = crate::threat::plain_combatant(kind, state.weather.kind, &NO_CAPABILITIES);
     let context = commander::CombatContext {
         tower_count: 0,
         funds,
@@ -723,34 +724,6 @@ fn co_combat(state: &State, seat: PlayerIdx, funds: u64, kind: UnitKind) -> (f64
                 (combat.defense as f64 - 100.0) / 100.0,
             )
         })
-}
-
-/// The combat side of a unit of `kind` that stands on a plain that is not a
-/// property.
-pub(crate) fn plain_combatant(
-    kind: UnitKind,
-    weather: awvm::ruleset::WeatherKind,
-    capabilities: &std::collections::HashSet<String>,
-) -> commander::Combatant<'_> {
-    let profile = ruleset::profile(kind);
-    let domain = match kind {
-        UnitKind::Infantry | UnitKind::Mech => commander::CombatDomain::Foot,
-        _ if profile.transport.is_some() => commander::CombatDomain::Transport,
-        _ => match profile.domain {
-            ruleset::Domain::Ground => commander::CombatDomain::GroundVehicle,
-            ruleset::Domain::Air => commander::CombatDomain::Air,
-            ruleset::Domain::Sea => commander::CombatDomain::Naval,
-        },
-    };
-    commander::Combatant {
-        kind,
-        domain,
-        fire_mode: profile.fire_mode,
-        terrain: ruleset::Terrain::Plain,
-        weather,
-        property: false,
-        capabilities,
-    }
 }
 
 /// Whether the commander of `seat` can build at a site of this terrain.
@@ -779,7 +752,7 @@ fn reach(kind: UnitKind) -> u64 {
 /// The weights of one unit kind.
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ChoiceWeights {
+pub(crate) struct ChoiceWeights {
     pub intercept: f64,
     /// One weight for each name in [`BuildModelFile::decision_features`].
     pub weights: Vec<f64>,
@@ -788,7 +761,7 @@ pub struct ChoiceWeights {
 /// The JSON file of a build model.
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct BuildModelFile {
+pub(crate) struct BuildModelFile {
     pub schema_version: u32,
     pub name: String,
     /// The decision features that the model reads, by name.
@@ -843,7 +816,7 @@ impl BuildModel {
         Self::from_file(&file)
     }
 
-    pub fn from_file(file: &BuildModelFile) -> Result<Self, BuildModelError> {
+    pub(crate) fn from_file(file: &BuildModelFile) -> Result<Self, BuildModelError> {
         if file.schema_version != 1 {
             return Err(BuildModelError::Schema(file.schema_version));
         }
@@ -933,7 +906,11 @@ impl BuildModel {
 
     /// The utility of each kind in `legal`, in the same order. A kind that
     /// the model does not hold gets `None`.
-    pub fn utilities(&self, features: &BuildFeatures, legal: &[UnitKind]) -> Vec<Option<f64>> {
+    pub(crate) fn utilities(
+        &self,
+        features: &BuildFeatures,
+        legal: &[UnitKind],
+    ) -> Vec<Option<f64>> {
         let x = self.standardized(features);
         legal
             .iter()
@@ -1032,7 +1009,7 @@ pub fn model() -> &'static BuildModel {
 }
 
 /// The text of the human-v2a model.
-pub const HUMAN_V2A_JSON: &str =
+pub(crate) const HUMAN_V2A_JSON: &str =
     include_str!("../../../assets/ai-diagnostics/build-policy/human-v2a-model.json");
 
 #[cfg(test)]
@@ -1118,10 +1095,10 @@ mod tests {
         }
     }
 
-    /// The replay extractor reads the features from a session of the
-    /// observation. The greedy policy does the same in play. The features
-    /// and the choices of the two paths must agree, and they must agree
-    /// with the authoritative board when there is no fog.
+    /// The features read from a session of the observation, as the greedy
+    /// policy reads them in play, agree with the features of the
+    /// authoritative board when there is no fog, and the greedy policy builds
+    /// the kinds that the model chooses.
     #[test]
     fn the_replay_path_and_the_play_path_read_the_same_features() {
         let model = model();
@@ -1153,6 +1130,9 @@ mod tests {
             // The play path.
             let mut greedy = model_config().build_greedy(3);
             assert_eq!(greedy.model_build_choices(view), expected);
+            // The commanders of the arena do not change the range, so the
+            // range term of planner-v8 does not change the choice.
+            assert!(range_bias(state, seat, 2.5).is_none());
             let mut greedy = crate::profile::V8_GREEDY_CONFIG.build_greedy(3);
             assert_eq!(greedy.model_build_choices(view), expected);
             let mut off = crate::profile::HARD_V3_CONFIG.build_greedy(3);

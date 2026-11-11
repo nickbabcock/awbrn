@@ -79,7 +79,7 @@ fn army_ratio(state: &State, seat: PlayerIdx) -> f64 {
 ///
 /// These are the enemy headquarters. On a map with no headquarters, they are
 /// the enemy labs.
-pub(crate) fn decisive_targets(state: &State, seat: PlayerIdx) -> Vec<Pos> {
+fn decisive_targets(state: &State, seat: PlayerIdx) -> Vec<Pos> {
     let headquarters = state
         .board
         .tiles()
@@ -106,7 +106,7 @@ pub(crate) fn decisive_targets(state: &State, seat: PlayerIdx) -> Vec<Pos> {
 /// The copy changes only the power state, so the engine reads the movement,
 /// the movement costs and the capture points of that power from it. The
 /// instant effects of the power, such as a heal, are not applied.
-pub(crate) fn powered(state: &State, seat: PlayerIdx, level: PowerLevel) -> Option<State> {
+fn powered(state: &State, seat: PlayerIdx, level: PowerLevel) -> Option<State> {
     let player = state.players.get(seat.get())?;
     let slot = u8::try_from(player.commanders.iter().position(|co| co.active)?).ok()?;
     let mut copy = state.clone();
@@ -545,15 +545,15 @@ pub(crate) fn prepare(
 
 /// The least swing gain that fires a decisive power, as a share of the
 /// properties of the map. See [`swing_turn`].
-pub(crate) const SWING_SHARE: f64 = 0.06;
+const SWING_SHARE: f64 = 0.06;
 
 /// The swing gain that fires a decisive power also when a headquarters
 /// capture is near, as a share of the properties of the map.
-pub(crate) const LARGE_SWING_SHARE: f64 = 0.12;
+const LARGE_SWING_SHARE: f64 = 0.12;
 
 /// The own turns within which a capturer of the march plan must get to a
 /// staging tile for the plan to wait for the headquarters capture.
-pub(crate) const NEAR_STAGING: u32 = 2;
+const NEAR_STAGING: u32 = 2;
 
 /// What the swing rule does in one turn.
 #[derive(Clone, Debug, PartialEq)]

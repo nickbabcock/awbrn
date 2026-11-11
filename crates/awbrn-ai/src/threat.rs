@@ -1257,6 +1257,34 @@ impl ThreatOverlay {
     }
 }
 
+/// The combat side of a unit of `kind` that stands on a plain that is not a
+/// property.
+pub(crate) fn plain_combatant(
+    kind: UnitKind,
+    weather: awvm::ruleset::WeatherKind,
+    capabilities: &std::collections::HashSet<String>,
+) -> commander::Combatant<'_> {
+    let profile = ruleset::profile(kind);
+    let domain = match kind {
+        UnitKind::Infantry | UnitKind::Mech => commander::CombatDomain::Foot,
+        _ if profile.transport.is_some() => commander::CombatDomain::Transport,
+        _ => match profile.domain {
+            ruleset::Domain::Ground => commander::CombatDomain::GroundVehicle,
+            ruleset::Domain::Air => commander::CombatDomain::Air,
+            ruleset::Domain::Sea => commander::CombatDomain::Naval,
+        },
+    };
+    commander::Combatant {
+        kind,
+        domain,
+        fire_mode: profile.fire_mode,
+        terrain: ruleset::Terrain::Plain,
+        weather,
+        property: false,
+        capabilities,
+    }
+}
+
 /// The day-to-day values of a commander for one unit kind, from the engine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DayToDay {
@@ -1294,11 +1322,8 @@ pub(crate) fn day_to_day(co: CommanderKind, kind: UnitKind) -> DayToDay {
             .map(|co| {
                 UnitKind::ALL.map(|kind| {
                     let profile = ruleset::profile(kind);
-                    let unit = crate::build_policy::plain_combatant(
-                        kind,
-                        awvm::ruleset::WeatherKind::Clear,
-                        &NO_CAPABILITIES,
-                    );
+                    let unit =
+                        plain_combatant(kind, awvm::ruleset::WeatherKind::Clear, &NO_CAPABILITIES);
                     let context = commander::CombatContext {
                         tower_count: 0,
                         funds: 0,
