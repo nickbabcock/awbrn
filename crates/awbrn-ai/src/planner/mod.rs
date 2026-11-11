@@ -1022,7 +1022,8 @@ impl TurnPlanner<'_> {
             );
         }
         // With the power first, the other plans also use the power of the
-        // seed plan before their own orders. On a swing turn of the march
+        // seed plan before their own orders, except a plan that uses a power
+        // of its own ([`alternative_plays`]). On a swing turn of the march
         // plan, the opening plays start with the power already, so the plans
         // do not add a second power.
         let swing_fired = self.march.swing_fired;
@@ -1201,16 +1202,10 @@ impl TurnPlanner<'_> {
     /// it, and whether it puts the power later than the seed plan does. A
     /// prefix that copies the seed plan has the opening plays already.
     ///
-    /// Known limits:
-    ///
-    /// - The prefixes after the attacks and after the unit orders keep only
-    ///   the first play of each unit, and no build. Thus they do not keep the
-    ///   unload of a ferry or the build of its transport, and the Hard policy
-    ///   must find these orders again.
-    /// - The prefix of a power that the seed plan does not use gets the power
-    ///   of the seed plan before it (see `first_power` in
-    ///   [`TurnPlanner::plan`]). The engine refuses a second power in the
-    ///   same turn, so the line skips this power and repeats the seed plan.
+    /// Known limit: the prefixes after the attacks and after the unit orders
+    /// keep only the first play of each unit, and no build. Thus they do not
+    /// keep the unload of a ferry or the build of its transport, and the Hard
+    /// policy must find these orders again.
     fn placements(&self, session: &Session, seed: &Line) -> Vec<(Vec<Play>, bool, bool)> {
         // On a swing turn of the march plan, the opening plays start with the
         // power and the captures that need it. The placement does not move
@@ -1604,7 +1599,8 @@ impl TurnPlanner<'_> {
 }
 
 /// The plays of an alternative: the opening plays, then the power of the
-/// seed plan `power` (when present), then `prefix`.
+/// seed plan `power` (when present, and when `prefix` uses no power), then
+/// `prefix`.
 ///
 /// The first `fixed` opening plays stay in every line: the power and the
 /// captures of a swing turn. Another opening play of a unit that `prefix`
@@ -1612,6 +1608,20 @@ impl TurnPlanner<'_> {
 /// keeps its unit: the ferry or the march plan does not move or load the
 /// unit first. The units of an opening play are its unit, its cargo and, for
 /// a load, the transport on its destination in `root`.
+///
+/// With the power policy, the seed plan uses a power first, and the other
+/// plans do the same. A prefix that already uses a power, such as the plan
+/// that tries the other power first, gets no second power: the engine
+/// refuses a second power in the same turn, so the prefix would play the
+/// seed power and skip its own.
+///
+/// Known limit: this rule does not look at the first `fixed` plays. On a
+/// swing turn they hold the swing power, and [`TurnPlanner::placements`]
+/// gives no prefix with a power. But with the march plan and no power
+/// policy, the plan generator for each power can give the other power a
+/// prefix on a swing turn. The engine then refuses that power, and the
+/// line repeats the seed plan. The seated configurations do not use
+/// this combination.
 fn alternative_plays(
     root: &State,
     opening: &[Play],
@@ -1624,6 +1634,9 @@ fn alternative_plays(
             .iter()
             .any(|play| play.unit() == Some(unit) || play.cargo() == Some(unit))
     };
+    let uses_power = prefix
+        .iter()
+        .any(|play| matches!(play.kind(), OrderKind::Power(_)));
     let dimensions = root.board.dimensions();
     let transport = |play: &Play| {
         let position = (play.kind() == OrderKind::Load)
@@ -1643,7 +1656,9 @@ fn alternative_plays(
             .chain(transport(play))
             .any(named)
     }));
-    plays.extend(power);
+    if !uses_power {
+        plays.extend(power);
+    }
     plays.extend(prefix);
     plays
 }

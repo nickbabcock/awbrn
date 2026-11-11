@@ -1194,6 +1194,11 @@ fn an_alternative_leaves_out_the_opening_plays_of_its_units() {
             safety
         ]
     );
+    // A prefix that uses a power of its own gets no power of the seed plan.
+    assert_eq!(
+        alternative_plays(&root, &opening[2..], 0, Some(seed_power), vec![power]),
+        vec![load, transport_move, unload, steer, power]
+    );
     // With no opening plays, the line is the power and the prefix.
     assert_eq!(
         alternative_plays(&root, &[], 0, Some(seed_power), vec![block]),
@@ -2440,6 +2445,105 @@ fn power_plays(plays: &[Play]) -> Vec<(usize, awvm::commander::PowerLevel)> {
             _ => None,
         })
         .collect()
+}
+
+/// Kindle uses each power at once, and the meter pays for both. The seed plan
+/// uses one power first. The plan that tries the other power first uses that
+/// power, and not the power of the seed plan.
+#[test]
+fn the_other_power_plan_uses_the_other_power() {
+    use awvm::ruleset::{CommanderKind, UnitKind};
+    use awvm::semantic::Pos;
+    let (mut state, ours, theirs) = power_board(CommanderKind::Kindle);
+    let board = |position| Location::Board { position };
+    state
+        .units
+        .push(board_unit(1, UnitKind::Tank, ours, board(Pos::new(3, 3))));
+    state.units.push(board_unit(
+        11,
+        UnitKind::Tank,
+        theirs,
+        board(Pos::new(3, 4)),
+    ));
+    state.next_unit_id = Some(20);
+    let config = PlannerConfig::V8;
+    let mut evaluator = Evaluator::new(config.eval_weights);
+    let mut replay = config.replay_score.map(ReplayReader::new);
+    let mut planner = probe_planner(&config, &mut evaluator, replay.as_mut(), ours);
+    let mut session = Session::new(state);
+    let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
+    let seed_power = power_plays(&seed.plays);
+    assert_eq!(seed_power.len(), 1, "{:?}", seed.plays);
+    assert_eq!(seed_power[0].0, 0, "the seed plan uses the power first");
+    let first_power = seed.plays[0];
+    let others: Vec<Vec<Play>> = planner
+        .placements(&session, &seed)
+        .into_iter()
+        .filter(|(prefix, opening, later)| {
+            *opening && !*later && power_plays(prefix).len() == 1 && prefix.len() == 1
+        })
+        .map(|(prefix, _, _)| prefix)
+        .collect();
+    assert_eq!(others.len(), 1, "one plan tries the other power first");
+    let other = others[0][0];
+    assert_ne!(other, first_power);
+    let prefix = alternative_plays(
+        session.state(),
+        &[],
+        0,
+        Some(first_power),
+        others[0].clone(),
+    );
+    let line = planner
+        .line(&mut session, Generator::Power, &prefix)
+        .unwrap();
+    let OrderKind::Power(level) = other.kind() else {
+        panic!("not a power: {other:?}");
+    };
+    assert_eq!(
+        power_plays(&line.plays),
+        vec![(0, level)],
+        "{:?}",
+        line.plays
+    );
+    // A prefix without a power gets the power of the seed plan first.
+    assert_eq!(
+        alternative_plays(session.state(), &[], 0, Some(first_power), Vec::new()),
+        vec![first_power]
+    );
+}
+
+/// Andy saves the meter for the super power, and the meter pays for both
+/// powers. No plan of the planner uses the normal power. This test is a guard
+/// of the placements: no placement prefix uses a power here, so the rule of
+/// [`alternative_plays`] for a prefix with a power does not apply.
+#[test]
+fn the_power_policy_keeps_the_normal_power_of_a_saving_commander() {
+    use awvm::commander::PowerLevel;
+    let state = andy_board(100);
+    let ours = state.players.seat(&state.turn.active_player).unwrap();
+    let config = PlannerConfig::V8;
+    let mut evaluator = Evaluator::new(config.eval_weights);
+    let mut replay = config.replay_score.map(ReplayReader::new);
+    let mut planner = probe_planner(&config, &mut evaluator, replay.as_mut(), ours);
+    let mut session = Session::new(state);
+    let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
+    for (prefix, _, _) in planner.placements(&session, &seed) {
+        assert!(
+            power_plays(&prefix)
+                .iter()
+                .all(|(_, level)| *level == PowerLevel::Scop),
+            "{prefix:?}"
+        );
+    }
+    let line = planner.plan(&session).unwrap();
+    assert!(
+        power_plays(&line.plays)
+            .iter()
+            .all(|(_, level)| *level == PowerLevel::Scop),
+        "{:?}",
+        line.plays
+    );
 }
 
 /// Sami has a live headquarters plan, and the meter pays for the normal
