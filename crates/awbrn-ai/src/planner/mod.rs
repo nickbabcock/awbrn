@@ -307,7 +307,7 @@ impl PlannerConfig {
     /// many plans and reply checks.
     ///
     /// One plan can use up to 212 nodes, so use a node budget of 256.
-    pub const V7_WIDE: Self = Self {
+    pub(crate) const V7_WIDE: Self = Self {
         identifier: "planner-v7-wide",
         turn_work: None,
         plans_per_turn: 48,

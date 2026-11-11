@@ -5,8 +5,8 @@ of human players in Amarriner Cups 1 to 4, Division 1, and the Global League
 games. Cups 5 and 6 were the holdout: top-1 0.755 and log loss 0.663. The
 greedy policy of `planner-v8` loads it (`awbrn_ai::build_policy`).
 
-- One decision is one build at one production site, with the board just
-  before the build. The choices are the legal kinds at the site.
+- One decision is one build at one production site, with the board
+  immediately before the build. The choices are the legal kinds at the site.
 - `awbrn_ai::build_policy::BuildContext::site` calculates the features. A
   model reads only the features that its file names.
 - The greedy scores still decide whether and when a site builds. The model

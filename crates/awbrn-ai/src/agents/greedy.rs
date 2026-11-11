@@ -1034,8 +1034,7 @@ impl GreedyAgent {
         self.selection.position = None;
     }
 
-    /// Keep back the powers that `hold` names for its seat. `None` holds
-    /// nothing.
+    /// Hold the powers that `hold` names for its seat. `None` holds nothing.
     pub(crate) fn set_power_hold(&mut self, hold: Option<crate::power::PowerHold>) {
         if self.power_hold != hold {
             self.power_hold = hold;

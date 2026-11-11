@@ -162,7 +162,7 @@ impl ReplayReader {
 
     /// The same reader, with threat maps that read the day-to-day commander
     /// effects when `on` is true ([`ThreatMap::set_commander_effects`]).
-    pub fn with_commander_effects(mut self, on: bool) -> Self {
+    pub(crate) fn with_commander_effects(mut self, on: bool) -> Self {
         self.commander_effects = on;
         self
     }

@@ -465,22 +465,15 @@ mod tests {
 mod refresh_tests {
     use super::*;
 
-    /// Only Eagle's super power lets units act again. His normal power
-    /// changes the combat values of his aircraft only.
+    /// Of all the powers of all commanders, only Eagle's super power lets
+    /// units act again.
     #[test]
     fn only_the_eagle_super_power_refreshes_units() {
-        assert!(refreshes_units(CommanderKind::Eagle, PowerLevel::Scop));
-        assert!(!refreshes_units(CommanderKind::Eagle, PowerLevel::Cop));
-        for commander in [
-            CommanderKind::Andy,
-            CommanderKind::Grit,
-            CommanderKind::Sami,
-            CommanderKind::Kindle,
-            CommanderKind::Max,
-        ] {
+        for commander in CommanderKind::ALL {
             for level in [PowerLevel::Cop, PowerLevel::Scop] {
-                assert!(
-                    !refreshes_units(commander, level),
+                assert_eq!(
+                    refreshes_units(commander, level),
+                    commander == CommanderKind::Eagle && level == PowerLevel::Scop,
                     "{commander:?} {level:?}"
                 );
             }
