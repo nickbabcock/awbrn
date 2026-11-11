@@ -100,26 +100,16 @@ holdout for a release decision.
 
 ### Examine some games of a run again
 
-Set `"pair_indices"` in a plan to a list of pair indices to play only those
-pairs, in that order. Each pair keeps its map, match seed and agent seeds
-from the full run, so it plays the same games. The run plays at most
-`max_pairs` of them, does not stop early, and its decision is inconclusive.
-The indices must be distinct. The mean of such a run does not measure
-strength, because the pairs are not complete rounds of maps. For example,
-copy the plan of a run and add `"pair_indices": [17, 203]` to play pairs 17
-and 203 again.
+Copy the plan of a run and add `"pair_indices": [17, 203]` to play pairs 17
+and 203 again with their maps and seeds. Such a run does not stop early, and
+it does not measure strength.
 
-Add `--trace <folder>` to the `sprt` command to write one trace file for
-each game. Use a folder outside the worktree, because the source fingerprint
-of a later run reads the untracked files of the worktree. The trace does not
-change the games. Each file is JSON Lines: the game, the terrain, a snapshot
-at the start of each turn (funds, power state, units and properties), each
-accepted command with the units and properties that it changed, and the end
-of the game. The writer keeps only a small buffer and the state of the last
-command, so memory does not grow with the game. If a game stops with an
-error, the end of its file can be missing. `src/sprt_trace.rs` describes the
-fields. A game of 35 days writes less than 0.5 MB. The trace adds time to
-each turn, so do not compare the turn times of a traced run.
+Add `--trace <folder>` to the `sprt` command to write one JSON Lines file
+for each game: a snapshot at the start of each turn and the changes of each
+command (`src/sprt_trace.rs`). Use a new folder outside the worktree for each
+run. The trace does not change the games, but do not compare the turn times
+of a traced run. A game of 35 days on a development map writes about
+0.4 MB.
 
 ## Score the fog memory
 
@@ -235,10 +225,9 @@ Wall-clock limits are excluded from CI; tests check deterministic work limits.
 
 ## Measure planner-v8
 
-`planner-v8` is the planner of the Hard profile. The results of each part,
-and of the experiments that were not kept, are in
-`crates/awbrn-ai/diagnostics/planner-v8-experiments.md`. It is `planner-v7`
-with:
+`planner-v8` is the planner of the Hard profile. The experiments that were
+not kept are in `crates/awbrn-ai/diagnostics/experiments-not-kept.md`. It is
+`planner-v7` with:
 
 - the wider search of `planner-v7-wide`: no work threshold, and about four
   times the plans and reply checks. One plan uses at most 215 nodes, so its

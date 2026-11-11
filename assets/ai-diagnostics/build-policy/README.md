@@ -19,14 +19,12 @@ greedy policy of `planner-v8` loads it (`awbrn_ai::build_policy`).
   Only a commander that changes the range, such as Grit or Max, is
   changed.
 
-The 49,412 rows of the fit come from games on 34 maps. A map set taken
-from the same tournament games is thus not a clean holdout for the model.
-The reserved set of 29 tournament maps for final checks, which is not in
-this repository, contains 26 of these maps with 40,263 rows. The 14
-development maps of the SPRT plans have 191 rows, all on map 77060, so a
-development run tests the model mostly on maps that it was not fitted on.
-Two holdout maps of the Global League pool have 78 rows. See
-`../global-league-pool/README.md`.
+Most fit rows are on tournament maps, so those maps are not a clean holdout
+for the model: 40,263 of the 49,412 rows are on 26 of the 29 tournament maps
+that are reserved for final checks (not in this repository). The fit rows
+come from 34 maps. Of the 14 development maps, only 77060 is in the fit (191
+rows). The Global League holdout maps 146797 and 173170 have 78 rows; both
+are marked as used.
 
 ## Make the model again
 
@@ -47,6 +45,7 @@ target/release/examples/build_policy extract <maps> <rows>/cup-01.jsonl <cup-01-
 Do the same for Cups 2 to 6 and for the Global League games
 (`<rows>/global.jsonl`). The extractor writes 69,601 build rows. A game that
 the replay importer cannot play to the end keeps the rows before the error.
+A missing map file stops the command.
 
 Install NumPy and SciPy in a Python environment and fit:
 
@@ -60,15 +59,6 @@ python crates/awbrn-ai-diagnostics/examples/fit_build_policy.py \
   --model <fit>/model.json --summary <fit>/fit-summary.json
 ```
 
-The fit uses 49,412 training rows and 19,870 holdout rows. It does not use
-251 training rows and 68 holdout rows, where the built kind is not legal at
-the site in the imported state. The selection keeps the groups
-`funds_after`, `prey`, `co_combat` and `shares`, with the penalty 0.01. On
-the holdout, top-1 is 0.755 and log loss 0.663. The share of the argmax
-choice is 0.313 for the tank (human 0.189), 0.031 for the anti-air (0.054)
-and 0.0004 for the artillery (0.038).
-
-With Python 3.13.9, NumPy 2.5.4 and SciPy 1.18.1, these commands give the
-values of `human-v2a-model.json` exactly: all 2,137 numbers are equal. Only
-the layout of the file is different. Other versions of these libraries can
-give small differences.
+With Python 3.13.9, NumPy 2.5.4 and SciPy 1.18.1, these commands give all
+2,137 values of `human-v2a-model.json` exactly. Other versions can give
+small differences.
