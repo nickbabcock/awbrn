@@ -8,9 +8,10 @@
 //! choices gives the probabilities.
 //!
 //! The features use only the board that the player can see. The greedy
-//! policy calls [`BuildContext::site`]. The tools that fit the model (not in
-//! this repository, see `assets/ai-diagnostics/build-policy/README.md`) read
-//! the same function, so the fit and the play read the same values.
+//! policy calls [`BuildContext::site`]. The tool that extracts the human
+//! builds for the fit (`awbrn-ai-diagnostics`, example `build_policy`, see
+//! `assets/ai-diagnostics/build-policy/README.md`) calls the same function,
+//! so the fit and the play read the same values.
 
 use std::sync::LazyLock;
 
@@ -186,7 +187,7 @@ const HEAVY_STRIKE: f64 = 0.55;
 const LIGHT_STRIKE: f64 = 0.25;
 
 /// The names of the decision features, in vector order.
-pub(crate) fn decision_feature_names() -> &'static [String] {
+pub fn decision_feature_names() -> &'static [String] {
     static NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
         let mut names: Vec<String> = BASE_FEATURES
             .iter()

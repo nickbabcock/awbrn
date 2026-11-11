@@ -33,6 +33,11 @@ pub mod agents;
 pub mod baseline;
 pub mod board;
 pub(crate) mod build_policy;
+/// The features of the build model, for the tool that extracts human build
+/// decisions from replays (`awbrn-ai-diagnostics`, example `build_policy`).
+pub mod build_features {
+    pub use crate::build_policy::{BuildContext, KIND_FEATURES, decision_feature_names};
+}
 pub mod calibration;
 pub mod diagnostic;
 pub mod eval;
