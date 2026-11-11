@@ -70,7 +70,7 @@ fn main() -> Result<()> {
 fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
     let mut paths = Vec::new();
     for division in divisions {
-        for entry in fs::read_dir(division)? {
+        for entry in fs::read_dir(division).with_context(|| format!("read {division}"))? {
             let path = entry?.path();
             if path.extension().is_some_and(|extension| extension == "zip") {
                 paths.push(path);
@@ -87,7 +87,9 @@ fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
     // rows when it is complete.
     for path in &paths {
         let mut game = Vec::new();
-        if let Err(error) = game_rows(path, maps, &mut game) {
+        // A missing input stops the command. A replay that the importer
+        // cannot play to the end keeps the rows before the error.
+        if let Err(error) = game_rows(path, maps, &mut game)? {
             failed += 1;
             eprintln!("{}: {error:#}", path.display());
         }
@@ -130,24 +132,46 @@ fn legal_kinds(session: &Session, site: Pos) -> Vec<UnitKind> {
     collector.1
 }
 
-/// Append the build rows of one archive to `rows`. A game that stops with
-/// an error keeps the rows before the error.
-fn game_rows(path: &Path, maps: &Path, rows: &mut Vec<Row>) -> Result<()> {
-    let replay = ReplayParser::new()
-        .with_debug(true)
-        .parse(&fs::read(path)?)?;
-    let game = replay.games.first().context("no game entry")?;
-    if game.players.len() != 2 {
-        bail!("requires a two-player game");
-    }
-    let map_id = game.maps_id.as_u32();
-    let map: AwbwMapData = serde_json::from_slice(&fs::read(maps.join(format!("{map_id}.json")))?)?;
+/// Append the build rows of one archive to `rows`.
+///
+/// The outer error is an input error: the archive or the map file cannot be
+/// read, or the file name is not a game ID. The inner error is a replay
+/// error, and the rows before it stay in `rows`.
+fn game_rows(path: &Path, maps: &Path, rows: &mut Vec<Row>) -> Result<Result<()>> {
+    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let game_id: u64 = path
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .context("no game ID")?
-        .parse()?;
-    let mut adapter = RecordedAdapter::new(&replay, &map)?;
+        .and_then(|stem| stem.parse().ok())
+        .with_context(|| format!("{} is not named with a game ID", path.display()))?;
+    let replay = match ReplayParser::new().with_debug(true).parse(&bytes) {
+        Ok(replay) => replay,
+        Err(error) => return Ok(Err(error.into())),
+    };
+    let Some(game) = replay.games.first() else {
+        return Ok(Err(anyhow::anyhow!("no game entry")));
+    };
+    if game.players.len() != 2 {
+        return Ok(Err(anyhow::anyhow!("requires a two-player game")));
+    }
+    let map_id = game.maps_id.as_u32();
+    let map_path = maps.join(format!("{map_id}.json"));
+    let map: AwbwMapData = serde_json::from_slice(
+        &fs::read(&map_path).with_context(|| format!("read {}", map_path.display()))?,
+    )
+    .with_context(|| format!("parse {}", map_path.display()))?;
+    Ok(replay_rows(&replay, &map, game_id, map_id, rows))
+}
+
+/// Play the actions of a replay and append one row for each build.
+fn replay_rows(
+    replay: &awbw_replay::AwbwReplay,
+    map: &AwbwMapData,
+    game_id: u64,
+    map_id: u32,
+    rows: &mut Vec<Row>,
+) -> Result<()> {
+    let mut adapter = RecordedAdapter::new(replay, map)?;
     let mut step = 0_u32;
     let mut turn_owner = None;
     for (index, action) in replay.turns.iter().enumerate() {
@@ -233,4 +257,24 @@ fn is_join_setup(action: &Action, next: Option<&Action>) -> bool {
         .find_map(|id| id.get_value())
         .copied();
     moving.is_some() && moving == joining
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A missing map file is an input error, so `extract` stops. With the
+    /// map file, the same archive gives build rows.
+    #[test]
+    fn a_missing_map_stops_the_extraction() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let archive = root.join("assets/replays/1391406.zip");
+        let empty = tempfile::tempdir().unwrap();
+        let mut rows = Vec::new();
+        assert!(game_rows(&archive, empty.path(), &mut rows).is_err());
+        assert!(rows.is_empty());
+        let maps = root.join("assets/maps");
+        game_rows(&archive, &maps, &mut rows).unwrap().unwrap();
+        assert!(!rows.is_empty());
+    }
 }

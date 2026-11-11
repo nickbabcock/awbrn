@@ -53,6 +53,8 @@ class Data:
                         self.skipped["illegal choice"] += 1
                     else:
                         rows.append(row)
+        if not rows:
+            sys.exit(f"no usable rows in {' '.join(paths)}")
         self.n = len(rows)
         self.x = np.array([row["decision"] for row in rows], dtype=float)
         self.z = np.zeros((self.n, C, len(rows[0]["kind"][0])))
@@ -243,6 +245,8 @@ def main():
     train = Data(args.train)
     holdout = Data(args.holdout)
     print(f"rows: train {train.n}, holdout {holdout.n}", file=sys.stderr)
+    if args.folds < 2 or len(np.unique(train.map)) < 2:
+        parser.error("the cross validation needs two or more folds and --train maps")
 
     def columns_of(predicate):
         return [i for i, n in enumerate(decision) if predicate(n)]
