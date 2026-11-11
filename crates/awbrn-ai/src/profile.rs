@@ -31,8 +31,8 @@ pub const HARD_V2_CONFIG: BaselineConfig = BaselineConfig {
 /// The `ai-hard-v2` scoring with a build floor, so a factory is not left
 /// empty while the funds can buy a unit.
 ///
-/// Planner configurations from `planner-v5` to `planner-v7` use it for their
-/// seed plan and their fallback.
+/// Planner configurations from `planner-v5` to `planner-v7-wide` use it for
+/// their seed plan and their fallback.
 pub const HARD_V3_CONFIG: BaselineConfig = BaselineConfig {
     identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor",
     weights: Weights {

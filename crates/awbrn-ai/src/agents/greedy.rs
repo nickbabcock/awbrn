@@ -381,8 +381,10 @@ pub struct Weights {
     /// The term adds to the pull of each tile the best expected damage, in
     /// funds, against one enemy unit in the attack range of the unit from
     /// that tile ([`Board::fire_fields`]). The exposure term still applies, so
-    /// a tile that an enemy can attack costs the unit its threat. Zero turns
-    /// the term off. The field is left out of the serialized weights at zero.
+    /// a tile that an enemy can attack costs the unit its threat. The term
+    /// always reads the day-to-day attack and range of our commander; it does
+    /// not need [`Weights::commander_effects`]. Zero turns the term off. The
+    /// field is left out of the serialized weights at zero.
     #[serde(skip_serializing_if = "is_zero")]
     pub firing_positions: f64,
 }
@@ -3447,13 +3449,34 @@ mod tests {
             "with the term: {with}, without: {without}"
         );
         assert!(!(2..=3).contains(&without), "without the term: {without}");
-        let (state, _, tank) = artillery_and_tank(CommanderKind::Grit, 7).unwrap();
-        let grit = Weights {
-            commander_effects: true,
-            ..firing
-        };
-        let with = artillery_distance(&state, grit, tank).unwrap();
-        assert!((2..=4).contains(&with), "Grit with the term: {with}");
+        // The range of a Grit artillery is one more, and the field reads it:
+        // a tile four steps from the tank has a value for Grit, and none for
+        // Andy.
+        for (co, at_four) in [(CommanderKind::Andy, false), (CommanderKind::Grit, true)] {
+            let (state, _, tank) = artillery_and_tank(co, 7).unwrap();
+            let seat = state.players.seat(&state.turn.active_player).unwrap();
+            let board = Board {
+                state: &state,
+                seat,
+                weights: &firing,
+            };
+            let mut fields = Vec::new();
+            assert!(board.fire_fields(&mut fields, &mut None));
+            let (_, field) = fields
+                .iter()
+                .find(|(kind, _)| *kind == UnitKind::Artillery)
+                .unwrap();
+            let dimensions = state.board.dimensions();
+            let value_at = |distance: u64| {
+                let tile = dimensions
+                    .positions()
+                    .find(|tile| tile.distance(tank) == distance)
+                    .unwrap();
+                field[usize::from(dimensions.cell_index(tile).unwrap().get())]
+            };
+            assert!(value_at(3) > 0.0, "{co:?}");
+            assert_eq!(value_at(4) > 0.0, at_four, "{co:?}");
+        }
     }
 
     #[test]

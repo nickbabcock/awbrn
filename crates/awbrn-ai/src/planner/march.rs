@@ -807,9 +807,9 @@ pub(crate) fn swing(state: &State, seat: PlayerIdx, level: Option<PowerLevel>) -
 /// whole property in one capture.
 ///
 /// On a map with no headquarters, our last lab counts. The engine gives the
-/// movement, the movement costs and the capture points of the power. A
-/// capture that the enemy can make with no power is not in the result: the
-/// reply estimate reads those already.
+/// movement, the movement costs and the capture points of the power. The
+/// result can also contain a capture that the enemy can make with no power.
+/// The reply estimate keeps the larger loss for each cell.
 #[cfg(test)]
 pub(crate) fn powered_headquarters_captures(state: &State, ours: PlayerIdx) -> Vec<CellIdx> {
     powered_captures(state, ours)

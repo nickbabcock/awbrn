@@ -454,7 +454,7 @@ impl Play {
     }
 
     /// A transport puts `cargo`, which sits in `slot`, down on `dest`.
-    pub const fn unload(transport: UnitId, cargo: UnitId, dest: CellIdx, slot: u8) -> Self {
+    pub(crate) const fn unload(transport: UnitId, cargo: UnitId, dest: CellIdx, slot: u8) -> Self {
         Self {
             unit: Some(transport),
             cargo: Some(cargo),
