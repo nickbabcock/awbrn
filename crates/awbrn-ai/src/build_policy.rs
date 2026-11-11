@@ -232,9 +232,7 @@ pub struct BuildFeatures {
 
 /// The features of a position that all sites of one seat share.
 #[derive(Clone, Debug)]
-pub struct BuildContext<'a> {
-    state: &'a State,
-    seat: PlayerIdx,
+pub struct BuildContext {
     shared: [f64; DECISION_FEATURES],
     /// The cost of each kind for this seat, in funds.
     cost: [f64; UnitKind::COUNT],
@@ -294,9 +292,9 @@ fn produces(terrain: ruleset::Terrain) -> bool {
         || ruleset::terrain_has(terrain, TerrainTrait::ProducesSea)
 }
 
-impl<'a> BuildContext<'a> {
+impl BuildContext {
     /// Read the features that do not depend on the site.
-    pub fn new(state: &'a State, seat: PlayerIdx) -> Self {
+    pub fn new(state: &State, seat: PlayerIdx) -> Self {
         let hostile = |other: PlayerIdx| crate::threat::hostile(state, seat, other);
         let mut shared = [0.0; DECISION_FEATURES];
         let day = state.turn.day as f64;
@@ -548,8 +546,6 @@ impl<'a> BuildContext<'a> {
         let co_combat =
             std::array::from_fn(|index| co_combat(state, seat, own_funds, UnitKind::ALL[index]));
         Self {
-            state,
-            seat,
             shared,
             cost,
             counter,
@@ -572,17 +568,8 @@ impl<'a> BuildContext<'a> {
         }
     }
 
-    /// The seat that decides.
-    pub const fn seat(&self) -> PlayerIdx {
-        self.seat
-    }
-
-    /// The state that the features read.
-    pub const fn state(&self) -> &State {
-        self.state
-    }
-
     /// The cost of one kind for this seat, in funds.
+    #[cfg(test)]
     pub fn cost(&self, kind: UnitKind) -> f64 {
         self.cost[kind.index()]
     }

@@ -17,10 +17,9 @@
 //!      that unit alone, ends the turn, and scores the result with the reply
 //!      estimate. The best orders become plans.
 //!    - Power plans use a legal commander power before all other orders.
-//!      With the power placement
-//!      ([`crate::agents::Weights::power_policy`]), the seed plan
-//!      uses the power first, and power plans also put it after the attacks,
-//!      after the unit orders and after the builds
+//!      With the power policy ([`crate::agents::Weights::power_policy`]),
+//!      the seed plan uses the power first, and power plans also put it after
+//!      the attacks, after the unit orders and after the builds
 //!      ([`TurnPlanner::placements`]).
 //!    - With [`PlannerConfig::march`], a capture that wins at once is played
 //!      first, and a plan over many turns prepares a decisive capture with a
@@ -304,8 +303,8 @@ impl PlannerConfig {
         ..Self::V6
     };
 
-    /// planner-v7 with no work threshold, and approximately four times the
-    /// plan generators and the reply check.
+    /// planner-v7 with no work threshold, and approximately four times as
+    /// many plans and reply checks.
     ///
     /// One plan can use up to 212 nodes, so use a node budget of 256.
     pub const V7_WIDE: Self = Self {
@@ -331,8 +330,8 @@ impl PlannerConfig {
     /// - The ferry ([`PlannerConfig::ferry`]).
     /// - The march plan ([`PlannerConfig::march`]).
     ///
-    /// A power that the march plan keeps back gets no placement plan, and on
-    /// a swing turn the placement does not move the power. Use a node budget
+    /// A power that the march plan keeps back gets no plan at a later
+    /// position, and on a swing turn the power stays first. Use a node budget
     /// of 256.
     pub const V8: Self = Self {
         identifier: "planner-v8",
@@ -627,7 +626,7 @@ impl PlannerAgent {
             evaluator: Evaluator::new(config.eval_weights),
             replay: config.replay_score.map(|score| {
                 ReplayReader::new(score)
-                    .with_threat_effects(config.baseline.weights.commander_effects)
+                    .with_commander_effects(config.baseline.weights.commander_effects)
             }),
             plan: Vec::new(),
             positions: Vec::new(),

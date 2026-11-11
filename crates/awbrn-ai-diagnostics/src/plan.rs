@@ -737,7 +737,7 @@ mod tests {
     fn the_measured_planner_identities_do_not_change() {
         for (name, identifier, expected) in [
             ("v7", "planner-v7", "40093fcd6d29e46f"),
-            ("v8", "planner-v8", "a5b2d844057f78c4"),
+            ("v8", "planner-v8", "9396d1fe735a9b10"),
         ] {
             let spec: AgentSpec = serde_json::from_value(serde_json::json!({
                 "kind": "planner", "identifier": identifier, "configuration": name

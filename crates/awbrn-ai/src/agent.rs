@@ -106,6 +106,17 @@ pub struct AgentTiming {
 }
 
 impl AgentTiming {
+    /// Return the sum of these counters and `other`.
+    pub const fn add(self, other: Self) -> Self {
+        Self {
+            plan_construction_nanos: self.plan_construction_nanos + other.plan_construction_nanos,
+            plan_refresh_nanos: self.plan_refresh_nanos + other.plan_refresh_nanos,
+            baseline_selection_nanos: self.baseline_selection_nanos
+                + other.baseline_selection_nanos,
+            trace_recording_nanos: self.trace_recording_nanos + other.trace_recording_nanos,
+        }
+    }
+
     /// Return the counters added since `before`.
     pub const fn since(self, before: Self) -> Self {
         Self {

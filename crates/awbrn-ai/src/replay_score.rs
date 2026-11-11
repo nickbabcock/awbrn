@@ -146,7 +146,7 @@ pub struct ReplayReader {
     contest: Vec<ContestMap>,
     stock: Evaluator,
     /// Whether the threat maps read the day-to-day commander effects.
-    threat_effects: bool,
+    commander_effects: bool,
 }
 
 impl ReplayReader {
@@ -156,14 +156,14 @@ impl ReplayReader {
             threat: Vec::new(),
             contest: Vec::new(),
             stock: Evaluator::new(score.stock_weights()),
-            threat_effects: false,
+            commander_effects: false,
         }
     }
 
     /// The same reader, with threat maps that read the day-to-day commander
     /// effects when `on` is true ([`ThreatMap::set_commander_effects`]).
-    pub fn with_threat_effects(mut self, on: bool) -> Self {
-        self.threat_effects = on;
+    pub fn with_commander_effects(mut self, on: bool) -> Self {
+        self.commander_effects = on;
         self
     }
 
@@ -228,7 +228,7 @@ impl ReplayReader {
         });
         let threat = self.score.reads_threat().then(|| {
             let map = &mut self.threat[index];
-            map.set_commander_effects(self.threat_effects);
+            map.set_commander_effects(self.commander_effects);
             map.build(session, seat);
             &*map
         });

@@ -374,7 +374,7 @@ pub struct Weights {
     /// a tile that an enemy can attack costs the unit its threat. Zero turns
     /// the term off. The field is left out of the serialized weights at zero.
     #[serde(skip_serializing_if = "is_zero")]
-    pub indirect_zoc: f64,
+    pub firing_positions: f64,
 }
 
 impl Weights {
@@ -421,7 +421,7 @@ impl Weights {
         build_model: false,
         commander_effects: false,
         power_policy: false,
-        indirect_zoc: 0.0,
+        firing_positions: 0.0,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -665,7 +665,7 @@ pub struct GreedyAgent {
     advance_for: Option<AdvanceContext>,
     advance_revision: u64,
     /// The firing position field of each of our indirect kinds
-    /// ([`Board::fire_fields`]). Empty when [`Weights::indirect_zoc`] is zero.
+    /// ([`Board::fire_fields`]). Empty when [`Weights::firing_positions`] is zero.
     fire_fields: Vec<(UnitKind, Vec<f64>)>,
     fire_for: Option<FireContext>,
     movement_bounds: std::cell::RefCell<MovementBounds>,
@@ -1749,7 +1749,9 @@ impl GreedyAgent {
         // The firing position fields change the pull of our indirect units,
         // so a change also changes the revision that the movement bounds
         // read.
-        if advance_needed && weights.indirect_zoc != 0.0 && board.fire_fields(fire_fields, fire_for)
+        if advance_needed
+            && weights.firing_positions != 0.0
+            && board.fire_fields(fire_fields, fire_for)
         {
             *advance_revision += 1;
         }
@@ -2020,7 +2022,7 @@ impl Board<'_> {
     /// Build the firing position field of each indirect kind that we hold on
     /// the board. Return whether a field changed.
     ///
-    /// The value of a tile for a kind is [`Weights::indirect_zoc`] times the
+    /// The value of a tile for a kind is [`Weights::firing_positions`] times the
     /// best expected damage, in funds, that one strike of a whole unit of the
     /// kind does from the tile to one enemy unit on the board. The strike is
     /// the neutral strike ([`strike`]) times the day-to-day attack of our
@@ -2067,7 +2069,7 @@ impl Board<'_> {
         let context = FireContext {
             seat: self.seat,
             dimensions: state.board.dimensions(),
-            weight: self.weights.indirect_zoc,
+            weight: self.weights.firing_positions,
             kinds,
             enemies,
             commander: state
@@ -3184,7 +3186,9 @@ impl Scorer<'_> {
         // both a garrison and a step toward the next property is worth both.
         let hold = self.hold_field.get(cell).copied().unwrap_or(0.0);
         let value = field.get(cell).copied().unwrap_or(0.0) + hold;
-        if self.weights().indirect_zoc == 0.0 || profile.fire_mode != ruleset::FireMode::Indirect {
+        if self.weights().firing_positions == 0.0
+            || profile.fire_mode != ruleset::FireMode::Indirect
+        {
             return value;
         }
         let fire = self
@@ -3415,12 +3419,12 @@ mod tests {
     fn the_firing_position_term_moves_an_indirect_unit_into_range() {
         use awvm::ruleset::CommanderKind;
         let base = Weights {
-            indirect_zoc: 0.0,
+            firing_positions: 0.0,
             commander_effects: false,
             ..crate::profile::V8_GREEDY_CONFIG.weights
         };
         let zoc = Weights {
-            indirect_zoc: 0.05,
+            firing_positions: 0.05,
             ..base
         };
         let (state, _, tank) = artillery_and_tank(CommanderKind::Andy, 7).unwrap();
@@ -3440,7 +3444,7 @@ mod tests {
         assert!((2..=4).contains(&with), "Grit with the term: {with}");
         // Zero turns the term off.
         let off = Weights {
-            indirect_zoc: 0.0,
+            firing_positions: 0.0,
             ..zoc
         };
         assert_eq!(off, base);

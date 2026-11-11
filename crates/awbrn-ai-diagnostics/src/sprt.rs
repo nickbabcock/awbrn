@@ -633,31 +633,48 @@ struct EarlierCounters {
 
 impl EarlierCounters {
     fn keep(&mut self, agent: &dyn Agent) {
-        if let Some(stats) = agent.planner_stats() {
-            self.planner
-                .get_or_insert_with(PlannerStats::default)
-                .add(&stats);
-        }
-        if let Some(stats) = agent.search_stats() {
-            self.search.get_or_insert_with(Default::default).add(stats);
-        }
-        if let Some(times) = agent.search_decision_times_nanos() {
-            self.decision_times
-                .get_or_insert_with(Vec::new)
-                .extend(times);
-        }
-        if let Some(timing) = agent.timing() {
-            self.timing = Some(add_timing(self.timing.unwrap_or_default(), timing));
-        }
+        self.planner = self.with_planner(agent.planner_stats());
+        self.search = self.with_search(agent.search_stats());
+        self.decision_times = self.with_decision_times(agent.search_decision_times_nanos());
+        self.timing = self.with_timing(agent.timing());
+    }
+
+    fn with_planner(&self, current: Option<PlannerStats>) -> Option<PlannerStats> {
+        sum(self.planner.clone(), current, |total, current| {
+            total.add(&current)
+        })
+    }
+
+    fn with_search(
+        &self,
+        current: Option<awbrn_ai::agent::SearchStats>,
+    ) -> Option<awbrn_ai::agent::SearchStats> {
+        sum(self.search.clone(), current, |total, current| {
+            total.add(current)
+        })
+    }
+
+    fn with_decision_times(&self, current: Option<Vec<u64>>) -> Option<Vec<u64>> {
+        sum(self.decision_times.clone(), current, |total, current| {
+            total.extend(current);
+        })
+    }
+
+    fn with_timing(&self, current: Option<AgentTiming>) -> Option<AgentTiming> {
+        sum(self.timing, current, |total, current| {
+            *total = total.add(current)
+        })
     }
 }
 
-fn add_timing(left: AgentTiming, right: AgentTiming) -> AgentTiming {
-    AgentTiming {
-        plan_construction_nanos: left.plan_construction_nanos + right.plan_construction_nanos,
-        plan_refresh_nanos: left.plan_refresh_nanos + right.plan_refresh_nanos,
-        baseline_selection_nanos: left.baseline_selection_nanos + right.baseline_selection_nanos,
-        trace_recording_nanos: left.trace_recording_nanos + right.trace_recording_nanos,
+/// The sum of `earlier` and `current`, by `add`. `None` when both are `None`.
+fn sum<T>(earlier: Option<T>, current: Option<T>, add: impl FnOnce(&mut T, T)) -> Option<T> {
+    match (earlier, current) {
+        (Some(mut total), Some(current)) => {
+            add(&mut total, current);
+            Some(total)
+        }
+        (earlier, current) => current.or(earlier),
     }
 }
 
@@ -740,44 +757,20 @@ impl Agent for RebuiltEachTurn<'_> {
     }
 
     fn timing(&self) -> Option<AgentTiming> {
-        match (self.earlier.timing, self.agent.timing()) {
-            (Some(earlier), Some(current)) => Some(add_timing(earlier, current)),
-            (earlier, current) => current.or(earlier),
-        }
+        self.earlier.with_timing(self.agent.timing())
     }
 
     fn search_stats(&self) -> Option<awbrn_ai::agent::SearchStats> {
-        match (&self.earlier.search, self.agent.search_stats()) {
-            (Some(earlier), Some(current)) => {
-                let mut total = earlier.clone();
-                total.add(current);
-                Some(total)
-            }
-            (earlier, current) => current.or_else(|| earlier.clone()),
-        }
+        self.earlier.with_search(self.agent.search_stats())
     }
 
     fn search_decision_times_nanos(&self) -> Option<Vec<u64>> {
-        match (
-            &self.earlier.decision_times,
-            self.agent.search_decision_times_nanos(),
-        ) {
-            (Some(earlier), Some(current)) => {
-                Some(earlier.iter().copied().chain(current).collect())
-            }
-            (earlier, current) => current.or_else(|| earlier.clone()),
-        }
+        self.earlier
+            .with_decision_times(self.agent.search_decision_times_nanos())
     }
 
     fn planner_stats(&self) -> Option<PlannerStats> {
-        match (&self.earlier.planner, self.agent.planner_stats()) {
-            (Some(earlier), Some(current)) => {
-                let mut total = earlier.clone();
-                total.add(&current);
-                Some(total)
-            }
-            (earlier, current) => current.or_else(|| earlier.clone()),
-        }
+        self.earlier.with_planner(self.agent.planner_stats())
     }
 }
 
@@ -1141,6 +1134,83 @@ mod tests {
                 assert_eq!(seeds.len(), 2, "{seeds:?}");
             }
         }
+    }
+
+    /// An agent with fixed counters, for the sums of [`RebuiltEachTurn`].
+    struct FixedCounters;
+
+    impl Agent for FixedCounters {
+        fn act(
+            &mut self,
+            _view: &Observation,
+            _budget: NodeBudget,
+        ) -> Option<awbrn_ai::agent::Play> {
+            None
+        }
+
+        fn timing(&self) -> Option<AgentTiming> {
+            Some(AgentTiming {
+                plan_construction_nanos: 3,
+                ..AgentTiming::default()
+            })
+        }
+
+        fn search_decision_times_nanos(&self) -> Option<Vec<u64>> {
+            Some(vec![7])
+        }
+
+        fn planner_stats(&self) -> Option<PlannerStats> {
+            Some(PlannerStats {
+                plans: 2,
+                max_turn_work: 5,
+                ..PlannerStats::default()
+            })
+        }
+    }
+
+    struct FixedCountersFactory(AgentIdentity);
+
+    impl AgentFactory for FixedCountersFactory {
+        fn identity(&self) -> &AgentIdentity {
+            &self.0
+        }
+
+        fn create(&self, _seed: u64) -> Box<dyn Agent> {
+            Box::new(FixedCounters)
+        }
+    }
+
+    /// The counters of a rebuilt agent are the sums over the agents of its
+    /// turns, and the most work in one turn is the largest value.
+    #[test]
+    fn a_rebuilt_agent_sums_the_counters_of_its_turns() {
+        let factory = FixedCountersFactory(AgentIdentity {
+            identifier: "fixed".into(),
+            configuration_fingerprint: "0".into(),
+            executable_fingerprint: "0".into(),
+        });
+        let mut agent = RebuiltEachTurn::boxed(&factory, 1);
+        agent.start_match();
+        let mut state = awbrn_ai::board::arena(false, 1);
+        for day in 1..=3 {
+            state.turn.day = day;
+            let view = awvm::semantic::observe(
+                &awvm::semantic::AwbwVisibility,
+                &state,
+                &state.turn.active_player,
+            )
+            .unwrap();
+            agent.start_turn(&view);
+            // A second start in the same turn keeps the agent.
+            agent.start_turn(&view);
+        }
+        // The first agent and one agent for each of three turns.
+        let stats = agent.planner_stats().unwrap();
+        assert_eq!(stats.plans, 4 * 2);
+        assert_eq!(stats.max_turn_work, 5);
+        assert_eq!(agent.timing().unwrap().plan_construction_nanos, 4 * 3);
+        assert_eq!(agent.search_decision_times_nanos().unwrap(), vec![7; 4]);
+        assert!(agent.search_stats().is_none());
     }
 
     #[test]

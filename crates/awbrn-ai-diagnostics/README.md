@@ -215,7 +215,7 @@ Wall-clock limits are excluded from CI; tests check deterministic work limits.
 `planner-v8` is the planner of the Hard profile. It is `planner-v7` with:
 
 - the wider search of `planner-v7-wide`: no work threshold, and about four
-  times the plans and reply checks. One plan uses at most 217 nodes, so its
+  times the plans and reply checks. One plan uses at most 215 nodes, so its
   plans set a node budget of 256;
 - the build model fitted to human builds
   (`assets/ai-diagnostics/build-policy/README.md`);

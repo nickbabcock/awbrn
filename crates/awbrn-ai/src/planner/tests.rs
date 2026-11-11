@@ -1562,7 +1562,7 @@ fn planner_v8_keeps_the_eagle_super_power_after_the_attacks() {
 /// the power, and also when the enemy is already in range and the position
 /// does not change the score.
 #[test]
-fn the_first_placement_puts_the_grit_super_power_first() {
+fn the_power_policy_keeps_the_grit_super_power_first() {
     for distance in [3, 5] {
         let (placed, chosen) = placement_probe(grit_board(distance), &PlannerConfig::V8);
         println!(
@@ -1577,7 +1577,7 @@ fn the_first_placement_puts_the_grit_super_power_first() {
 /// when that is better than the power first by the margin, and first with
 /// tanks at half health.
 #[test]
-fn the_first_placement_moves_the_andy_super_power_only_past_the_margin() {
+fn the_power_policy_moves_the_andy_super_power_only_past_the_margin() {
     for hp in [100, 50] {
         let (placed, chosen) = placement_probe(andy_board(hp), &PlannerConfig::V8);
         println!(
@@ -2090,7 +2090,6 @@ fn swing_board(filler: u8) -> (State, PlayerIdx) {
 #[test]
 fn the_swing_rule_follows_the_threshold_and_the_march_plan() {
     use awvm::commander::PowerLevel;
-    use awvm::semantic::Pos;
     // 3 of 50 properties is 6%: fire.
     let (state, ours) = swing_board(45);
     let share = march::swing_share(&state, ours, PowerLevel::Scop);
@@ -2163,7 +2162,6 @@ fn the_swing_rule_follows_the_threshold_and_the_march_plan() {
         march::swing_turn(&Session::new(state), ours, None, Some(&far)),
         march::SwingTurn::Fire(..)
     ));
-    let _ = Pos::new(0, 0);
 }
 
 /// The march planner uses the power on the swing turn and takes the

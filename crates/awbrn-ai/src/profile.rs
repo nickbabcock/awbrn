@@ -54,7 +54,7 @@ pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
         build_model: true,
         commander_effects: true,
         power_policy: true,
-        indirect_zoc: 0.01,
+        firing_positions: 0.01,
         ..HARD_V3_CONFIG.weights
     },
     ..HARD_V3_CONFIG
@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn hard_v3_profile_fingerprint_is_locked() {
-        assert_eq!(HARD.configuration_fingerprint(), "7720b6cf803ac1e1");
+        assert_eq!(HARD.configuration_fingerprint(), "d2e6c3d6670f7b8a");
     }
 
     #[test]
