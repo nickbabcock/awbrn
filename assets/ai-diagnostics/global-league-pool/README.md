@@ -8,6 +8,10 @@ The manifest records each map's source URL, map page, mode, rank, size, factions
 
 The manifest splits the maps into 21 development maps and 21 untouched holdout maps. The split was assigned without using match outcomes from these maps. Do not use holdout results to choose or tune an agent. Map 67945 stays in development because earlier research used it. The other researched maps do not appear in this pool.
 
+The 14 Standard and High Funds holdout maps were used once on 2026-11-01. They were the sealed holdout for the human-tile score: `planner-v7` with the Cups 3–4 refit and the tile margin, against `planner-v7`. The result was −0.004 ± 0.067 over 280 pairs without fog. These maps are no longer untouched. They keep the split `untouched_holdout`, so the selection does not change. The field `selection.holdout_uses` records the use, and each of these maps has the field `holdout_used`. Do not use them as a sealed holdout again. The seven Fog holdout maps are not part of this use. They were used before, for the Hard v2 Fog evaluation (`crates/awbrn-ai/diagnostics/hard-v2-fog-fold-in.md`).
+
+The build model of `planner-v8` (`../build-policy/README.md`) is fitted on human games that include 76 build rows on holdout map 146797 and 2 on holdout map 173170. Both maps are in the use above. Development map 77060 has 191 rows. No other map of this pool is in the fit.
+
 `fog-holdout-manifest.json` lists the seven Fog holdout maps with fog enabled. It supports the recorded fog evaluation plan. It does not change the Global League split.
 
 The split uses the fixed label `awbrn-global-league-holdout-v1`. The selector hashes `awbrn-global-league-holdout-v1:<AWBW ID>`, then takes the lowest hashes within fixed mode, rank, and size groups. A map is small when it has 420 tiles or less. The manifest records the bucket counts and prior map IDs.

@@ -19,9 +19,14 @@ greedy policy of `planner-v8` loads it (`awbrn_ai::build_policy`).
   Only a commander that changes the range, such as Grit or Max, is
   changed.
 
-The fit includes the games on the maps of `tournament-sealed/manifest.json`.
-Most rows of the corpus are on these maps, so these maps are not a clean
-holdout for the model.
+The 49,412 rows of the fit come from games on 34 maps. A map set taken
+from the same tournament games is thus not a clean holdout for the model.
+The reserved set of 29 tournament maps for final checks, which is not in
+this repository, contains 26 of these maps with 40,263 rows. The 14
+development maps of the SPRT plans have 191 rows, all on map 77060, so a
+development run tests the model mostly on maps that it was not fitted on.
+Two holdout maps of the Global League pool have 78 rows. See
+`../global-league-pool/README.md`.
 
 ## Make the model again
 
