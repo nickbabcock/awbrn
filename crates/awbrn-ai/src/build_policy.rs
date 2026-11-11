@@ -951,10 +951,10 @@ impl BuildModel {
             .collect()
     }
 
-    /// The kind in `legal` with the highest utility, after the term `bias`
-    /// of each kind ([`range_bias`], indexed by [`UnitKind::index`]). The
-    /// first of equal kinds wins. `None` when the model holds no kind in
-    /// `legal`.
+    /// The kind in `legal` with the highest utility. When `bias` is present,
+    /// the function adds `bias[kind.index()]` to the utility of each kind
+    /// ([`range_bias`]). The first of equal kinds wins. `None` when the model
+    /// holds no kind in `legal`.
     pub fn choose(
         &self,
         features: &BuildFeatures,
@@ -1243,16 +1243,28 @@ mod tests {
         let (mut state, seat, _, site) = arena_site();
         state.player_mut(seat).funds = 30_000;
         let legal = UnitKind::ALL;
-        for co in [
-            CommanderKind::Sami,
-            CommanderKind::Andy,
-            CommanderKind::Eagle,
-            CommanderKind::Drake,
-            CommanderKind::Lash,
-            CommanderKind::Kindle,
-        ] {
+        for co in CommanderKind::ALL {
             set_commander(&mut state, seat, co);
-            assert!(range_bias(&state, seat, 2.5).is_none(), "{co:?}");
+            let changes_range = UnitKind::ALL.into_iter().any(|kind| {
+                let profile = ruleset::profile(kind);
+                profile.indirect_range.is_some()
+                    && commander::day_to_day_attack_range_add(
+                        co,
+                        kind,
+                        profile.domain,
+                        ruleset::FireMode::Indirect,
+                    ) != 0
+            });
+            assert_eq!(
+                range_bias(&state, seat, 2.5).is_some(),
+                changes_range,
+                "{co:?}"
+            );
+            assert_eq!(
+                changes_range,
+                matches!(co, CommanderKind::Grit | CommanderKind::Max),
+                "{co:?}"
+            );
         }
         set_commander(&mut state, seat, CommanderKind::Grit);
         assert!(range_bias(&state, seat, 0.0).is_none());
@@ -1310,6 +1322,52 @@ mod tests {
         let base = share(&state, None);
         let ranged = share(&state, range_bias(&state, seat, 2.5));
         assert!(ranged < base, "{base} {ranged}");
+    }
+
+    /// In the greedy policy of planner-v8, the range term changes the kind
+    /// that Grit builds at some site to an indirect kind. A change for Max is
+    /// always away from an indirect kind.
+    #[test]
+    fn the_greedy_policy_reads_the_range_term() {
+        let v8 = crate::profile::V8_GREEDY_CONFIG;
+        let no_range = crate::baseline::BaselineConfig {
+            weights: crate::agents::Weights {
+                build_range: 0.0,
+                ..v8.weights
+            },
+            ..v8
+        };
+        let indirect = |kind: UnitKind| UnitClass::of(kind) == UnitClass::Indirect;
+        for (co, to_indirect) in [(CommanderKind::Grit, true), (CommanderKind::Max, false)] {
+            let mut changed = 0;
+            for (mut state, _) in build_views() {
+                let seat = state.players.seat(&state.turn.active_player).unwrap();
+                set_commander(&mut state, seat, co);
+                let view = observe(&AwbwVisibility, &state, &state.turn.active_player).unwrap();
+                let with = v8.build_greedy(3).model_build_choices(&view);
+                let without = no_range.build_greedy(3).model_build_choices(&view);
+                for ((site, kind), (other_site, other)) in with.iter().zip(&without) {
+                    assert_eq!(site, other_site);
+                    if kind != other {
+                        changed += 1;
+                        let (gains, loses) = if to_indirect {
+                            (*kind, *other)
+                        } else {
+                            (*other, *kind)
+                        };
+                        assert!(
+                            indirect(gains) && !indirect(loses),
+                            "{co:?} {kind:?} {other:?}"
+                        );
+                    }
+                }
+            }
+            // On these boards the model rarely chooses an indirect kind for
+            // Max, so only Grit must change.
+            if to_indirect {
+                assert!(changed > 0, "{co:?}");
+            }
+        }
     }
 
     /// The arena, the active seat, the other seat, and an empty ground site
