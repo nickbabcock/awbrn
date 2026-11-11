@@ -7,7 +7,7 @@
 //! engine of a Worker. Build it natively to get the ratio for the same games.
 //! The work counts must be equal in the two builds.
 //!
-//! `uncapped` is planner-v2 with no work limit. `v7` is the current Hard
+//! `uncapped` is planner-v2 with no work limit. `v8` is the current Hard
 //! configuration.
 //!
 //! ```text
@@ -15,10 +15,10 @@
 //!   --target wasm32-wasip1
 //! node scripts/run-wasi.mjs \
 //!   target/wasm32-wasip1/release/examples/planner_timing.wasm . \
-//!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v7
+//!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v8
 //! ```
 //!
-//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7> [map-id]`
+//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8> [map-id]`
 
 use std::time::Instant;
 
@@ -41,7 +41,7 @@ fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let [_, manifest, pairs, mode, selected @ ..] = arguments.as_slice() else {
         eprintln!(
-            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7> [map-id]"
+            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8> [map-id]"
         );
         std::process::exit(2);
     };
@@ -63,6 +63,7 @@ fn main() {
         "v6" => PlannerConfig::V6,
         "v6-canonical" => PlannerConfig::V6_CANONICAL,
         "v7" => PlannerConfig::V7,
+        "v8" => PlannerConfig::V8,
         other => panic!("unknown mode {other}"),
     };
     let registry = MapRegistry::load(&MapManifest::read(manifest).expect("manifest reads"))

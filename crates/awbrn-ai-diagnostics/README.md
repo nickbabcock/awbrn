@@ -86,13 +86,13 @@ stopping rule. A clean day-limit exit scores as a draw. Invalid commands or
 other missing outcomes stop the run with an error.
 
 The planner respects the plan's `node_budget`, including reply evaluations.
-Use `32` to match the current Hard profile, which uses `planner-v7`.
+Use `256` to match the current Hard profile, which uses `planner-v8`.
 `planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
 it. A budget of `1` scores only the seed turn. Use a new run directory after a
 policy or budget change. The plan
 `assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json` recorded
 the promotion of `planner-v3` with 16 evaluations. Its profile now seats
-`planner-v7`, so it does not repeat that result. The earlier four-evaluation
+`planner-v8`, so it does not repeat that result. The earlier four-evaluation
 plan remains available for historical runs.
 
 Use sequential runs for development. Keep the frozen gate and the sealed
@@ -209,6 +209,56 @@ The timing example plays one pair per map on one thread. Compare work
 counts between builds before comparing times. Host load affects elapsed
 time. Measure the service host before setting a runtime requirement.
 Wall-clock limits are excluded from CI; tests check deterministic work limits.
+
+## Measure planner-v8
+
+`planner-v8` is the planner of the Hard profile. It is `planner-v7` with:
+
+- the wider search of `planner-v7-wide`: no work threshold, and about four
+  times the plans and reply checks. One plan uses at most 215 nodes, so its
+  plans set a node budget of 256;
+- the build model fitted to human builds
+  (`assets/ai-diagnostics/build-policy/README.md`), with a term for the
+  attack range that the commander adds to indirect units (Grit buys more
+  of them, Max fewer);
+- the commander effects: the capture bonus in the capture estimates, and
+  the day-to-day attack, defense and range in the threat maps;
+- the power policy: save the meter for the super power as human players of
+  the commander do, use a power first and try later positions, and use a
+  power that lets units act again last (`awbrn_ai::power`);
+- the firing positions of indirect units;
+- the ferry of spare capturers to properties they cannot reach on foot;
+- the march plan for a power that takes a property in one capture (Sami's
+  super power).
+
+The plans compare `planner-v8` with `planner-v7` on the 14 development maps
+with a day limit of 35:
+
+- `planner-v8-vs-v7-fixed280.json`: the Andy mirror, 280 pairs.
+- `planner-v8-vs-v7-<commander>-fixed56.json`: the mirrors of Drake, Eagle,
+  Grit, Kindle, Lash, Max and Sami, 56 pairs each.
+- `planner-v8-vs-v7-fog-fixed56.json`: the Andy mirror in fog, 56 pairs.
+- `planner-v8-vs-v7-rebuilt-fixed280.json` and
+  `planner-v8-vs-v7-sami-rebuilt-fixed56.json`: the Andy and Sami mirrors with
+  an agent built again in each turn, as the host does (see below).
+
+```text
+cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
+  sprt --plan assets/ai-diagnostics/sprt/planner-v8-vs-v7-fixed280.json \
+  --output target/planner-v8
+```
+
+The host builds a new agent for each turn (`awbrn_server::AiSeat`). Set
+`"rebuild_agent_each_turn": true` in a plan to do the same: each agent is
+built again at the start of each own turn, from a seed of its agent seed and
+the day. The march plan of `planner-v8` keeps a log of the meter
+over the own turns, so its play in a host is the play with this option.
+
+The source fingerprint of a plan reads every untracked file that
+`.gitignore` does not exclude. It reads each file in chunks, and it records
+a file above 32 MiB by its size only. `.gitignore` excludes the build
+directories `target-*/` at the top of the worktree. Put other build
+directories outside the worktree.
 
 ## Run a search budget sweep
 

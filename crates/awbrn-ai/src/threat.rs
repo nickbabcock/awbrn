@@ -51,6 +51,7 @@
 //! against the tens of thousands of commands this crate plays each second.
 
 use awvm::combat::{self, Side};
+use awvm::commander;
 use awvm::query::{MoveScratch, Sweep};
 use awvm::ruleset::{self, CommanderKind, Domain, FireMode, UnitKind};
 use awvm::semantic::{
@@ -58,7 +59,7 @@ use awvm::semantic::{
     TerrainId, TileOwner, Unit, UnitId, WeatherKind,
 };
 use awvm::session::{PositionKey, Session};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 /// Terrain defense runs from no stars to four, so a row holds five columns.
 const STAR_LEVELS: usize = 5;
@@ -120,6 +121,12 @@ pub struct ThreatMap {
     /// The estimated threat of enemy units this player cannot see, added to
     /// every reading. See [`ThreatOverlay`].
     overlay: Option<Arc<ThreatOverlay>>,
+    /// Whether the map reads the day-to-day commander effects. See
+    /// [`ThreatMap::set_commander_effects`].
+    effects: bool,
+    /// The damage tables with commander effects of this build context, by
+    /// attacker kind, health and attack.
+    effect_tables: Vec<(UnitKind, u8, i64, Arc<DamageTable>)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -238,6 +245,70 @@ impl ThreatMap {
             collecting: [const { Vec::new() }; 2],
             dependencies: Vec::new(),
             overlay: None,
+            effects: false,
+            effect_tables: Vec::new(),
+        }
+    }
+
+    /// Read the day-to-day effects of the commanders, or not.
+    ///
+    /// When false (the default), each unit attacks and defends with the
+    /// neutral values, and an indirect unit has the range of its profile.
+    /// When true, the map reads from the engine the day-to-day values of the
+    /// active commander of each side ([`seat_day_to_day`]):
+    ///
+    /// - the attack of the enemy unit,
+    /// - the defense of our unit of each kind,
+    /// - the range that the enemy commander adds to an indirect unit.
+    ///
+    /// A power is not read. The power of the enemy stops before its next
+    /// turn, and a power that it can use on that turn is not known. The map
+    /// does not read the identity of a commander. With commanders that have
+    /// no day-to-day rule, the map is the same as with the switch off. A
+    /// change of the switch clears the map.
+    pub fn set_commander_effects(&mut self, on: bool) {
+        if self.effects == on {
+            return;
+        }
+        self.effects = on;
+        self.position = None;
+        self.context = None;
+        self.cached.clear();
+        self.effect_tables.clear();
+    }
+
+    /// The damage table of `unit` against the units of `seat`.
+    fn table_for(&mut self, state: &State, seat: PlayerIdx, unit: &Unit) -> Arc<DamageTable> {
+        if !self.effects {
+            return DamageTable::cached(unit);
+        }
+        let attack = seat_day_to_day(state, unit.owner, unit.kind).attack;
+        let defense = UnitKind::ALL.map(|kind| seat_day_to_day(state, seat, kind).defense);
+        if attack == NEUTRAL && defense.iter().all(|value| *value == NEUTRAL) {
+            return DamageTable::cached(unit);
+        }
+        if let Some((.., table)) = self
+            .effect_tables
+            .iter()
+            .find(|(kind, hp, value, _)| *kind == unit.kind && *hp == unit.hp && *value == attack)
+        {
+            return Arc::clone(table);
+        }
+        let table = Arc::new(DamageTable::of_kind_with(
+            unit.kind, unit.hp, attack, &defense,
+        ));
+        self.effect_tables
+            .push((unit.kind, unit.hp, attack, Arc::clone(&table)));
+        table
+    }
+
+    /// The range that the commander of the owner of `unit` adds to its
+    /// maximum attack range. Zero when the map does not read effects.
+    fn range_add(&self, state: &State, unit: &Unit) -> i64 {
+        if self.effects {
+            seat_day_to_day(state, unit.owner, unit.kind).range_add
+        } else {
+            0
         }
     }
 
@@ -350,6 +421,7 @@ impl ThreatMap {
         }
         if context_changed {
             self.cached.clear();
+            self.effect_tables.clear();
         }
         let mut roster = state.units.iter().filter(|unit| {
             matches!(unit.location, Location::Board { .. }) && hostile(state, seat, unit.owner)
@@ -461,7 +533,7 @@ impl ThreatMap {
                 .as_ref()
                 .filter(|cached| cached.unit.kind == unit.kind && cached.unit.hp == unit.hp)
                 .map(|cached| Arc::clone(&cached.table))
-                .unwrap_or_else(|| DamageTable::cached(unit));
+                .unwrap_or_else(|| self.table_for(state, seat, unit));
             let reusable_geometry = old.as_ref().is_some_and(|cached| {
                 same_threat_geometry(&cached.unit, unit)
                     && cached.table.is_empty() == table.is_empty()
@@ -479,7 +551,8 @@ impl ThreatMap {
                 self.cached.push(cached);
                 continue;
             }
-            let dependencies = self.add(sweep, unit, position, &table);
+            let range_add = self.range_add(state, unit);
+            let dependencies = self.add(sweep, unit, position, &table, range_add);
             let same = old.as_ref().is_some_and(|cached| {
                 cached.unit.kind == unit.kind
                     && cached.unit.hp == unit.hp
@@ -654,6 +727,7 @@ impl ThreatMap {
         unit: &Unit,
         position: Pos,
         table: &DamageTable,
+        range_add: i64,
     ) -> Vec<CellIdx> {
         let profile = ruleset::profile(unit.kind);
         // A unit with no weapon threatens nothing, and neither does one with
@@ -681,10 +755,16 @@ impl ThreatMap {
             // An indirect unit fires from where it stands, and from anywhere
             // it can walk to only on the turn after it walks there.
             FireMode::Indirect => {
-                let range = profile.indirect_range.unwrap_or(ruleset::AttackRange {
+                let mut range = profile.indirect_range.unwrap_or(ruleset::AttackRange {
                     minimum: 1,
                     maximum: 1,
                 });
+                if range_add != 0 {
+                    range.maximum = range
+                        .maximum
+                        .saturating_add_signed(range_add)
+                        .max(range.minimum);
+                }
                 self.serial += 1;
                 self.ring(position, range, Layer::Immediate);
 
@@ -1021,6 +1101,13 @@ impl DamageTable {
 
     /// The table a unit of `kind` presents at `hp`.
     fn of_kind(kind: UnitKind, hp: u8) -> Self {
+        Self::of_kind_with(kind, hp, NEUTRAL, &[NEUTRAL; UnitKind::COUNT])
+    }
+
+    /// The table a unit of `kind` presents at `hp`, with the attack
+    /// `attack`, against defenders with the defense `defense`, indexed by
+    /// [`UnitKind::index`].
+    fn of_kind_with(kind: UnitKind, hp: u8, attack: i64, defense: &[i64; UnitKind::COUNT]) -> Self {
         let profile = ruleset::profile(kind);
         let mut funds = [[0.0; UnitKind::COUNT]; STAR_LEVELS];
         let mut armed = false;
@@ -1034,7 +1121,7 @@ impl DamageTable {
             // Enemy ammo is hidden under fog. A full magazine is the cautious
             // guess.
             ammo: profile.max_ammo,
-            attack: NEUTRAL,
+            attack,
             defense: NEUTRAL,
             terrain_stars: 0,
         };
@@ -1051,7 +1138,7 @@ impl DamageTable {
                     hp: WHOLE,
                     ammo: 0,
                     attack: NEUTRAL,
-                    defense: NEUTRAL,
+                    defense: defense[defender.index()],
                     terrain_stars: if flat { 0 } else { stars as u8 },
                 };
                 // No weapon reaches this defender at all, and the answer does
@@ -1168,6 +1255,114 @@ impl ThreatOverlay {
         rows.get(usize::from(cell.get()) * UnitKind::COUNT + kind.index())
             .map_or(0.0, |value| f64::from(*value))
     }
+}
+
+/// The combat side of a unit of `kind` that stands on a plain that is not a
+/// property.
+pub(crate) fn plain_combatant(
+    kind: UnitKind,
+    weather: awvm::ruleset::WeatherKind,
+    capabilities: &std::collections::HashSet<String>,
+) -> commander::Combatant<'_> {
+    let profile = ruleset::profile(kind);
+    let domain = match kind {
+        UnitKind::Infantry | UnitKind::Mech => commander::CombatDomain::Foot,
+        _ if profile.transport.is_some() => commander::CombatDomain::Transport,
+        _ => match profile.domain {
+            ruleset::Domain::Ground => commander::CombatDomain::GroundVehicle,
+            ruleset::Domain::Air => commander::CombatDomain::Air,
+            ruleset::Domain::Sea => commander::CombatDomain::Naval,
+        },
+    };
+    commander::Combatant {
+        kind,
+        domain,
+        fire_mode: profile.fire_mode,
+        terrain: ruleset::Terrain::Plain,
+        weather,
+        property: false,
+        capabilities,
+    }
+}
+
+/// The day-to-day values of a commander for one unit kind, from the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DayToDay {
+    /// The attack, in percent. 100 is the value with no rule.
+    pub attack: i64,
+    /// The defense, in percent. 100 is the value with no rule.
+    pub defense: i64,
+    /// The range that the commander adds to the maximum attack range of an
+    /// indirect unit.
+    pub range_add: i64,
+}
+
+impl DayToDay {
+    /// The values with no commander rule.
+    pub const NEUTRAL: Self = Self {
+        attack: 100,
+        defense: 100,
+        range_add: 0,
+    };
+}
+
+/// The day-to-day values of `co` for a unit of `kind`.
+///
+/// The engine gives each value ([`commander::day_to_day_combat`] and
+/// [`commander::day_to_day_attack_range_add`]). The unit stands on a plain
+/// that is not a property, in clear weather, with no tower and no funds. No
+/// power is active. The function does not read the identity of the
+/// commander.
+pub(crate) fn day_to_day(co: CommanderKind, kind: UnitKind) -> DayToDay {
+    static TABLE: LazyLock<Vec<[DayToDay; UnitKind::COUNT]>> = LazyLock::new(|| {
+        static NO_CAPABILITIES: LazyLock<std::collections::HashSet<String>> =
+            LazyLock::new(std::collections::HashSet::new);
+        CommanderKind::ALL
+            .into_iter()
+            .map(|co| {
+                UnitKind::ALL.map(|kind| {
+                    let profile = ruleset::profile(kind);
+                    let unit =
+                        plain_combatant(kind, awvm::ruleset::WeatherKind::Clear, &NO_CAPABILITIES);
+                    let context = commander::CombatContext {
+                        tower_count: 0,
+                        funds: 0,
+                        owned_properties: 0,
+                        base_terrain_stars: 1,
+                    };
+                    let (attack, defense) =
+                        commander::day_to_day_combat(co, unit, commander::Strike::Initial, context)
+                            .map_or((100, 100), |combat| (combat.attack, combat.defense));
+                    let range_add = if profile.indirect_range.is_some() {
+                        commander::day_to_day_attack_range_add(
+                            co,
+                            kind,
+                            profile.domain,
+                            ruleset::FireMode::Indirect,
+                        )
+                    } else {
+                        0
+                    };
+                    DayToDay {
+                        attack,
+                        defense,
+                        range_add,
+                    }
+                })
+            })
+            .collect()
+    });
+    TABLE[co.index()][kind.index()]
+}
+
+/// The day-to-day values of the active commander of `seat` for a unit of
+/// `kind`. A seat with no active commander gets [`DayToDay::NEUTRAL`].
+pub(crate) fn seat_day_to_day(state: &State, seat: PlayerIdx, kind: UnitKind) -> DayToDay {
+    state
+        .players
+        .get(seat.get())
+        .and_then(|player| player.commanders.iter().find(|co| co.active))
+        .map_or(DayToDay::NEUTRAL, |co| day_to_day(co.id, kind))
 }
 
 #[cfg(test)]
@@ -1316,6 +1511,86 @@ mod tests {
         state.units.push(enemy);
 
         (state, ours, position)
+    }
+
+    /// Set the commander of each seat of `state` to `co`.
+    fn set_commanders(state: &mut State, co: CommanderKind) {
+        let seats: Vec<PlayerIdx> = state.players.seats().map(|(seat, _)| seat).collect();
+        for seat in seats {
+            for commander in state.player_mut(seat).commanders.iter_mut() {
+                commander.id = co;
+            }
+        }
+    }
+
+    /// Every reading of a map built for `state`, with the commander effects
+    /// on or off.
+    fn readings(state: &State, ours: PlayerIdx, effects: bool) -> Vec<(f64, f64)> {
+        let session = Session::new(state.clone());
+        let mut map = ThreatMap::new();
+        map.set_commander_effects(effects);
+        map.build(&session, ours);
+        let dimensions = state.board.dimensions();
+        let mut out = Vec::new();
+        for position in dimensions.positions() {
+            let cell = dimensions.cell_index(position).unwrap();
+            for kind in UnitKind::ALL {
+                out.push((map.immediate(cell, kind), map.deferred(cell, kind)));
+            }
+        }
+        out
+    }
+
+    /// With commanders that have no day-to-day rule, the map with the
+    /// commander effects is the map without them.
+    #[test]
+    fn commander_effects_do_not_change_a_neutral_commander() {
+        for kind in [UnitKind::Artillery, UnitKind::Rocket, UnitKind::Tank] {
+            let (mut state, ours, _) = one_enemy(kind);
+            set_commanders(&mut state, CommanderKind::Andy);
+            assert_eq!(readings(&state, ours, true), readings(&state, ours, false));
+        }
+    }
+
+    /// With the commander effects, an enemy Grit artillery threatens the
+    /// tiles four steps away and does more damage at three steps. An enemy
+    /// Max artillery threatens nothing at three steps.
+    #[test]
+    fn commander_effects_change_the_range_and_the_damage() {
+        let (mut state, ours, origin) = one_enemy(UnitKind::Artillery);
+        let dimensions = state.board.dimensions();
+        let at = |distance: u64| {
+            dimensions
+                .positions()
+                .find(|position| position.distance(origin) == distance)
+                .and_then(|position| dimensions.cell_index(position))
+                .unwrap()
+        };
+        let read = |state: &State, effects: bool, distance: u64| {
+            let session = Session::new(state.clone());
+            let mut map = ThreatMap::new();
+            map.set_commander_effects(effects);
+            map.build(&session, ours);
+            map.immediate(at(distance), UnitKind::Infantry)
+        };
+        set_commanders(&mut state, CommanderKind::Grit);
+        assert_eq!(read(&state, false, 4), 0.0);
+        assert!(read(&state, true, 4) > 0.0);
+        assert!(read(&state, true, 3) > read(&state, false, 3));
+        set_commanders(&mut state, CommanderKind::Max);
+        assert!(read(&state, false, 2) > 0.0);
+        assert!(read(&state, false, 3) > 0.0);
+        assert_eq!(read(&state, true, 3), 0.0);
+        assert!(read(&state, true, 2) < read(&state, false, 2));
+        // A change of the switch on one map rebuilds it.
+        let session = Session::new(state.clone());
+        let mut map = ThreatMap::new();
+        map.build(&session, ours);
+        let before = map.immediate(at(3), UnitKind::Infantry);
+        map.set_commander_effects(true);
+        map.build(&session, ours);
+        assert_eq!(map.immediate(at(3), UnitKind::Infantry), 0.0);
+        assert!(before > 0.0);
     }
 
     /// A map built over one that was built before answers what a map built

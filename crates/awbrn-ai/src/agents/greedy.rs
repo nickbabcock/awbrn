@@ -51,8 +51,10 @@ use awvm::session::{
 };
 
 use crate::agent::{Agent, NodeBudget, Play};
+use crate::build_policy::BuildContext;
 use crate::fog::FogEstimate;
 use crate::map::ContestMap;
+use crate::power::PowerUse;
 use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
 use crate::vision::{Needs, VisionMap};
@@ -61,6 +63,9 @@ use crate::vision::{Needs, VisionMap};
 const LATE_SAVE_MIN_FUNDS: u64 = 10_000;
 /// The score of a useful save at the day limit.
 const LATE_SAVE_SCORE: f64 = 100_000.0;
+/// The score of a power that the power policy uses first. It is above the
+/// score of every other order, also the capture of a headquarters.
+const POWER_FIRST: f64 = 1.0e12;
 
 /// What each objective is worth, in one place.
 ///
@@ -322,6 +327,66 @@ pub struct Weights {
     /// fingerprints of the earlier weightings do not change.
     #[serde(skip_serializing_if = "is_zero")]
     pub build_floor: f64,
+    /// Whether the build model fitted to human builds chooses the unit kind
+    /// at each production site ([`crate::build_policy`]).
+    ///
+    /// The greedy scores still decide whether and when a site builds. The
+    /// model only decides which kind. See the production arm of the scorer.
+    /// The field is left out of the serialized weights when it is false, so
+    /// the fingerprints of the earlier weightings do not change.
+    #[serde(skip_serializing_if = "is_false")]
+    pub build_model: bool,
+    /// The strength of the range term of the build model.
+    ///
+    /// When it is not zero, the utility of each indirect kind gets this value
+    /// times the natural logarithm of the ratio of its maximum attack range
+    /// under our commander to the range of its profile
+    /// ([`crate::build_policy::range_bias`]). Grit thus buys more indirect
+    /// units, and Max fewer. A commander that does not change the range is
+    /// not changed. The field is left out of the serialized weights at zero.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub build_range: f64,
+    /// Whether the estimates read the rules of each commander from the
+    /// engine.
+    ///
+    /// - The capture estimates read the capture bonus of the commander
+    ///   ([`capture_strength`]). Sami takes 1.5 times her visible health,
+    ///   and her super power takes a property in one turn. When false, a
+    ///   unit takes its visible health off a property in each turn.
+    /// - The threat maps of this policy and of the planner score read the
+    ///   day-to-day attack, defense and range of each commander
+    ///   ([`ThreatMap::set_commander_effects`]).
+    ///
+    /// A commander with no such rule is not changed. The field is left out
+    /// of the serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub commander_effects: bool,
+    /// Whether the power policy decides when and where in the turn a legal
+    /// commander power is used ([`crate::power::power_use`]).
+    ///
+    /// When true, a commander whose human players save for the super power
+    /// holds the normal power. This policy uses each other power before all
+    /// its other orders, except a power that lets units act again, which
+    /// goes last. The planner adds plans with the power at later positions,
+    /// and takes one only when it is better by a margin ([`crate::planner`]).
+    /// The field is left out of the serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub power_policy: bool,
+    /// The value of a firing position of our indirect units, for each fund
+    /// of the best strike that the unit can make from the tile on its next
+    /// turn.
+    ///
+    /// An indirect unit cannot move and fire in one turn. Thus the tile where
+    /// it stops at the end of the turn sets the targets of the next turn.
+    /// The term adds to the pull of each tile the best expected damage, in
+    /// funds, against one enemy unit in the attack range of the unit from
+    /// that tile ([`Board::fire_fields`]). The exposure term still applies, so
+    /// a tile that an enemy can attack costs the unit its threat. The term
+    /// always reads the day-to-day attack and range of our commander; it does
+    /// not need [`Weights::commander_effects`]. Zero turns the term off. The
+    /// field is left out of the serialized weights at zero.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub firing_positions: f64,
 }
 
 impl Weights {
@@ -365,6 +430,11 @@ impl Weights {
         power: 200.0,
         supply: 10.0,
         build_floor: 0.0,
+        build_model: false,
+        build_range: 0.0,
+        commander_effects: false,
+        power_policy: false,
+        firing_positions: 0.0,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -580,6 +650,17 @@ struct AdvanceContext {
     enemies: Vec<(UnitKind, Pos, u8)>,
 }
 
+/// What the firing position fields of [`Board::fire_fields`] read.
+#[derive(Clone, Debug, PartialEq)]
+struct FireContext {
+    seat: PlayerIdx,
+    dimensions: awvm::semantic::Dimensions,
+    weight: f64,
+    kinds: Vec<UnitKind>,
+    enemies: Vec<(UnitKind, Pos, u8, bool)>,
+    commander: Option<awvm::ruleset::CommanderKind>,
+}
+
 #[derive(Debug)]
 pub struct GreedyAgent {
     /// Ties are common — a mirror board answers the same score from two
@@ -596,6 +677,10 @@ pub struct GreedyAgent {
     advance_field: Vec<f64>,
     advance_for: Option<AdvanceContext>,
     advance_revision: u64,
+    /// The firing position field of each of our indirect kinds
+    /// ([`Board::fire_fields`]). Empty when [`Weights::firing_positions`] is zero.
+    fire_fields: Vec<(UnitKind, Vec<f64>)>,
+    fire_for: Option<FireContext>,
     movement_bounds: std::cell::RefCell<MovementBounds>,
     enemy_units: Vec<(usize, Pos)>,
     target_reductions:
@@ -629,9 +714,86 @@ pub struct GreedyAgent {
     /// the enemy it cannot see. It is read only for that seat, so a policy
     /// that also plays the simulated enemy reply does not use it there.
     fog: Option<Arc<FogEstimate>>,
+    /// The powers that a plan holds for one seat. `None` holds nothing.
+    power_hold: Option<crate::power::PowerHold>,
     /// Keep query buffers and terrain tables across observed decisions.
     session: Option<Session>,
     selection: Selection,
+    /// The legal production sites of the position and the kind that the
+    /// build model chose at each. Empty when the build model is off.
+    build_sites: Vec<BuildSite>,
+}
+
+/// One production site with legal builds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BuildSite {
+    cell: CellIdx,
+    /// The legal kinds, one bit for each [`UnitKind::index`].
+    legal: u32,
+    /// The kind that the build model chose. `None` when the model holds no
+    /// legal kind here, so the greedy score decides.
+    choice: Option<UnitKind>,
+}
+
+/// Collects the legal production orders of a position by site.
+struct SiteCollector<'a>(&'a mut Vec<BuildSite>);
+
+impl LegalVisitor for SiteCollector<'_> {
+    fn order(&mut self, order: Order) {
+        let OrderKind::Produce(kind) = order.kind() else {
+            return;
+        };
+        let cell = order.destination();
+        let bit = 1_u32 << kind.index();
+        match self.0.iter_mut().find(|site| site.cell == cell) {
+            Some(site) => site.legal |= bit,
+            None => self.0.push(BuildSite {
+                cell,
+                legal: bit,
+                choice: None,
+            }),
+        }
+    }
+}
+
+/// Find the legal production sites of `session` and let the build model
+/// choose a kind at each.
+///
+/// The features come from [`BuildContext::site`], the same function that
+/// reads the human replays for the fit.
+fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mut Vec<BuildSite>) {
+    out.clear();
+    if !weights.build_model {
+        return;
+    }
+    let model = crate::build_policy::model();
+    session.legal().visit_scoped(
+        LegalScope {
+            units: &[],
+            unitless: true,
+        },
+        &mut SiteCollector(out),
+    );
+    if out.is_empty() {
+        return;
+    }
+    let state = session.state();
+    let context = BuildContext::new(state, seat);
+    let dimensions = state.board.dimensions();
+    let bias = crate::build_policy::range_bias(state, seat, weights.build_range);
+    let mut legal = Vec::with_capacity(UnitKind::COUNT);
+    for site in out.iter_mut() {
+        let Some(position) = dimensions.position_of(site.cell) else {
+            continue;
+        };
+        legal.clear();
+        legal.extend(
+            UnitKind::ALL
+                .into_iter()
+                .filter(|kind| site.legal & (1 << kind.index()) != 0),
+        );
+        site.choice = model.choose(&context.site(position), &legal, bias.as_ref());
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -840,6 +1002,8 @@ impl GreedyAgent {
             advance_field: Vec::new(),
             advance_for: None,
             advance_revision: 0,
+            fire_fields: Vec::new(),
+            fire_for: None,
             movement_bounds: std::cell::RefCell::new(MovementBounds::new()),
             enemy_units: Vec::new(),
             target_reductions: std::cell::RefCell::new(Vec::new()),
@@ -851,8 +1015,10 @@ impl GreedyAgent {
             vision: VisionMap::new(),
             threat: ThreatMap::new(),
             fog: None,
+            power_hold: None,
             session: None,
             selection: Selection::new(),
+            build_sites: Vec::new(),
         }
     }
 
@@ -866,6 +1032,14 @@ impl GreedyAgent {
     pub fn set_fog(&mut self, estimate: Option<Arc<FogEstimate>>) {
         self.fog = estimate;
         self.selection.position = None;
+    }
+
+    /// Hold the powers that `hold` names for its seat. `None` holds nothing.
+    pub(crate) fn set_power_hold(&mut self, hold: Option<crate::power::PowerHold>) {
+        if self.power_hold != hold {
+            self.power_hold = hold;
+            self.selection.position = None;
+        }
     }
 
     /// Build the weighting with generic tactical corrections enabled.
@@ -905,6 +1079,50 @@ impl GreedyAgent {
     /// Score the visible legal orders without changing the tie-break stream.
     pub fn scored_orders(&mut self, view: &Observation) -> Option<ScoredOrders> {
         self.with_observation(view, |agent, session| agent.score_in_session(session))
+    }
+
+    /// Score the visible legal orders that belong to no unit: production,
+    /// powers and the end of the turn. The tie-break stream does not change.
+    #[cfg(test)]
+    pub(crate) fn scored_unitless_orders(&mut self, view: &Observation) -> Option<ScoredOrders> {
+        self.with_observation(view, |agent, session| {
+            let mut candidates = Vec::new();
+            agent.act_in_session_scoped::<true>(
+                session,
+                Some(LegalScope {
+                    units: &[],
+                    unitless: true,
+                }),
+                Some(&mut candidates),
+            );
+            ScoredOrders { candidates }
+        })
+    }
+
+    /// The kind that the build model chooses at each legal production site
+    /// of the view. A site where the model holds no legal kind is not in the
+    /// list. The list is empty when the build model is off.
+    #[cfg(test)]
+    pub(crate) fn model_build_choices(&mut self, view: &Observation) -> Vec<(Pos, UnitKind)> {
+        let weights = self.weights;
+        let mut sites = std::mem::take(&mut self.build_sites);
+        let choices = self
+            .with_observation(view, |_, session| {
+                let state = session.state();
+                let Some(seat) = state.players.seat(&state.turn.active_player) else {
+                    return Vec::new();
+                };
+                choose_builds(session, seat, &weights, &mut sites);
+                let dimensions = state.board.dimensions();
+                sites
+                    .iter()
+                    .filter_map(|site| Some((dimensions.position_of(site.cell)?, site.choice?)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        sites.clear();
+        self.build_sites = sites;
+        choices
     }
 
     fn with_observation<R>(
@@ -1334,7 +1552,7 @@ impl CounterTable {
 ///
 /// Both sides are read at whole health and a full magazine, which is the
 /// unit this table is about: the one that has not been built yet.
-fn strike(attacker: UnitKind, defender: UnitKind) -> f64 {
+pub(crate) fn strike(attacker: UnitKind, defender: UnitKind) -> f64 {
     static STRIKES: std::sync::LazyLock<[[f64; UnitKind::COUNT]; UnitKind::COUNT]> =
         std::sync::LazyLock::new(|| {
             let mut values = [[0.0; UnitKind::COUNT]; UnitKind::COUNT];
@@ -1498,6 +1716,8 @@ impl GreedyAgent {
             advance_field,
             advance_for,
             advance_revision,
+            fire_fields,
+            fire_for,
             movement_bounds,
             enemy_units,
             target_reductions,
@@ -1509,7 +1729,9 @@ impl GreedyAgent {
             vision,
             threat,
             fog,
+            power_hold,
             selection,
+            build_sites,
             ..
         } = self;
         let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
@@ -1537,6 +1759,15 @@ impl GreedyAgent {
         if advance_needed && board.advance_field(advance_field, advance_for, decay) {
             *advance_revision += 1;
         }
+        // The firing position fields change the pull of our indirect units,
+        // so a change also changes the revision that the movement bounds
+        // read.
+        if advance_needed
+            && weights.firing_positions != 0.0
+            && board.fire_fields(fire_fields, fire_for)
+        {
+            *advance_revision += 1;
+        }
         // A term priced at nothing decides nothing, so the field it reads is
         // not built. That is what keeps every weighting below `defend` at the
         // throughput its numbers were taken at.
@@ -1549,6 +1780,7 @@ impl GreedyAgent {
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
         if unit_fields_needed && weights.threat != 0.0 {
+            threat.set_commander_effects(weights.commander_effects);
             threat.set_overlay(fog.map(|estimate| Arc::clone(&estimate.threat)));
             threat.build(session, seat);
         }
@@ -1609,6 +1841,11 @@ impl GreedyAgent {
             None
         };
         target_reductions.borrow_mut().clear();
+        if scope.is_none_or(|scope| scope.unitless) {
+            choose_builds(session, seat, weights, build_sites);
+        } else {
+            build_sites.clear();
+        }
         let scorer = Scorer {
             board: &board,
             movement_bounds,
@@ -1616,6 +1853,7 @@ impl GreedyAgent {
             advance_revision: *advance_revision,
             capture_fields,
             advance_field,
+            fire_fields,
             hold_field,
             occupant,
             counter,
@@ -1627,6 +1865,8 @@ impl GreedyAgent {
             policy: *policy,
             min_step: &min_step,
             target_reductions,
+            build_sites,
+            power_hold: *power_hold,
         };
 
         let mut visitor = GreedyVisitor::<RECORD> {
@@ -1790,6 +2030,117 @@ impl Board<'_> {
                         .min(u64::from(u16::MAX)) as u16
                 })
         })
+    }
+
+    /// Build the firing position field of each indirect kind that we hold on
+    /// the board. Return whether a field changed.
+    ///
+    /// The value of a tile for a kind is [`Weights::firing_positions`] times the
+    /// best expected damage, in funds, that one strike of a whole unit of the
+    /// kind does from the tile to one enemy unit on the board. The strike is
+    /// the neutral strike ([`strike`]) times the day-to-day attack of our
+    /// commander, and at most the whole enemy unit. The tiles are those in
+    /// the attack range of the kind, with the range that our commander adds
+    /// day to day ([`crate::threat::seat_day_to_day`]). An enemy unit that can capture
+    /// and stands on a property that is ours or neutral counts 1.5 times,
+    /// because the strike stops a capture.
+    fn fire_fields(
+        &self,
+        out: &mut Vec<(UnitKind, Vec<f64>)>,
+        built: &mut Option<FireContext>,
+    ) -> bool {
+        let state = self.state;
+        let mut kinds: Vec<UnitKind> = state
+            .units
+            .iter()
+            .filter(|unit| {
+                unit.owner == self.seat
+                    && matches!(unit.location, Location::Board { .. })
+                    && ruleset::profile(unit.kind).fire_mode == ruleset::FireMode::Indirect
+            })
+            .map(|unit| unit.kind)
+            .collect();
+        kinds.sort_by_key(|kind| kind.index());
+        kinds.dedup();
+        let enemies: Vec<(UnitKind, Pos, u8, bool)> = state
+            .units
+            .iter()
+            .filter_map(|unit| {
+                let Location::Board { position } = unit.location else {
+                    return None;
+                };
+                if !self.hostile(unit.owner) {
+                    return None;
+                }
+                let tile = state.board.tile(position);
+                let contested = ruleset::profile(unit.kind).can_capture
+                    && ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable)
+                    && tile.owner.player().is_none_or(|owner| !self.hostile(owner));
+                Some((unit.kind, position, unit.hp, contested))
+            })
+            .collect();
+        let context = FireContext {
+            seat: self.seat,
+            dimensions: state.board.dimensions(),
+            weight: self.weights.firing_positions,
+            kinds,
+            enemies,
+            commander: state
+                .players
+                .get(self.seat.get())
+                .and_then(|player| player.commanders.iter().find(|co| co.active))
+                .map(|co| co.id),
+        };
+        if built.as_ref() == Some(&context) {
+            return false;
+        }
+        let dimensions = context.dimensions;
+        out.clear();
+        for kind in &context.kinds {
+            let profile = ruleset::profile(*kind);
+            let Some(range) = profile.indirect_range else {
+                continue;
+            };
+            let values = crate::threat::seat_day_to_day(state, self.seat, *kind);
+            let attack = values.attack as f64 / 100.0;
+            let maximum = range
+                .maximum
+                .saturating_add_signed(values.range_add)
+                .max(range.minimum);
+            let reach = i16::try_from(maximum).unwrap_or(i16::MAX);
+            let mut field = vec![0.0; dimensions.len()];
+            for (target, position, hp, contested) in &context.enemies {
+                let share = (strike(*kind, *target) * attack).min(1.0);
+                if share <= 0.0 {
+                    continue;
+                }
+                let mut value = context.weight * share * cost(*target) * f64::from(*hp) / 100.0;
+                if *contested {
+                    value *= 1.5;
+                }
+                for dy in -reach..=reach {
+                    let span = reach - dy.abs();
+                    for dx in -span..=span {
+                        let Some(tile) = position.offset(dx, dy) else {
+                            continue;
+                        };
+                        if position.distance(tile) < range.minimum {
+                            continue;
+                        }
+                        let Some(cell) = dimensions.cell_index(tile) else {
+                            continue;
+                        };
+                        let slot = &mut field[usize::from(cell.get())];
+                        if value > *slot {
+                            *slot = value;
+                        }
+                    }
+                }
+            }
+            out.push((*kind, field));
+        }
+        *built = Some(context);
+        true
     }
 
     /// How much each tile wants a unit that fights.
@@ -2012,6 +2363,11 @@ fn is_zero(value: &f64) -> bool {
     *value == 0.0
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// `score`, or a value between zero and `floor` when `score` is below
 /// `floor`.
 ///
@@ -2039,10 +2395,61 @@ fn health_of(unit: &Unit) -> f64 {
 /// Capture progress one turn of this unit puts into a property.
 ///
 /// The ruleset spends the unit's visible health, so a unit at half health
-/// takes twice as long. Commander capture multipliers are not read here; the
-/// two commanders that carry one are a term this tier does not model.
+/// takes twice as long. This value does not read the commander capture bonus.
+/// [`capture_strength`] reads it.
 fn capture_progress(unit: &Unit) -> u8 {
     unit.hp.div_ceil(10)
+}
+
+/// When a capture estimate applies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CaptureTurn {
+    /// The current turn, with the power that is active now.
+    Now,
+    /// The next turn of the owner of the unit.
+    ///
+    /// A power ends at the start of the next turn of its owner, so the power
+    /// that is active now does not apply. The owner can use a power before
+    /// the capture, so the estimate is the largest rate of no power and each
+    /// power that the meter of the owner can pay for now.
+    Next,
+}
+
+/// The capture points that `unit` takes off a property in one turn, at
+/// `visual_hp` visible health, with the capture bonus of its commander.
+///
+/// The value comes from [`commander::effective_capture_points`] and
+/// [`commander::capture_points_with_power`], so it agrees with the engine.
+pub(crate) fn capture_strength(state: &State, unit: &Unit, visual_hp: u8, turn: CaptureTurn) -> u8 {
+    let hp = u64::from(visual_hp);
+    let points = match turn {
+        CaptureTurn::Now => commander::effective_capture_points(state, unit, hp),
+        CaptureTurn::Next => {
+            let mut best = commander::capture_points_with_power(state, unit, hp, None);
+            let owner = state
+                .players
+                .get(unit.owner.get())
+                .and_then(|player| player.commanders.iter().find(|co| co.active));
+            if let Some(co) = owner {
+                for level in [commander::PowerLevel::Cop, commander::PowerLevel::Scop] {
+                    let affordable = commander::power_activation_cost(co.id, level, co.power_uses)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|cost| co.power_charge >= cost);
+                    if affordable {
+                        best = best.max(commander::capture_points_with_power(
+                            state,
+                            unit,
+                            hp,
+                            Some(level),
+                        ));
+                    }
+                }
+            }
+            best
+        }
+    };
+    u8::try_from(points).unwrap_or(u8::MAX)
 }
 
 /// The `capture_points` of a property nobody is capturing.
@@ -2190,6 +2597,7 @@ struct Scorer<'a> {
     advance_revision: u64,
     capture_fields: &'a CaptureFields,
     advance_field: &'a [f64],
+    fire_fields: &'a [(UnitKind, Vec<f64>)],
     hold_field: &'a [f64],
     occupant: &'a [Option<u16>],
     counter: &'a CounterTable,
@@ -2202,6 +2610,8 @@ struct Scorer<'a> {
     min_step: &'a [u16; MovementClass::COUNT],
     target_reductions:
         &'a std::cell::RefCell<Vec<(awvm::semantic::UnitId, awvm::semantic::UnitId, f64)>>,
+    build_sites: &'a [BuildSite],
+    power_hold: Option<crate::power::PowerHold>,
 }
 
 impl Scorer<'_> {
@@ -2446,8 +2856,8 @@ impl Scorer<'_> {
             // transport is cargo, which sees nothing at all.
             OrderKind::Join | OrderKind::Load => self.arrival(order) - self.weights().unit_count,
             OrderKind::Supply => self.arrival(order) + self.weights().supply + self.sight(order),
-            OrderKind::Produce(kind) => floored(self.produce(kind), self.weights().build_floor),
-            OrderKind::Power(_) => self.weights().power,
+            OrderKind::Produce(kind) => self.produce_at(order.destination(), kind),
+            OrderKind::Power(level) => self.power(level),
             // Nothing below is scored. Resignation and deletion decide a game
             // for a reason no policy holds; ending the turn is what `None`
             // means, so an order for it would end a turn twice; and the rest
@@ -2489,6 +2899,32 @@ impl Scorer<'_> {
         }
     }
 
+    /// A legal commander power.
+    ///
+    /// The power policy can hold the power, which scores nothing, use it
+    /// first, with a score above all other orders, or keep it for last. A
+    /// power kept for last has a score above zero that is below every other
+    /// order that scores above zero.
+    fn power(&self, level: awvm::commander::PowerLevel) -> f64 {
+        if self
+            .power_hold
+            .is_some_and(|hold| hold.holds(self.board.seat, level))
+        {
+            return 0.0;
+        }
+        match crate::power::power_use(
+            self.weights().power_policy,
+            self.board.state,
+            self.board.seat,
+            level,
+        ) {
+            PowerUse::Now => self.weights().power,
+            PowerUse::Last => f64::MIN_POSITIVE,
+            PowerUse::First => POWER_FIRST,
+            PowerUse::Hold => 0.0,
+        }
+    }
+
     /// Standing on a property and turning the crank.
     #[inline(always)]
     fn capture(&self, order: Order) -> f64 {
@@ -2506,7 +2942,16 @@ impl Scorer<'_> {
             self.weights(),
             self.board.property_weight(tile.terrain),
             tile.capture_points.unwrap_or(WHOLE_PROPERTY),
-            capture_progress(unit),
+            if self.weights().commander_effects {
+                capture_strength(
+                    self.board.state,
+                    unit,
+                    unit.hp.div_ceil(10),
+                    CaptureTurn::Now,
+                )
+            } else {
+                capture_progress(unit)
+            },
         )
     }
 
@@ -2679,7 +3124,17 @@ impl Scorer<'_> {
         };
 
         let points = tile.capture_points.unwrap_or(WHOLE_PROPERTY);
-        let before = self.urgency(points, capture_progress(defender));
+        // With the capture bonus, the rate is that of the next enemy turn,
+        // when the capture continues.
+        let bonus = self.weights().commander_effects;
+        let rate = |visual_hp: u8| {
+            if bonus {
+                capture_strength(self.board.state, defender, visual_hp, CaptureTurn::Next)
+            } else {
+                visual_hp
+            }
+        };
+        let before = self.urgency(points, rate(capture_progress(defender)));
         // A kill resets the tile, so the whole of the urgency goes away. The
         // worst roll is what proves one.
         let after = if f64::from(forecast.attack.low) >= f64::from(forecast.target_hp) {
@@ -2688,7 +3143,7 @@ impl Scorer<'_> {
             let dealt = u8::try_from(forecast.attack.low).unwrap_or(u8::MAX);
             self.urgency(
                 points,
-                forecast.target_hp.saturating_sub(dealt).div_ceil(10),
+                rate(forecast.target_hp.saturating_sub(dealt).div_ceil(10)),
             )
         };
 
@@ -2743,7 +3198,19 @@ impl Scorer<'_> {
         // what it is worth for it to stop where it is — and a tile that is
         // both a garrison and a step toward the next property is worth both.
         let hold = self.hold_field.get(cell).copied().unwrap_or(0.0);
-        field.get(cell).copied().unwrap_or(0.0) + hold
+        let value = field.get(cell).copied().unwrap_or(0.0) + hold;
+        if self.weights().firing_positions == 0.0
+            || profile.fire_mode != ruleset::FireMode::Indirect
+        {
+            return value;
+        }
+        let fire = self
+            .fire_fields
+            .iter()
+            .find(|(kind, _)| *kind == unit.kind)
+            .and_then(|(_, field)| field.get(cell).copied())
+            .unwrap_or(0.0);
+        value + fire * f64::from(unit.hp) / 100.0
     }
 
     /// What this play is worth for what it does to vision.
@@ -2788,6 +3255,40 @@ impl Scorer<'_> {
         let immediate = self.threat.immediate(cell, unit.kind);
         let deferred = self.threat.deferred(cell, unit.kind);
         weights.threat * (immediate + weights.deferred_threat * deferred)
+    }
+
+    /// What building `kind` at the site `cell` is worth, after the build
+    /// floor.
+    ///
+    /// Without a build model this is the floored [`Scorer::produce`] score,
+    /// which does not read the site. With a build model the greedy scores
+    /// still decide whether and when the site builds, and the model decides
+    /// the kind:
+    ///
+    /// - The chosen kind gets the highest floored greedy score of the legal
+    ///   kinds at the site. Thus the build has the same rank against the
+    ///   other orders as the build that the greedy policy would make there.
+    /// - Each other kind at the site gets zero. A score of zero is never
+    ///   played, so only the chosen kind can be built.
+    ///
+    /// The model utilities are not added to the scores. They are logits of a
+    /// human choice, not funds, so they have no common scale with the other
+    /// orders.
+    fn produce_at(&self, cell: CellIdx, kind: UnitKind) -> f64 {
+        let floor = self.weights().build_floor;
+        let greedy = |kind: UnitKind| floored(self.produce(kind), floor);
+        let Some(site) = self.build_sites.iter().find(|site| site.cell == cell) else {
+            return greedy(kind);
+        };
+        match site.choice {
+            None => greedy(kind),
+            Some(chosen) if chosen == kind => UnitKind::ALL
+                .into_iter()
+                .filter(|legal| site.legal & (1 << legal.index()) != 0)
+                .map(greedy)
+                .fold(f64::NEG_INFINITY, f64::max),
+            Some(_) => 0.0,
+        }
     }
 
     /// What building this kind is worth.
@@ -2855,6 +3356,125 @@ mod tests {
             action: UnitAction::Ready,
             concealment: Concealment::Exposed,
             location: Location::Board { position },
+        }
+    }
+
+    /// An arena with one artillery of ours and one enemy tank on plains,
+    /// `distance` steps apart. Both seats get the commander `co`.
+    fn artillery_and_tank(
+        co: awvm::ruleset::CommanderKind,
+        distance: u64,
+    ) -> Option<(State, UnitId, Pos)> {
+        let mut state = arena(false, 1);
+        let ours = state.players.seat(&state.turn.active_player)?;
+        let theirs = state
+            .players
+            .seats()
+            .map(|(seat, _)| seat)
+            .find(|seat| *seat != ours)?;
+        let seats: Vec<PlayerIdx> = state.players.seats().map(|(seat, _)| seat).collect();
+        for seat in seats {
+            for commander in state.player_mut(seat).commanders.iter_mut() {
+                commander.id = co;
+            }
+        }
+        state.units.retain(|_| false);
+        let plains: Vec<Pos> = state
+            .board
+            .iter()
+            .filter(|(_, tile)| tile.terrain == ruleset::Terrain::Plain)
+            .map(|(position, _)| position)
+            .collect();
+        let (from, to) = plains.iter().find_map(|from| {
+            plains
+                .iter()
+                .find(|to| from.distance(**to) == distance && from.y == to.y)
+                .map(|to| (*from, *to))
+        })?;
+        let mut artillery = test_unit(UnitKind::Artillery, from, ours);
+        artillery.id = UnitId::new(1);
+        let mut tank = test_unit(UnitKind::Tank, to, theirs);
+        tank.id = UnitId::new(2);
+        state.units.push(artillery);
+        state.units.push(tank);
+        state.next_unit_id = Some(3);
+        Some((state, artillery.id, to))
+    }
+
+    /// The distance from the tank to where the artillery goes in its turn.
+    fn artillery_distance(state: &State, weights: Weights, tank: Pos) -> Option<u64> {
+        let mut state = state.clone();
+        let seat = state.players.seat(&state.turn.active_player)?;
+        state.player_mut(seat).funds = 0;
+        let mut session = Session::new(state);
+        let mut agent = GreedyAgent::with_weights(1, weights);
+        let mut entropy = Rng::from_seed(7);
+        for _ in 0..8 {
+            let state = session.state();
+            let view = observe(&AwbwVisibility, state, &state.turn.active_player).ok()?;
+            let play = agent.act(&view, NodeBudget::FOUR)?;
+            if play.unit() == Some(UnitId::new(1)) {
+                let position = state.board.dimensions().position_of(play.destination())?;
+                return Some(position.distance(tank));
+            }
+            let command = play.command(&session)?;
+            session
+                .apply_command::<()>(command, &mut entropy, &mut ())
+                .ok()?;
+        }
+        None
+    }
+
+    /// With the firing position term, an artillery that is out of range goes
+    /// to a tile from where it can fire at the enemy on its next turn. The
+    /// range of Grit is one more, and the term reads it.
+    #[test]
+    fn the_firing_position_term_moves_an_indirect_unit_into_range() {
+        use awvm::ruleset::CommanderKind;
+        let base = Weights {
+            firing_positions: 0.0,
+            commander_effects: false,
+            ..crate::profile::V8_GREEDY_CONFIG.weights
+        };
+        let firing = Weights {
+            firing_positions: 0.05,
+            ..base
+        };
+        let (state, _, tank) = artillery_and_tank(CommanderKind::Andy, 7).unwrap();
+        let without = artillery_distance(&state, base, tank).unwrap();
+        let with = artillery_distance(&state, firing, tank).unwrap();
+        assert!(
+            (2..=3).contains(&with),
+            "with the term: {with}, without: {without}"
+        );
+        assert!(!(2..=3).contains(&without), "without the term: {without}");
+        // The range of a Grit artillery is one more, and the field reads it:
+        // a tile four steps from the tank has a value for Grit, and none for
+        // Andy.
+        for (co, at_four) in [(CommanderKind::Andy, false), (CommanderKind::Grit, true)] {
+            let (state, _, tank) = artillery_and_tank(co, 7).unwrap();
+            let seat = state.players.seat(&state.turn.active_player).unwrap();
+            let board = Board {
+                state: &state,
+                seat,
+                weights: &firing,
+            };
+            let mut fields = Vec::new();
+            assert!(board.fire_fields(&mut fields, &mut None));
+            let (_, field) = fields
+                .iter()
+                .find(|(kind, _)| *kind == UnitKind::Artillery)
+                .unwrap();
+            let dimensions = state.board.dimensions();
+            let value_at = |distance: u64| {
+                let tile = dimensions
+                    .positions()
+                    .find(|tile| tile.distance(tank) == distance)
+                    .unwrap();
+                field[usize::from(dimensions.cell_index(tile).unwrap().get())]
+            };
+            assert!(value_at(3) > 0.0, "{co:?}");
+            assert_eq!(value_at(4) > 0.0, at_four, "{co:?}");
         }
     }
 

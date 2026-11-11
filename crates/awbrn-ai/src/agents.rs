@@ -21,6 +21,7 @@ pub use classifier::{
     CaptureMission, CaptureMissionState, MissionBook, RoleAssignment, UnitRole, classify,
     classify_with_missions,
 };
+pub(crate) use greedy::strike;
 pub use greedy::{
     GreedyAgent, GreedyAttackBreakdown, GreedyScoreBreakdown, ScoredOrder, ScoredOrders, Weights,
     order_candidate_id,

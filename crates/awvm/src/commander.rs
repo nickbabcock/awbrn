@@ -960,10 +960,47 @@ pub fn effective_combat(
     strike: Strike,
     context: CombatContext,
 ) -> Option<EffectiveCombat> {
-    let table = combat_table();
     let Some((_, commander, power)) = seat.and_then(|seat| active(state, seat)) else {
         return Some(EffectiveCombat::unmodified(context.base_terrain_stars));
     };
+    combat_of(commander, power, unit, strike, context)
+}
+
+/// The combat values of `unit` under the day-to-day rules of `commander`.
+/// No power is active.
+pub fn day_to_day_combat(
+    commander: CommanderKind,
+    unit: Combatant<'_>,
+    strike: Strike,
+    context: CombatContext,
+) -> Option<EffectiveCombat> {
+    combat_of(commander, Power::None, unit, strike, context)
+}
+
+/// The range that the day-to-day rules of `commander` add to the maximum
+/// attack range of a unit.
+pub fn day_to_day_attack_range_add(
+    commander: CommanderKind,
+    kind: UnitKind,
+    domain: UnitDomain,
+    fire_mode: FireMode,
+) -> i64 {
+    profile_table()
+        .commanders
+        .get(commander)
+        .map_or(0, |profile| {
+            sum_attack_range_additions(&profile.attack_range, Power::None, kind, domain, fire_mode)
+        })
+}
+
+fn combat_of(
+    commander: CommanderKind,
+    power: Power,
+    unit: Combatant<'_>,
+    strike: Strike,
+    context: CombatContext,
+) -> Option<EffectiveCombat> {
+    let table = combat_table();
     let Some(profile) = table.commanders.get(commander) else {
         return Some(EffectiveCombat::unmodified(context.base_terrain_stars));
     };
@@ -1313,6 +1350,34 @@ pub fn effective_capture_points(state: &State, unit: &Unit, visual_hp: u64) -> u
     else {
         return visual_hp;
     };
+    capture_points_for(profile, power, visual_hp)
+}
+
+/// Return the capture points of `unit` with the power `level` of its
+/// commander active, or with no power when `level` is `None`.
+///
+/// A power ends at the start of the next turn of its owner. Use this value to
+/// estimate a capture that a unit makes in a later turn, when the power state
+/// of that turn is not the current one.
+pub fn capture_points_with_power(
+    state: &State,
+    unit: &Unit,
+    visual_hp: u64,
+    level: Option<PowerLevel>,
+) -> u64 {
+    let Some((profile, _)) = unit_seat(state, unit).and_then(|seat| effective_profile(state, seat))
+    else {
+        return visual_hp;
+    };
+    let power = match level {
+        None => Power::None,
+        Some(PowerLevel::Cop) => Power::Cop,
+        Some(PowerLevel::Scop) => Power::Scop,
+    };
+    capture_points_for(profile, power, visual_hp)
+}
+
+fn capture_points_for(profile: &EffectiveProfile, power: Power, visual_hp: u64) -> u64 {
     let effect = match power {
         Power::None => profile.capture.day_to_day,
         Power::Cop => profile.capture.cop.or(profile.capture.day_to_day),
@@ -1378,6 +1443,34 @@ mod tests {
         CommanderKind, InstantEffect, PowerLevel, UnitTarget, maximum_power_charge,
         power_activation, power_activation_cost, power_fires_area_strikes, power_star_charge,
     };
+
+    /// Grit adds one to the range of an indirect unit day to day, and Max
+    /// takes one away. A direct unit and a commander with no such rule get
+    /// nothing.
+    #[test]
+    fn the_day_to_day_range_reads_the_commander() {
+        use super::{FireMode, UnitDomain, UnitKind, day_to_day_attack_range_add};
+        let artillery = |co| {
+            day_to_day_attack_range_add(
+                co,
+                UnitKind::Artillery,
+                UnitDomain::Ground,
+                FireMode::Indirect,
+            )
+        };
+        assert_eq!(artillery(CommanderKind::Grit), 1);
+        assert_eq!(artillery(CommanderKind::Max), -1);
+        assert_eq!(artillery(CommanderKind::Andy), 0);
+        assert_eq!(
+            day_to_day_attack_range_add(
+                CommanderKind::Grit,
+                UnitKind::Tank,
+                UnitDomain::Ground,
+                FireMode::Direct,
+            ),
+            0
+        );
+    }
 
     #[test]
     fn only_strike_powers_fire_area_strikes() {

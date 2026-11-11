@@ -106,6 +106,17 @@ pub struct AgentTiming {
 }
 
 impl AgentTiming {
+    /// Return the sum of these counters and `other`.
+    pub const fn add(self, other: Self) -> Self {
+        Self {
+            plan_construction_nanos: self.plan_construction_nanos + other.plan_construction_nanos,
+            plan_refresh_nanos: self.plan_refresh_nanos + other.plan_refresh_nanos,
+            baseline_selection_nanos: self.baseline_selection_nanos
+                + other.baseline_selection_nanos,
+            trace_recording_nanos: self.trace_recording_nanos + other.trace_recording_nanos,
+        }
+    }
+
     /// Return the counters added since `before`.
     pub const fn since(self, before: Self) -> Self {
         Self {
@@ -360,6 +371,7 @@ impl NodeBudget {
     pub const EIGHT: Self = Self(8);
     pub const SIXTEEN: Self = Self(16);
     pub const THIRTY_TWO: Self = Self(32);
+    pub const TWO_HUNDRED_FIFTY_SIX: Self = Self(256);
 
     /// Make a nonzero node budget.
     pub const fn new(nodes: u32) -> Option<Self> {
@@ -438,6 +450,16 @@ impl Play {
             cargo: None,
             dest,
             kind,
+        }
+    }
+
+    /// A transport puts `cargo`, which sits in `slot`, down on `dest`.
+    pub(crate) const fn unload(transport: UnitId, cargo: UnitId, dest: CellIdx, slot: u8) -> Self {
+        Self {
+            unit: Some(transport),
+            cargo: Some(cargo),
+            dest,
+            kind: OrderKind::Unload(slot),
         }
     }
 

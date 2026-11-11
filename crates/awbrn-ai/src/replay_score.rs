@@ -145,6 +145,8 @@ pub struct ReplayReader {
     threat: Vec<ThreatMap>,
     contest: Vec<ContestMap>,
     stock: Evaluator,
+    /// Whether the threat maps read the day-to-day commander effects.
+    commander_effects: bool,
 }
 
 impl ReplayReader {
@@ -154,7 +156,15 @@ impl ReplayReader {
             threat: Vec::new(),
             contest: Vec::new(),
             stock: Evaluator::new(score.stock_weights()),
+            commander_effects: false,
         }
+    }
+
+    /// The same reader, with threat maps that read the day-to-day commander
+    /// effects when `on` is true ([`ThreatMap::set_commander_effects`]).
+    pub(crate) fn with_commander_effects(mut self, on: bool) -> Self {
+        self.commander_effects = on;
+        self
     }
 
     /// What an active duel without fog is worth to `seat`, in funds.
@@ -197,6 +207,13 @@ impl ReplayReader {
         value
     }
 
+    /// The power meter term of [`ReplayReader::value_in`] for `seat`: the
+    /// weight [`ReplayScore::power_meter_army`] times the signed meter
+    /// feature.
+    pub(crate) fn meter_term(&self, state: &State, seat: PlayerIdx) -> f64 {
+        self.score.power_meter_army * power_features(state, seat)[0]
+    }
+
     fn seat(&mut self, session: &Session, seat: PlayerIdx) -> SeatFeatures {
         let state = session.state();
         let index = seat.get();
@@ -211,6 +228,7 @@ impl ReplayReader {
         });
         let threat = self.score.reads_threat().then(|| {
             let map = &mut self.threat[index];
+            map.set_commander_effects(self.commander_effects);
             map.build(session, seat);
             &*map
         });
