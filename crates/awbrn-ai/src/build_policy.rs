@@ -324,6 +324,17 @@ impl<'a> BuildContext<'a> {
         let mut targets = Vec::new();
         let mut headquarters = Vec::new();
         let mut empty_positions = Vec::new();
+        // The board cells with a unit on them, so that a site check does not
+        // read all units.
+        let cells = state.board.dimensions();
+        let mut occupied = vec![false; cells.len()];
+        for unit in state.units.iter() {
+            if let Location::Board { position } = unit.location
+                && let Some(cell) = cells.cell_index(position)
+            {
+                occupied[usize::from(cell.get())] = true;
+            }
+        }
         for (position, tile) in state.board.iter() {
             let capturable = ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable);
             match tile.owner {
@@ -341,11 +352,10 @@ impl<'a> BuildContext<'a> {
                     }
                     if produces(tile.terrain) && commander_site(state, seat, tile.terrain) {
                         own_sites += 1;
-                        let occupied = state
-                            .units
-                            .iter()
-                            .any(|unit| unit.location == (Location::Board { position }));
-                        if !occupied {
+                        let empty = cells
+                            .cell_index(position)
+                            .is_none_or(|cell| !occupied[usize::from(cell.get())]);
+                        if empty {
                             empty_sites += 1;
                             empty_positions.push(position);
                         }
