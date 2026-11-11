@@ -335,7 +335,7 @@ impl PlannerConfig {
     /// planner-v7-wide with these additions:
     ///
     /// - The greedy policy of the seed plan, the fallback and the simulated
-    ///   replies uses [`crate::profile::HARD_V3_BUILD2A_CAP_SCOP_PLACE4_CONFIG`]:
+    ///   replies uses [`crate::profile::V8_GREEDY_CONFIG`]:
     ///   the build model `human-v2a`, the commander capture bonus, the power
     ///   policy [`crate::power::PowerPolicy::HumanV1`] and the power
     ///   placement.
@@ -346,9 +346,9 @@ impl PlannerConfig {
     /// A power that the march plan keeps back gets no placement plan, and on
     /// a swing turn the placement does not move the power. Use a node budget
     /// of 256.
-    pub const V7_WIDE_BUILD2A_PRESS_CAP_SCOP_PLACE4_MARCH2: Self = Self {
-        identifier: "planner-v7-wide-build2a-press-cap-scop-place4-march2",
-        baseline: crate::profile::HARD_V3_BUILD2A_CAP_SCOP_PLACE4_CONFIG,
+    pub const V8: Self = Self {
+        identifier: "planner-v8",
+        baseline: crate::profile::V8_GREEDY_CONFIG,
         press: Some(PressConfig {
             ferry: true,
             ferry_transports: 2,
@@ -594,7 +594,9 @@ impl PlannerAgent {
             rollout: None,
             observed: None,
             evaluator: Evaluator::new(config.eval_weights),
-            replay: config.replay_score.map(ReplayReader::new),
+            replay: config.replay_score.map(|score| {
+                ReplayReader::new(score).with_threat_effects(config.baseline.weights.threat_effects)
+            }),
             plan: Vec::new(),
             positions: Vec::new(),
             next: 0,

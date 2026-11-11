@@ -371,6 +371,42 @@ pub struct Weights {
     /// when it is false.
     #[serde(skip_serializing_if = "is_false")]
     pub power_refresh_last: bool,
+    /// The strength of the commander effect term of the build model.
+    ///
+    /// When it is not zero, the utility of each kind gets this value times
+    /// the day-to-day effect of our commander on the kind
+    /// ([`crate::build_policy::effect_bias`]). The effect reads the attack,
+    /// the defense, the attack range and the movement that the engine gives
+    /// for the kind. Thus a commander with stronger indirect units buys more
+    /// of them. A commander with no day-to-day effect is not changed. The term
+    /// applies to the choice at each site, not to the joint choice
+    /// ([`Weights::build_model_joint`]). The field is left out of the
+    /// serialized weights at zero, so the fingerprints of the earlier
+    /// weightings do not change.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub build_effect: f64,
+    /// Whether the threat maps read the day-to-day commander effects
+    /// ([`ThreatMap::set_commander_effects`]).
+    ///
+    /// The switch applies to the threat map of this policy and to the threat
+    /// maps of the planner score ([`crate::replay_score`]). A commander with
+    /// no day-to-day rule is not changed. The field is left out of the
+    /// serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub threat_effects: bool,
+    /// The value of a firing position of our indirect units, for each fund
+    /// of the best strike that the unit can make from the tile on its next
+    /// turn.
+    ///
+    /// An indirect unit cannot move and fire in one turn. Thus the tile where
+    /// it stops at the end of the turn sets the targets of the next turn.
+    /// The term adds to the pull of each tile the best expected damage, in
+    /// funds, against one enemy unit in the attack range of the unit from
+    /// that tile ([`Board::fire_field`]). The exposure term still applies, so
+    /// a tile that an enemy can attack costs the unit its threat. Zero turns
+    /// the term off. The field is left out of the serialized weights at zero.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub indirect_zoc: f64,
 }
 
 impl Weights {
@@ -419,6 +455,9 @@ impl Weights {
         power_policy: PowerPolicy::Off,
         power_placement_first: false,
         power_refresh_last: false,
+        build_effect: 0.0,
+        threat_effects: false,
+        indirect_zoc: 0.0,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -634,6 +673,17 @@ struct AdvanceContext {
     enemies: Vec<(UnitKind, Pos, u8)>,
 }
 
+/// What the firing position fields of [`Board::fire_fields`] read.
+#[derive(Clone, Debug, PartialEq)]
+struct FireContext {
+    seat: PlayerIdx,
+    dimensions: awvm::semantic::Dimensions,
+    weight: f64,
+    kinds: Vec<UnitKind>,
+    enemies: Vec<(UnitKind, Pos, u8, bool)>,
+    commander: Option<awvm::ruleset::CommanderKind>,
+}
+
 #[derive(Debug)]
 pub struct GreedyAgent {
     /// Ties are common — a mirror board answers the same score from two
@@ -650,6 +700,10 @@ pub struct GreedyAgent {
     advance_field: Vec<f64>,
     advance_for: Option<AdvanceContext>,
     advance_revision: u64,
+    /// The firing position field of each of our indirect kinds
+    /// ([`Board::fire_fields`]). Empty when [`Weights::indirect_zoc`] is zero.
+    fire_fields: Vec<(UnitKind, Vec<f64>)>,
+    fire_for: Option<FireContext>,
     movement_bounds: std::cell::RefCell<MovementBounds>,
     enemy_units: Vec<(usize, Pos)>,
     target_reductions:
@@ -748,6 +802,7 @@ fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mu
     let state = session.state();
     let context = BuildContext::new(state, seat);
     let dimensions = state.board.dimensions();
+    let bias = crate::build_policy::effect_bias(state, seat, weights.build_effect);
     let mut legal = Vec::with_capacity(UnitKind::COUNT);
     for site in out.iter_mut() {
         let Some(position) = dimensions.position_of(site.cell) else {
@@ -761,7 +816,7 @@ fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mu
                 .map(BuildChoice::Build),
         );
         // The choices hold no "no build", so the model chooses a kind.
-        site.choice = match model.choose(&context.site(position), &legal) {
+        site.choice = match model.choose_with(&context.site(position), &legal, bias.as_ref()) {
             Some(BuildChoice::Build(kind)) => Some(kind),
             Some(BuildChoice::NoBuild) | None => None,
         };
@@ -974,6 +1029,8 @@ impl GreedyAgent {
             advance_field: Vec::new(),
             advance_for: None,
             advance_revision: 0,
+            fire_fields: Vec::new(),
+            fire_for: None,
             movement_bounds: std::cell::RefCell::new(MovementBounds::new()),
             enemy_units: Vec::new(),
             target_reductions: std::cell::RefCell::new(Vec::new()),
@@ -1685,6 +1742,8 @@ impl GreedyAgent {
             advance_field,
             advance_for,
             advance_revision,
+            fire_fields,
+            fire_for,
             movement_bounds,
             enemy_units,
             target_reductions,
@@ -1726,6 +1785,13 @@ impl GreedyAgent {
         if advance_needed && board.advance_field(advance_field, advance_for, decay) {
             *advance_revision += 1;
         }
+        // The firing position fields change the pull of our indirect units,
+        // so a change also changes the revision that the movement bounds
+        // read.
+        if advance_needed && weights.indirect_zoc != 0.0 && board.fire_fields(fire_fields, fire_for)
+        {
+            *advance_revision += 1;
+        }
         // A term priced at nothing decides nothing, so the field it reads is
         // not built. That is what keeps every weighting below `defend` at the
         // throughput its numbers were taken at.
@@ -1738,6 +1804,7 @@ impl GreedyAgent {
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
         if unit_fields_needed && weights.threat != 0.0 {
+            threat.set_commander_effects(weights.threat_effects);
             threat.set_overlay(fog.map(|estimate| Arc::clone(&estimate.threat)));
             threat.build(session, seat);
         }
@@ -1810,6 +1877,7 @@ impl GreedyAgent {
             advance_revision: *advance_revision,
             capture_fields,
             advance_field,
+            fire_fields,
             hold_field,
             occupant,
             counter,
@@ -1992,6 +2060,117 @@ impl Board<'_> {
     ///
     /// The nearest enemy, priced by what it costs to build. This is the term
     /// that keeps an army walking when nothing is in range of it yet.
+    /// Build the firing position field of each indirect kind that we hold on
+    /// the board. Return whether a field changed.
+    ///
+    /// The value of a tile for a kind is [`Weights::indirect_zoc`] times the
+    /// best expected damage, in funds, that one strike of a whole unit of the
+    /// kind does from the tile to one enemy unit on the board. The strike is
+    /// the neutral strike ([`strike`]) times the day-to-day attack of our
+    /// commander, and at most the whole enemy unit. The tiles are those in
+    /// the attack range of the kind, with the range that our commander adds
+    /// day to day ([`crate::build_policy`]). An enemy unit that can capture
+    /// and stands on a property that is ours or neutral counts 1.5 times,
+    /// because the strike stops a capture.
+    fn fire_fields(
+        &self,
+        out: &mut Vec<(UnitKind, Vec<f64>)>,
+        built: &mut Option<FireContext>,
+    ) -> bool {
+        let state = self.state;
+        let mut kinds: Vec<UnitKind> = state
+            .units
+            .iter()
+            .filter(|unit| {
+                unit.owner == self.seat
+                    && matches!(unit.location, Location::Board { .. })
+                    && ruleset::profile(unit.kind).fire_mode == ruleset::FireMode::Indirect
+            })
+            .map(|unit| unit.kind)
+            .collect();
+        kinds.sort_by_key(|kind| kind.index());
+        kinds.dedup();
+        let enemies: Vec<(UnitKind, Pos, u8, bool)> = state
+            .units
+            .iter()
+            .filter_map(|unit| {
+                let Location::Board { position } = unit.location else {
+                    return None;
+                };
+                if !self.hostile(unit.owner) {
+                    return None;
+                }
+                let tile = state.board.tile(position);
+                let contested = ruleset::profile(unit.kind).can_capture
+                    && ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable)
+                    && tile.owner.player().is_none_or(|owner| !self.hostile(owner));
+                Some((unit.kind, position, unit.hp, contested))
+            })
+            .collect();
+        let context = FireContext {
+            seat: self.seat,
+            dimensions: state.board.dimensions(),
+            weight: self.weights.indirect_zoc,
+            kinds,
+            enemies,
+            commander: state
+                .players
+                .get(self.seat.get())
+                .and_then(|player| player.commanders.iter().find(|co| co.active))
+                .map(|co| co.id),
+        };
+        if built.as_ref() == Some(&context) {
+            return false;
+        }
+        let dimensions = context.dimensions;
+        out.clear();
+        for kind in &context.kinds {
+            let profile = ruleset::profile(*kind);
+            let Some(range) = profile.indirect_range else {
+                continue;
+            };
+            let values = crate::build_policy::seat_day_to_day(state, self.seat, *kind);
+            let attack = values.attack as f64 / 100.0;
+            let maximum = range
+                .maximum
+                .saturating_add_signed(values.range_add)
+                .max(range.minimum);
+            let reach = i16::try_from(maximum).unwrap_or(i16::MAX);
+            let mut field = vec![0.0; dimensions.len()];
+            for (target, position, hp, contested) in &context.enemies {
+                let share = (strike(*kind, *target) * attack).min(1.0);
+                if share <= 0.0 {
+                    continue;
+                }
+                let mut value = context.weight * share * cost(*target) * f64::from(*hp) / 100.0;
+                if *contested {
+                    value *= 1.5;
+                }
+                for dy in -reach..=reach {
+                    let span = reach - dy.abs();
+                    for dx in -span..=span {
+                        let Some(tile) = position.offset(dx, dy) else {
+                            continue;
+                        };
+                        if position.distance(tile) < range.minimum {
+                            continue;
+                        }
+                        let Some(cell) = dimensions.cell_index(tile) else {
+                            continue;
+                        };
+                        let slot = &mut field[usize::from(cell.get())];
+                        if value > *slot {
+                            *slot = value;
+                        }
+                    }
+                }
+            }
+            out.push((*kind, field));
+        }
+        *built = Some(context);
+        true
+    }
+
     fn advance_field(
         &self,
         out: &mut Vec<f64>,
@@ -2442,6 +2621,7 @@ struct Scorer<'a> {
     advance_revision: u64,
     capture_fields: &'a CaptureFields,
     advance_field: &'a [f64],
+    fire_fields: &'a [(UnitKind, Vec<f64>)],
     hold_field: &'a [f64],
     occupant: &'a [Option<u16>],
     counter: &'a CounterTable,
@@ -3043,7 +3223,17 @@ impl Scorer<'_> {
         // what it is worth for it to stop where it is — and a tile that is
         // both a garrison and a step toward the next property is worth both.
         let hold = self.hold_field.get(cell).copied().unwrap_or(0.0);
-        field.get(cell).copied().unwrap_or(0.0) + hold
+        let value = field.get(cell).copied().unwrap_or(0.0) + hold;
+        if self.weights().indirect_zoc == 0.0 || profile.fire_mode != ruleset::FireMode::Indirect {
+            return value;
+        }
+        let fire = self
+            .fire_fields
+            .iter()
+            .find(|(kind, _)| *kind == unit.kind)
+            .and_then(|(_, field)| field.get(cell).copied())
+            .unwrap_or(0.0);
+        value + fire * f64::from(unit.hp) / 100.0
     }
 
     /// What this play is worth for what it does to vision.
@@ -3190,6 +3380,106 @@ mod tests {
             concealment: Concealment::Exposed,
             location: Location::Board { position },
         }
+    }
+
+    /// An arena with one artillery of ours and one enemy tank on plains,
+    /// `distance` steps apart. Both seats get the commander `co`.
+    fn artillery_and_tank(
+        co: awvm::ruleset::CommanderKind,
+        distance: u64,
+    ) -> Option<(State, UnitId, Pos)> {
+        let mut state = arena(false, 1);
+        let ours = state.players.seat(&state.turn.active_player)?;
+        let theirs = state
+            .players
+            .seats()
+            .map(|(seat, _)| seat)
+            .find(|seat| *seat != ours)?;
+        let seats: Vec<PlayerIdx> = state.players.seats().map(|(seat, _)| seat).collect();
+        for seat in seats {
+            for commander in state.player_mut(seat).commanders.iter_mut() {
+                commander.id = co;
+            }
+        }
+        state.units.retain(|_| false);
+        let plains: Vec<Pos> = state
+            .board
+            .iter()
+            .filter(|(_, tile)| tile.terrain == ruleset::Terrain::Plain)
+            .map(|(position, _)| position)
+            .collect();
+        let (from, to) = plains.iter().find_map(|from| {
+            plains
+                .iter()
+                .find(|to| from.distance(**to) == distance && from.y == to.y)
+                .map(|to| (*from, *to))
+        })?;
+        let mut artillery = test_unit(UnitKind::Artillery, from, ours);
+        artillery.id = UnitId::new(1);
+        let mut tank = test_unit(UnitKind::Tank, to, theirs);
+        tank.id = UnitId::new(2);
+        state.units.push(artillery);
+        state.units.push(tank);
+        state.next_unit_id = Some(3);
+        Some((state, artillery.id, to))
+    }
+
+    /// The distance from the tank to where the artillery goes in its turn.
+    fn artillery_distance(state: &State, weights: Weights, tank: Pos) -> Option<u64> {
+        let mut state = state.clone();
+        let seat = state.players.seat(&state.turn.active_player)?;
+        state.player_mut(seat).funds = 0;
+        let mut session = Session::new(state);
+        let mut agent = GreedyAgent::with_weights(1, weights);
+        let mut entropy = Rng::from_seed(7);
+        for _ in 0..8 {
+            let state = session.state();
+            let view = observe(&AwbwVisibility, state, &state.turn.active_player).ok()?;
+            let play = agent.act(&view, NodeBudget::FOUR)?;
+            if play.unit() == Some(UnitId::new(1)) {
+                let position = state.board.dimensions().position_of(play.destination())?;
+                return Some(position.distance(tank));
+            }
+            let command = play.command(&session)?;
+            session
+                .apply_command::<()>(command, &mut entropy, &mut ())
+                .ok()?;
+        }
+        None
+    }
+
+    /// With the firing position term, an artillery that is out of range goes
+    /// to a tile from where it can fire at the enemy on its next turn. The
+    /// range of Grit is one more, and the term reads it.
+    #[test]
+    fn the_firing_position_term_moves_an_indirect_unit_into_range() {
+        use awvm::ruleset::CommanderKind;
+        let base = crate::profile::V8_GREEDY_CONFIG.weights;
+        let zoc = Weights {
+            indirect_zoc: 0.05,
+            ..base
+        };
+        let (state, _, tank) = artillery_and_tank(CommanderKind::Andy, 7).unwrap();
+        let without = artillery_distance(&state, base, tank).unwrap();
+        let with = artillery_distance(&state, zoc, tank).unwrap();
+        assert!(
+            (2..=3).contains(&with),
+            "with the term: {with}, without: {without}"
+        );
+        assert!(!(2..=3).contains(&without), "without the term: {without}");
+        let (state, _, tank) = artillery_and_tank(CommanderKind::Grit, 7).unwrap();
+        let grit = Weights {
+            threat_effects: true,
+            ..zoc
+        };
+        let with = artillery_distance(&state, grit, tank).unwrap();
+        assert!((2..=4).contains(&with), "Grit with the term: {with}");
+        // Zero turns the term off.
+        let off = Weights {
+            indirect_zoc: 0.0,
+            ..zoc
+        };
+        assert_eq!(off, base);
     }
 
     #[test]

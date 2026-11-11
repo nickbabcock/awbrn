@@ -44,28 +44,23 @@ pub const HARD_V3_CONFIG: BaselineConfig = BaselineConfig {
     ..HARD_V2_CONFIG
 };
 
-/// The `ai-hard-v3` scoring with the build model, the commander capture
-/// bonus, the power policy and the power placement of
-/// `planner-v7-wide-build2a-press-cap-scop-place4-march2`.
+/// The greedy policy of `planner-v8`: the `ai-hard-v3` scoring with the
+/// build model, the commander capture bonus, the power policy, the power
+/// placement, the commander effect term of the build model, the threat maps
+/// that read the commander effects, and the firing position term.
 ///
-/// - The greedy scores still decide whether and when a site builds. The
-///   model [`BuildModelId::HumanV2a`] decides which kind.
-/// - The capture estimates read the capture bonus of the commander
-///   (`capture_bonus`).
-/// - The power policy [`PowerPolicy::HumanV1`] decides when a power is used.
-/// - A power that the policy does not hold comes before the other orders
-///   (`power_placement_first`), and a power that lets units act again comes
-///   after them (`power_refresh_last`).
-///
-/// It is a diagnostic configuration, and no profile seats it.
-pub const HARD_V3_BUILD2A_CAP_SCOP_PLACE4_CONFIG: BaselineConfig = BaselineConfig {
-    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-build-model-human-v2a-cap-scop-place4",
+/// No profile seats it.
+pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8",
     weights: Weights {
         build_model: BuildModelId::HumanV2a,
         capture_bonus: true,
         power_policy: PowerPolicy::HumanV1,
         power_placement_first: true,
         power_refresh_last: true,
+        build_effect: 1.5,
+        threat_effects: true,
+        indirect_zoc: 0.01,
         ..HARD_V3_CONFIG.weights
     },
     ..HARD_V3_CONFIG

@@ -712,25 +712,7 @@ fn built_this_turn(state: &State, seat: PlayerIdx, unit: &awvm::semantic::Unit) 
 fn co_combat(state: &State, seat: PlayerIdx, funds: u64, kind: UnitKind) -> (f64, f64) {
     static NO_CAPABILITIES: LazyLock<std::collections::HashSet<String>> =
         LazyLock::new(std::collections::HashSet::new);
-    let profile = ruleset::profile(kind);
-    let domain = match kind {
-        UnitKind::Infantry | UnitKind::Mech => commander::CombatDomain::Foot,
-        _ if profile.transport.is_some() => commander::CombatDomain::Transport,
-        _ => match profile.domain {
-            ruleset::Domain::Ground => commander::CombatDomain::GroundVehicle,
-            ruleset::Domain::Air => commander::CombatDomain::Air,
-            ruleset::Domain::Sea => commander::CombatDomain::Naval,
-        },
-    };
-    let unit = commander::Combatant {
-        kind,
-        domain,
-        fire_mode: profile.fire_mode,
-        terrain: ruleset::Terrain::Plain,
-        weather: state.weather.kind,
-        property: false,
-        capabilities: &NO_CAPABILITIES,
-    };
+    let unit = plain_combatant(kind, state.weather.kind, &NO_CAPABILITIES);
     let context = commander::CombatContext {
         tower_count: 0,
         funds,
@@ -744,6 +726,188 @@ fn co_combat(state: &State, seat: PlayerIdx, funds: u64, kind: UnitKind) -> (f64
                 (combat.defense as f64 - 100.0) / 100.0,
             )
         })
+}
+
+/// The combat side of a unit of `kind` that stands on a plain that is not a
+/// property.
+fn plain_combatant(
+    kind: UnitKind,
+    weather: awvm::ruleset::WeatherKind,
+    capabilities: &std::collections::HashSet<String>,
+) -> commander::Combatant<'_> {
+    let profile = ruleset::profile(kind);
+    let domain = match kind {
+        UnitKind::Infantry | UnitKind::Mech => commander::CombatDomain::Foot,
+        _ if profile.transport.is_some() => commander::CombatDomain::Transport,
+        _ => match profile.domain {
+            ruleset::Domain::Ground => commander::CombatDomain::GroundVehicle,
+            ruleset::Domain::Air => commander::CombatDomain::Air,
+            ruleset::Domain::Sea => commander::CombatDomain::Naval,
+        },
+    };
+    commander::Combatant {
+        kind,
+        domain,
+        fire_mode: profile.fire_mode,
+        terrain: ruleset::Terrain::Plain,
+        weather,
+        property: false,
+        capabilities,
+    }
+}
+
+/// The day-to-day values of a commander for one unit kind, from the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DayToDay {
+    /// The attack, in percent. 100 is the value with no rule.
+    pub attack: i64,
+    /// The defense, in percent. 100 is the value with no rule.
+    pub defense: i64,
+    /// The range that the commander adds to the maximum attack range of an
+    /// indirect unit.
+    pub range_add: i64,
+    /// The movement that the commander adds.
+    pub move_add: i64,
+}
+
+impl DayToDay {
+    /// The values with no commander rule.
+    pub const NEUTRAL: Self = Self {
+        attack: 100,
+        defense: 100,
+        range_add: 0,
+        move_add: 0,
+    };
+}
+
+/// The day-to-day values of `co` for a unit of `kind`.
+///
+/// The engine gives each value ([`commander::day_to_day_combat`],
+/// [`commander::day_to_day_attack_range_add`] and
+/// [`commander::day_to_day_move_add`]). The unit stands on a plain that is
+/// not a property, in clear weather, with no tower and no funds. No power is
+/// active. The function does not read the identity of the commander.
+pub(crate) fn day_to_day(co: CommanderKind, kind: UnitKind) -> DayToDay {
+    static TABLE: LazyLock<Vec<[DayToDay; UnitKind::COUNT]>> = LazyLock::new(|| {
+        static NO_CAPABILITIES: LazyLock<std::collections::HashSet<String>> =
+            LazyLock::new(std::collections::HashSet::new);
+        CommanderKind::ALL
+            .into_iter()
+            .map(|co| {
+                UnitKind::ALL.map(|kind| {
+                    let profile = ruleset::profile(kind);
+                    let unit =
+                        plain_combatant(kind, awvm::ruleset::WeatherKind::Clear, &NO_CAPABILITIES);
+                    let context = commander::CombatContext {
+                        tower_count: 0,
+                        funds: 0,
+                        owned_properties: 0,
+                        base_terrain_stars: 1,
+                    };
+                    let (attack, defense) =
+                        commander::day_to_day_combat(co, unit, commander::Strike::Initial, context)
+                            .map_or((100, 100), |combat| (combat.attack, combat.defense));
+                    let range_add = if profile.indirect_range.is_some() {
+                        commander::day_to_day_attack_range_add(
+                            co,
+                            kind,
+                            profile.domain,
+                            ruleset::FireMode::Indirect,
+                        )
+                    } else {
+                        0
+                    };
+                    DayToDay {
+                        attack,
+                        defense,
+                        range_add,
+                        move_add: commander::day_to_day_move_add(co, kind, profile.domain),
+                    }
+                })
+            })
+            .collect()
+    });
+    TABLE[co.index()][kind.index()]
+}
+
+/// The day-to-day values of the active commander of `seat` for a unit of
+/// `kind`. A seat with no active commander gets [`DayToDay::NEUTRAL`].
+pub(crate) fn seat_day_to_day(state: &State, seat: PlayerIdx, kind: UnitKind) -> DayToDay {
+    state
+        .players
+        .get(seat.get())
+        .and_then(|player| player.commanders.iter().find(|co| co.active))
+        .map_or(DayToDay::NEUTRAL, |co| day_to_day(co.id, kind))
+}
+
+/// The day-to-day effect of `co` on a unit of `kind`, as one number.
+///
+/// The value is the sum of the natural logarithms of these ratios, each
+/// against a commander with no day-to-day rule ([`day_to_day`]):
+///
+/// - the attack, when the kind has a weapon,
+/// - the defense,
+/// - the maximum attack range, when the kind fires indirectly,
+/// - the movement, when the kind can move.
+///
+/// Thus a commander with no day-to-day rule gets exactly zero for each kind.
+fn kind_effect(co: CommanderKind, kind: UnitKind) -> f64 {
+    let profile = ruleset::profile(kind);
+    let ratio = |changed: i64, base: i64| (changed.max(1) as f64 / base as f64).ln();
+    let values = day_to_day(co, kind);
+    let mut effect = ratio(values.defense, 100);
+    if profile.ammo_weapon.is_some() || profile.unlimited_weapon.is_some() {
+        effect += ratio(values.attack, 100);
+    }
+    if let Some(range) = profile.indirect_range {
+        let base = range.maximum as i64;
+        effect += ratio(base + values.range_add, base);
+    }
+    if profile.movement > 0 {
+        let base = profile.movement as i64;
+        effect += ratio(base + values.move_add, base);
+    }
+    effect
+}
+
+/// The day-to-day effect of `co` on each unit kind ([`kind_effect`]),
+/// indexed by [`UnitKind::index`].
+pub fn commander_effects(co: CommanderKind) -> &'static [f64; UnitKind::COUNT] {
+    static TABLE: LazyLock<Vec<[f64; UnitKind::COUNT]>> = LazyLock::new(|| {
+        CommanderKind::ALL
+            .into_iter()
+            .map(|co| UnitKind::ALL.map(|kind| kind_effect(co, kind)))
+            .collect()
+    });
+    &TABLE[co.index()]
+}
+
+/// The effect term of the build choice of `seat`: `strength` times the
+/// day-to-day effect of its active commander on each kind
+/// ([`commander_effects`]), indexed by [`UnitKind::index`].
+///
+/// The function gives `None` when the strength is zero, when the seat has
+/// no active commander, or when the commander has no day-to-day effect on
+/// any kind. Then the build choice does not change.
+pub fn effect_bias(
+    state: &State,
+    seat: PlayerIdx,
+    strength: f64,
+) -> Option<[f64; UnitKind::COUNT]> {
+    if strength == 0.0 {
+        return None;
+    }
+    let co = state
+        .player(seat)
+        .commanders
+        .iter()
+        .find(|co| co.active)?
+        .id;
+    let effects = commander_effects(co);
+    if effects.iter().all(|effect| *effect == 0.0) {
+        return None;
+    }
+    Some(effects.map(|effect| strength * effect))
 }
 
 /// Whether the commander of `seat` can build at a site of this terrain.
@@ -986,11 +1150,27 @@ impl BuildModel {
     /// The choice in `legal` with the highest utility. The first of equal
     /// choices wins. `None` when the model holds no choice in `legal`.
     pub fn choose(&self, features: &BuildFeatures, legal: &[BuildChoice]) -> Option<BuildChoice> {
+        self.choose_with(features, legal, None)
+    }
+
+    /// [`BuildModel::choose`] with a term added to the utility of each kind.
+    /// `bias` is indexed by [`UnitKind::index`] ([`effect_bias`]). "No build"
+    /// gets no term. With `None`, the result is that of
+    /// [`BuildModel::choose`].
+    pub fn choose_with(
+        &self,
+        features: &BuildFeatures,
+        legal: &[BuildChoice],
+        bias: Option<&[f64; UnitKind::COUNT]>,
+    ) -> Option<BuildChoice> {
         let mut best: Option<(BuildChoice, f64)> = None;
         for (choice, utility) in legal.iter().zip(self.utilities(features, legal)) {
-            let Some(utility) = utility else {
+            let Some(mut utility) = utility else {
                 continue;
             };
+            if let (Some(bias), BuildChoice::Build(kind)) = (bias, choice) {
+                utility += bias[kind.index()];
+            }
             if best.is_none_or(|(_, top)| utility > top) {
                 best = Some((*choice, utility));
             }
@@ -1160,7 +1340,7 @@ mod tests {
             // The play path.
             let mut greedy = model_config().build_greedy(3);
             assert_eq!(greedy.model_build_choices(view), expected);
-            let mut greedy = crate::profile::HARD_V3_BUILD2A_CAP_SCOP_PLACE4_CONFIG.build_greedy(3);
+            let mut greedy = crate::profile::V8_GREEDY_CONFIG.build_greedy(3);
             assert_eq!(greedy.model_build_choices(view), expected);
             let mut off = crate::profile::HARD_V3_CONFIG.build_greedy(3);
             assert!(off.model_build_choices(view).is_empty());
@@ -1488,6 +1668,120 @@ mod tests {
         assert!(kind(&features, UnitKind::Tank, "co_attack") > 0.0);
         assert!(kind(&features, UnitKind::Artillery, "co_attack") < 0.0);
         assert_eq!(kind(&features, UnitKind::Infantry, "co_attack"), 0.0);
+    }
+
+    /// Set the commander of `seat` to `co`.
+    fn set_commander(state: &mut State, seat: PlayerIdx, co: CommanderKind) {
+        for commander in state.player_mut(seat).commanders.iter_mut() {
+            commander.id = co;
+        }
+    }
+
+    /// The probability of an indirect kind at `site` under the human-v2a
+    /// model, with the effect term of `strength`. All ground kinds that the
+    /// model holds are legal.
+    fn indirect_share(state: &State, seat: PlayerIdx, site: Pos, strength: f64) -> f64 {
+        let model = BuildModelId::HumanV2a.model().unwrap();
+        let legal: Vec<BuildChoice> = UnitKind::ALL
+            .into_iter()
+            .filter(|kind| ruleset::profile(*kind).domain == ruleset::Domain::Ground)
+            .map(BuildChoice::Build)
+            .collect();
+        let features = BuildContext::new(state, seat).site(site);
+        let bias = effect_bias(state, seat, strength).unwrap_or([0.0; UnitKind::COUNT]);
+        // The kinds that the model holds, with their utilities and the term.
+        let utilities: Vec<(UnitKind, f64)> = legal
+            .iter()
+            .zip(model.utilities(&features, &legal))
+            .filter_map(|(choice, utility)| match choice {
+                BuildChoice::Build(kind) => Some((*kind, utility? + bias[kind.index()])),
+                BuildChoice::NoBuild => None,
+            })
+            .collect();
+        let top = utilities
+            .iter()
+            .map(|(_, utility)| *utility)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let weights: Vec<(UnitKind, f64)> = utilities
+            .iter()
+            .map(|(kind, utility)| (*kind, (utility - top).exp()))
+            .collect();
+        let total: f64 = weights.iter().map(|(_, weight)| weight).sum();
+        weights
+            .iter()
+            .filter(|(kind, _)| UnitClass::of(*kind) == UnitClass::Indirect)
+            .map(|(_, weight)| weight / total)
+            .sum()
+    }
+
+    /// A commander with no day-to-day effect gets no effect term, so the
+    /// build choice does not change.
+    #[test]
+    fn a_commander_with_no_day_to_day_effect_gets_no_effect_term() {
+        assert!(
+            commander_effects(CommanderKind::Andy)
+                .iter()
+                .all(|effect| *effect == 0.0)
+        );
+        let (mut state, seat, _, site) = arena_site();
+        state.player_mut(seat).funds = 30_000;
+        set_commander(&mut state, seat, CommanderKind::Andy);
+        assert!(effect_bias(&state, seat, 5.0).is_none());
+        let model = BuildModelId::HumanV2a.model().unwrap();
+        let legal: Vec<BuildChoice> = UnitKind::ALL.map(BuildChoice::Build).to_vec();
+        let features = BuildContext::new(&state, seat).site(site);
+        assert_eq!(
+            model.choose_with(&features, &legal, None),
+            model.choose(&features, &legal)
+        );
+        assert_eq!(
+            indirect_share(&state, seat, site, 5.0),
+            indirect_share(&state, seat, site, 0.0)
+        );
+        // Zero strength gives no term for each commander.
+        set_commander(&mut state, seat, CommanderKind::Grit);
+        assert!(effect_bias(&state, seat, 0.0).is_none());
+    }
+
+    /// The effect of Grit, read from the engine, is positive on the indirect
+    /// kinds and negative on the direct vehicles. The effect of Max is the
+    /// opposite. Infantry is not changed by either.
+    #[test]
+    fn the_commander_effects_read_the_engine() {
+        let grit = commander_effects(CommanderKind::Grit);
+        let max = commander_effects(CommanderKind::Max);
+        let at = |table: &[f64; UnitKind::COUNT], kind: UnitKind| table[kind.index()];
+        for kind in [UnitKind::Artillery, UnitKind::Rocket, UnitKind::Missile] {
+            assert!(at(grit, kind) > 0.0, "{kind:?}");
+            assert!(at(max, kind) < 0.0, "{kind:?}");
+        }
+        for kind in [UnitKind::Tank, UnitKind::MdTank, UnitKind::BCopter] {
+            assert!(at(grit, kind) < 0.0, "{kind:?}");
+            assert!(at(max, kind) > 0.0, "{kind:?}");
+        }
+        assert_eq!(at(grit, UnitKind::Infantry), 0.0);
+        assert_eq!(at(max, UnitKind::Infantry), 0.0);
+        // Attack 120 and range 3 to 4: ln 1.2 + ln (4 / 3).
+        let expected = 1.2_f64.ln() + (4.0_f64 / 3.0).ln();
+        assert!((at(grit, UnitKind::Artillery) - expected).abs() < 1e-12);
+    }
+
+    /// With the effect term, Grit prefers the indirect kinds more than
+    /// without it, and Max prefers them less. A stronger term moves the
+    /// choice more.
+    #[test]
+    fn the_effect_term_moves_the_indirect_share() {
+        let (mut state, seat, _, site) = arena_site();
+        state.player_mut(seat).funds = 30_000;
+        set_commander(&mut state, seat, CommanderKind::Grit);
+        let base = indirect_share(&state, seat, site, 0.0);
+        let weak = indirect_share(&state, seat, site, 1.5);
+        let strong = indirect_share(&state, seat, site, 5.0);
+        assert!(base < weak && weak < strong, "{base} {weak} {strong}");
+        set_commander(&mut state, seat, CommanderKind::Max);
+        let base = indirect_share(&state, seat, site, 0.0);
+        let strong = indirect_share(&state, seat, site, 5.0);
+        assert!(strong < base, "{base} {strong}");
     }
 
     /// The nearest empty site to the enemy has rank zero and gap zero. A

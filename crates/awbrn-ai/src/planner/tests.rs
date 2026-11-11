@@ -813,7 +813,7 @@ fn a_predicted_loss_of_sight_does_not_require_a_replan() {
 }
 
 /// The configuration of the candidate.
-const CANDIDATE: PlannerConfig = PlannerConfig::V7_WIDE_BUILD2A_PRESS_CAP_SCOP_PLACE4_MARCH2;
+const CANDIDATE: PlannerConfig = PlannerConfig::V8;
 
 /// The candidate without the march plan.
 const WITHOUT_MARCH: PlannerConfig = PlannerConfig {

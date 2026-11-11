@@ -960,10 +960,57 @@ pub fn effective_combat(
     strike: Strike,
     context: CombatContext,
 ) -> Option<EffectiveCombat> {
-    let table = combat_table();
     let Some((_, commander, power)) = seat.and_then(|seat| active(state, seat)) else {
         return Some(EffectiveCombat::unmodified(context.base_terrain_stars));
     };
+    combat_of(commander, power, unit, strike, context)
+}
+
+/// The combat values of `unit` under the day-to-day rules of `commander`.
+/// No power is active.
+pub fn day_to_day_combat(
+    commander: CommanderKind,
+    unit: Combatant<'_>,
+    strike: Strike,
+    context: CombatContext,
+) -> Option<EffectiveCombat> {
+    combat_of(commander, Power::None, unit, strike, context)
+}
+
+/// The range that the day-to-day rules of `commander` add to the maximum
+/// attack range of a unit.
+pub fn day_to_day_attack_range_add(
+    commander: CommanderKind,
+    kind: UnitKind,
+    domain: UnitDomain,
+    fire_mode: FireMode,
+) -> i64 {
+    profile_table()
+        .commanders
+        .get(commander)
+        .map_or(0, |profile| {
+            sum_attack_range_additions(&profile.attack_range, Power::None, kind, domain, fire_mode)
+        })
+}
+
+/// The movement that the day-to-day rules of `commander` add to a unit.
+pub fn day_to_day_move_add(commander: CommanderKind, kind: UnitKind, domain: UnitDomain) -> i64 {
+    profile_table()
+        .commanders
+        .get(commander)
+        .map_or(0, |profile| {
+            sum_unit_additions(&profile.movement, Power::None, kind, domain)
+        })
+}
+
+fn combat_of(
+    commander: CommanderKind,
+    power: Power,
+    unit: Combatant<'_>,
+    strike: Strike,
+    context: CombatContext,
+) -> Option<EffectiveCombat> {
+    let table = combat_table();
     let Some(profile) = table.commanders.get(commander) else {
         return Some(EffectiveCombat::unmodified(context.base_terrain_stars));
     };

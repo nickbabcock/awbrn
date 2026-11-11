@@ -537,9 +537,7 @@ impl AgentSpec {
                     "v6" => PlannerConfig::V6,
                     "v6-canonical" => PlannerConfig::V6_CANONICAL,
                     "v7" => PlannerConfig::V7,
-                    "v7-wide-build2a-press-cap-scop-place4-march2" => {
-                        PlannerConfig::V7_WIDE_BUILD2A_PRESS_CAP_SCOP_PLACE4_MARCH2
-                    }
+                    "v8" => PlannerConfig::V8,
                     "v6-fog" => PlannerConfig::V6_FOG,
                     other => {
                         return Err(PlanError::Configuration(format!(
