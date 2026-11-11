@@ -7,12 +7,16 @@
 //!
 //! - `{"game": ...}`: the map, the pair, the seat order and the seat of the
 //!   candidate.
-//! - `{"terrain": ...}`: the terrain of the board, row by row.
+//! - `{"terrain": ...}`: the terrain of the board at the start, row by row.
+//!   The trace does not record later changes of a tile that is not a
+//!   property (a destroyed pipe seam, a used missile silo), so it is not a
+//!   full record of the board.
 //! - `{"turn": ...}`: a snapshot at the start of each turn: the day, the
 //!   active seat, and for each seat the funds, the power state, the power
 //!   meter and the commander, and all units and properties.
-//! - `{"command": ...}`: each accepted command, with the units and the
-//!   properties that it changed.
+//! - `{"command": ...}`: each accepted command, with the units whose health
+//!   or position it changed and the properties that it changed. Fuel, ammo
+//!   and cargo are not recorded.
 //! - `{"end": ...}`: the final snapshot, the match outcome, the candidate
 //!   points and the number of days.
 //!
@@ -23,7 +27,7 @@
 //! exist before or after. A property is `[x, y, owner, capture points]`, and
 //! a property change is `[x, y, owner before, owner after, points before,
 //! points after]`. The trace does not change the commands of a game, but
-//! it adds time to each turn.
+//! it adds time to each turn. A file that already exists stops the run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -129,7 +133,8 @@ impl GameTrace {
         std::fs::create_dir_all(folder)?;
         let name = format!("map-{map_id}-pair-{pair_index}-{seat_order}.jsonl");
         let mut trace = Self {
-            writer: BufWriter::new(File::create(folder.join(name))?),
+            // A file of an earlier run is an error, not a file to replace.
+            writer: BufWriter::new(File::create_new(folder.join(name))?),
             previous: None,
         };
         trace.line(&json!({"game": {

@@ -1425,6 +1425,8 @@ mod tests {
         let plain = run(None).unwrap();
         let traced = run(Some(folder.path())).unwrap();
         assert_eq!(plain.pairs, traced.pairs);
+        // A second run into the same folder does not replace the files.
+        run(Some(folder.path())).unwrap_err();
         let mut names = fs::read_dir(folder.path())
             .unwrap()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
