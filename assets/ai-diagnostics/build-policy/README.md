@@ -13,6 +13,11 @@ greedy policy of `planner-v8` loads it (`awbrn_ai::build_policy`).
   chooses the kind only: the chosen kind gets the highest floored greedy
   score of the legal kinds at the site, and the other kinds get zero.
 - The model takes the kind with the highest utility. It does not sample.
+- `planner-v8` adds a range term to the utility of each indirect kind: 2.5
+  times the natural logarithm of the ratio of its maximum attack range under
+  our commander to the range of its profile (`build_policy::range_bias`).
+  Only a commander that changes the range, such as Grit or Max, is
+  changed.
 
 The fit includes the games on the maps of `tournament-sealed/manifest.json`.
 Most rows of the corpus are on these maps, so these maps are not a clean

@@ -951,20 +951,67 @@ impl BuildModel {
             .collect()
     }
 
-    /// The kind in `legal` with the highest utility. The first of equal
-    /// kinds wins. `None` when the model holds no kind in `legal`.
-    pub fn choose(&self, features: &BuildFeatures, legal: &[UnitKind]) -> Option<UnitKind> {
+    /// The kind in `legal` with the highest utility, after the term `bias`
+    /// of each kind ([`range_bias`], indexed by [`UnitKind::index`]). The
+    /// first of equal kinds wins. `None` when the model holds no kind in
+    /// `legal`.
+    pub fn choose(
+        &self,
+        features: &BuildFeatures,
+        legal: &[UnitKind],
+        bias: Option<&[f64; UnitKind::COUNT]>,
+    ) -> Option<UnitKind> {
         let mut best: Option<(UnitKind, f64)> = None;
         for (kind, utility) in legal.iter().zip(self.utilities(features, legal)) {
-            let Some(utility) = utility else {
+            let Some(mut utility) = utility else {
                 continue;
             };
+            if let Some(bias) = bias {
+                utility += bias[kind.index()];
+            }
             if best.is_none_or(|(_, top)| utility > top) {
                 best = Some((*kind, utility));
             }
         }
         best.map(|(kind, _)| kind)
     }
+}
+
+/// The range term of the build choice of `seat`: `strength` times the
+/// natural logarithm of the ratio of the maximum attack range of each
+/// indirect kind under the active commander to the range of its profile
+/// ([`crate::threat::day_to_day`]), indexed by [`UnitKind::index`]. A direct
+/// kind gets zero.
+///
+/// The function gives `None` when the strength is zero, when the seat has no
+/// active commander, or when the commander does not change the range of any
+/// kind. Then the build choice does not change.
+pub(crate) fn range_bias(
+    state: &State,
+    seat: PlayerIdx,
+    strength: f64,
+) -> Option<[f64; UnitKind::COUNT]> {
+    if strength == 0.0 {
+        return None;
+    }
+    let co = state
+        .player(seat)
+        .commanders
+        .iter()
+        .find(|co| co.active)?
+        .id;
+    let effects = UnitKind::ALL.map(|kind| match ruleset::profile(kind).indirect_range {
+        Some(range) => {
+            let base = range.maximum as i64;
+            let changed = (base + crate::threat::day_to_day(co, kind).range_add).max(1);
+            (changed as f64 / base as f64).ln()
+        }
+        None => 0.0,
+    });
+    if effects.iter().all(|effect| *effect == 0.0) {
+        return None;
+    }
+    Some(effects.map(|effect| strength * effect))
 }
 
 fn check(mean: f64, scale: f64, what: &'static str) -> Result<(), BuildModelError> {
@@ -1095,7 +1142,7 @@ mod tests {
             for (site, legal) in sites(&session) {
                 let features = context.site(site);
                 assert_eq!(features, authoritative.site(site));
-                let Some(kind) = model.choose(&features, &legal) else {
+                let Some(kind) = model.choose(&features, &legal, None) else {
                     panic!("the model chose no legal kind");
                 };
                 assert!(legal.contains(&kind));
@@ -1178,7 +1225,91 @@ mod tests {
         let top = (0..legal.len())
             .max_by(|a, b| utilities[*a].unwrap().total_cmp(&utilities[*b].unwrap()))
             .unwrap();
-        assert_eq!(first.choose(&features, &legal), Some(legal[top]));
+        assert_eq!(first.choose(&features, &legal, None), Some(legal[top]));
+    }
+
+    /// Set the commander of `seat` to `co`.
+    fn set_commander(state: &mut State, seat: PlayerIdx, co: CommanderKind) {
+        for commander in state.player_mut(seat).commanders.iter_mut() {
+            commander.id = co;
+        }
+    }
+
+    /// The range term changes only a commander that changes the attack range
+    /// of an indirect unit: Grit adds one, and Max takes one away. The other
+    /// commanders build as without the term.
+    #[test]
+    fn the_range_term_reads_only_the_attack_range() {
+        let (mut state, seat, _, site) = arena_site();
+        state.player_mut(seat).funds = 30_000;
+        let legal = UnitKind::ALL;
+        for co in [
+            CommanderKind::Sami,
+            CommanderKind::Andy,
+            CommanderKind::Eagle,
+            CommanderKind::Drake,
+            CommanderKind::Lash,
+            CommanderKind::Kindle,
+        ] {
+            set_commander(&mut state, seat, co);
+            assert!(range_bias(&state, seat, 2.5).is_none(), "{co:?}");
+        }
+        set_commander(&mut state, seat, CommanderKind::Grit);
+        assert!(range_bias(&state, seat, 0.0).is_none());
+        let grit = range_bias(&state, seat, 1.0).unwrap();
+        assert!((grit[UnitKind::Artillery.index()] - (4.0_f64 / 3.0).ln()).abs() < 1e-12);
+        assert_eq!(grit[UnitKind::Tank.index()], 0.0);
+        assert_eq!(grit[UnitKind::Infantry.index()], 0.0);
+        set_commander(&mut state, seat, CommanderKind::Max);
+        let max = range_bias(&state, seat, 1.0).unwrap();
+        assert!(max[UnitKind::Artillery.index()] < 0.0);
+        assert_eq!(max[UnitKind::Tank.index()], 0.0);
+        // With no term, the choice is that of the model alone.
+        let features = BuildContext::new(&state, seat).site(site);
+        let zero = [0.0; UnitKind::COUNT];
+        assert_eq!(
+            model().choose(&features, &legal, Some(&zero)),
+            model().choose(&features, &legal, None)
+        );
+    }
+
+    /// With the range term, Grit gives the indirect kinds more of the model
+    /// probability, and Max gives them less.
+    #[test]
+    fn the_range_term_moves_the_indirect_share() {
+        let (mut state, seat, _, site) = arena_site();
+        state.player_mut(seat).funds = 30_000;
+        let legal: Vec<UnitKind> = UnitKind::ALL
+            .into_iter()
+            .filter(|kind| ruleset::profile(*kind).domain == ruleset::Domain::Ground)
+            .collect();
+        let share = |state: &State, bias: Option<[f64; UnitKind::COUNT]>| {
+            let features = BuildContext::new(state, seat).site(site);
+            let bias = bias.unwrap_or([0.0; UnitKind::COUNT]);
+            let utilities: Vec<(UnitKind, f64)> = legal
+                .iter()
+                .zip(model().utilities(&features, &legal))
+                .filter_map(|(kind, utility)| Some((*kind, utility? + bias[kind.index()])))
+                .collect();
+            let top = utilities
+                .iter()
+                .map(|(_, utility)| *utility)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let total: f64 = utilities.iter().map(|(_, u)| (u - top).exp()).sum();
+            utilities
+                .iter()
+                .filter(|(kind, _)| UnitClass::of(*kind) == UnitClass::Indirect)
+                .map(|(_, u)| (u - top).exp() / total)
+                .sum::<f64>()
+        };
+        set_commander(&mut state, seat, CommanderKind::Grit);
+        let base = share(&state, None);
+        let ranged = share(&state, range_bias(&state, seat, 2.5));
+        assert!(ranged > base, "{base} {ranged}");
+        set_commander(&mut state, seat, CommanderKind::Max);
+        let base = share(&state, None);
+        let ranged = share(&state, range_bias(&state, seat, 2.5));
+        assert!(ranged < base, "{base} {ranged}");
     }
 
     /// The arena, the active seat, the other seat, and an empty ground site

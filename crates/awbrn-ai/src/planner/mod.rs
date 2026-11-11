@@ -324,9 +324,9 @@ impl PlannerConfig {
     /// planner-v7-wide with these additions:
     ///
     /// - The greedy policy of the seed plan, the fallback and the simulated
-    ///   replies uses [`crate::profile::V8_GREEDY_CONFIG`]: the build model,
-    ///   the commander effects, the power policy and the firing positions of
-    ///   indirect units.
+    ///   replies uses [`crate::profile::V8_GREEDY_CONFIG`]: the build model
+    ///   and its range term, the commander effects, the power policy and the
+    ///   firing positions of indirect units.
     /// - The ferry ([`PlannerConfig::ferry`]).
     /// - The march plan ([`PlannerConfig::march`]).
     ///
@@ -522,7 +522,7 @@ struct Line {
 /// damage before the power, that term is approximately 1,600 funds. Without
 /// it, the margin must be above the small differences that come from the
 /// order of the attacks only. One infantry, 1,000 funds, is enough.
-pub const POWER_LATER_MARGIN: f64 = 1_000.0;
+pub(crate) const POWER_LATER_MARGIN: f64 = 1_000.0;
 
 /// The planner agent.
 #[derive(Debug)]

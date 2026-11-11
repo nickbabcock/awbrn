@@ -43,15 +43,16 @@ pub const HARD_V3_CONFIG: BaselineConfig = BaselineConfig {
 };
 
 /// The scoring configuration of `ai-hard-v3`, the greedy policy of
-/// `planner-v8`: the [`HARD_V3_CONFIG`] scoring with the build model, the
-/// commander effects, the power policy and the firing positions of indirect
-/// units.
+/// `planner-v8`: the [`HARD_V3_CONFIG`] scoring with the build model and its
+/// range term, the commander effects, the power policy and the firing
+/// positions of indirect units.
 ///
 /// The planner of `ai-hard-v3` uses it for its seed plan and its fallback.
 pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8",
     weights: Weights {
         build_model: true,
+        build_range: 2.5,
         commander_effects: true,
         power_policy: true,
         firing_positions: 0.01,
@@ -399,7 +400,7 @@ mod tests {
 
     #[test]
     fn hard_v3_profile_fingerprint_is_locked() {
-        assert_eq!(HARD.configuration_fingerprint(), "d2e6c3d6670f7b8a");
+        assert_eq!(HARD.configuration_fingerprint(), "87d0356c9c4f2c47");
     }
 
     #[test]

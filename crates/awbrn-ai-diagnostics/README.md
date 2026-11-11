@@ -218,7 +218,9 @@ Wall-clock limits are excluded from CI; tests check deterministic work limits.
   times the plans and reply checks. One plan uses at most 215 nodes, so its
   plans set a node budget of 256;
 - the build model fitted to human builds
-  (`assets/ai-diagnostics/build-policy/README.md`);
+  (`assets/ai-diagnostics/build-policy/README.md`), with a term for the
+  attack range that the commander adds to indirect units (Grit buys more
+  of them, Max fewer);
 - the commander effects: the capture bonus in the capture estimates, and
   the day-to-day attack, defense and range in the threat maps;
 - the power policy: save the meter for the super power as human players of

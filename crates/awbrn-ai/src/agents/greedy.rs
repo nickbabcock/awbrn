@@ -336,6 +336,16 @@ pub struct Weights {
     /// the fingerprints of the earlier weightings do not change.
     #[serde(skip_serializing_if = "is_false")]
     pub build_model: bool,
+    /// The strength of the range term of the build model.
+    ///
+    /// When it is not zero, the utility of each indirect kind gets this value
+    /// times the natural logarithm of the ratio of its maximum attack range
+    /// under our commander to the range of its profile
+    /// ([`crate::build_policy::range_bias`]). Grit thus buys more indirect
+    /// units, and Max fewer. A commander that does not change the range is
+    /// not changed. The field is left out of the serialized weights at zero.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub build_range: f64,
     /// Whether the estimates read the rules of each commander from the
     /// engine.
     ///
@@ -419,6 +429,7 @@ impl Weights {
         supply: 10.0,
         build_floor: 0.0,
         build_model: false,
+        build_range: 0.0,
         commander_effects: false,
         power_policy: false,
         firing_positions: 0.0,
@@ -767,6 +778,7 @@ fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mu
     let state = session.state();
     let context = BuildContext::new(state, seat);
     let dimensions = state.board.dimensions();
+    let bias = crate::build_policy::range_bias(state, seat, weights.build_range);
     let mut legal = Vec::with_capacity(UnitKind::COUNT);
     for site in out.iter_mut() {
         let Some(position) = dimensions.position_of(site.cell) else {
@@ -778,7 +790,7 @@ fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mu
                 .into_iter()
                 .filter(|kind| site.legal & (1 << kind.index()) != 0),
         );
-        site.choice = model.choose(&context.site(position), &legal);
+        site.choice = model.choose(&context.site(position), &legal, bias.as_ref());
     }
 }
 
@@ -3423,13 +3435,13 @@ mod tests {
             commander_effects: false,
             ..crate::profile::V8_GREEDY_CONFIG.weights
         };
-        let zoc = Weights {
+        let firing = Weights {
             firing_positions: 0.05,
             ..base
         };
         let (state, _, tank) = artillery_and_tank(CommanderKind::Andy, 7).unwrap();
         let without = artillery_distance(&state, base, tank).unwrap();
-        let with = artillery_distance(&state, zoc, tank).unwrap();
+        let with = artillery_distance(&state, firing, tank).unwrap();
         assert!(
             (2..=3).contains(&with),
             "with the term: {with}, without: {without}"
@@ -3438,16 +3450,10 @@ mod tests {
         let (state, _, tank) = artillery_and_tank(CommanderKind::Grit, 7).unwrap();
         let grit = Weights {
             commander_effects: true,
-            ..zoc
+            ..firing
         };
         let with = artillery_distance(&state, grit, tank).unwrap();
         assert!((2..=4).contains(&with), "Grit with the term: {with}");
-        // Zero turns the term off.
-        let off = Weights {
-            firing_positions: 0.0,
-            ..zoc
-        };
-        assert_eq!(off, base);
     }
 
     #[test]
