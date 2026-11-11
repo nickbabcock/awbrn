@@ -15,6 +15,7 @@ pub mod review;
 pub mod search_sweep;
 pub mod source;
 pub mod sprt;
+mod sprt_trace;
 pub mod tactical;
 pub mod tournament;
 pub mod verify;

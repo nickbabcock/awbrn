@@ -40,7 +40,7 @@ use std::time::Instant;
 
 use awbrn_ai::agent::{Agent, AgentTiming, NodeBudget};
 use awbrn_ai::baseline::BaselineConfig;
-use awbrn_ai::harness::{Limits, play_measured};
+use awbrn_ai::harness::{Limits, play_measured, play_observed_fallible};
 use awbrn_ai::planner::PlannerStats;
 use awbrn_ai::rng::Rng;
 use awbrn_ai_diagnostic_types::{AgentIdentity, AgentSeedProtocol, RunLimits, SeatOrderVariant};
@@ -140,6 +140,13 @@ pub struct SprtPlan {
     pub agent_seed_protocol: AgentSeedProtocol,
     /// The test stops without a decision after this many pairs.
     pub max_pairs: usize,
+    /// Play only these pair indices, in this order. Each index keeps its map
+    /// and match seed from the full run. Use it to play some pairs of an
+    /// earlier run again. The indices must be distinct. The run plays at
+    /// most `max_pairs` of them. It does not stop early, and its decision is
+    /// inconclusive, because these pairs are not complete rounds of maps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_indices: Option<Vec<usize>>,
     /// Stop when evidence crosses a threshold. False plays every pair.
     #[serde(default = "stop_early_default")]
     pub stop_early: bool,
@@ -418,6 +425,7 @@ pub fn run_sprt_plan(
     plan_path: impl AsRef<Path>,
     output: impl AsRef<Path>,
     jobs: usize,
+    trace: Option<&Path>,
     progress: impl FnMut(&SprtPair, &SprtStatistic),
 ) -> Result<SprtResult, SprtError> {
     let plan_path = plan_path.as_ref();
@@ -426,7 +434,15 @@ pub fn run_sprt_plan(
     let (candidate, _) = plan.candidate.materialize(plan_path)?;
     let (baseline, _) = plan.baseline.materialize(plan_path)?;
     let source = source_provenance(plan_path)?;
-    let mut result = run_sprt(&plan, &registry, &*candidate, &*baseline, jobs, progress)?;
+    let mut result = run_sprt(
+        &plan,
+        &registry,
+        &*candidate,
+        &*baseline,
+        jobs,
+        trace,
+        progress,
+    )?;
     result.source = Some(source);
     let output = output.as_ref();
     fs::create_dir_all(output)?;
@@ -450,13 +466,15 @@ pub(crate) fn plan_registry(plan: &SprtPlan, plan_path: &Path) -> Result<MapRegi
     })
 }
 
-/// Run an SPRT with `jobs` workers.
+/// Run an SPRT with `jobs` workers. With `trace`, each game writes a trace
+/// file in that folder (see `src/sprt_trace.rs`).
 pub fn run_sprt(
     plan: &SprtPlan,
     registry: &MapRegistry,
     candidate: &dyn AgentFactory,
     baseline: &dyn AgentFactory,
     jobs: usize,
+    trace: Option<&Path>,
     mut progress: impl FnMut(&SprtPair, &SprtStatistic),
 ) -> Result<SprtResult, SprtError> {
     plan.bounds.validate().map_err(SprtError::Configuration)?;
@@ -465,9 +483,23 @@ pub fn run_sprt(
             "SPRT day and refusal limits must be positive".into(),
         ));
     }
-    if plan.maps.is_empty() || plan.max_pairs == 0 {
+    if plan.maps.is_empty()
+        || plan.max_pairs == 0
+        || plan.pair_indices.as_ref().is_some_and(Vec::is_empty)
+    {
         return Err(SprtError::Configuration(
             "an SPRT plan needs at least one map and one pair".into(),
+        ));
+    }
+    if let Some(indices) = &plan.pair_indices
+        && indices
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != indices.len()
+    {
+        return Err(SprtError::Configuration(
+            "SPRT pair indices must be distinct".into(),
         ));
     }
     if plan
@@ -497,7 +529,10 @@ pub fn run_sprt(
         refusals: plan.limits.refusal_limit,
     };
     let started = Instant::now();
-    let play = |pair_index: usize| {
+    let selected = plan.pair_indices.as_deref();
+    let count = selected.map_or(plan.max_pairs, |indices| indices.len().min(plan.max_pairs));
+    let play = |task: usize| {
+        let pair_index = selected.map_or(task, |indices| indices[task]);
         play_pair(
             plan,
             maps[pair_index % maps.len()],
@@ -505,6 +540,7 @@ pub fn run_sprt(
             candidate,
             baseline,
             limits,
+            trace,
         )
     };
 
@@ -533,10 +569,11 @@ pub fn run_sprt(
         if accumulator.pairs.is_multiple_of(accumulator.maps_per_round) {
             decision = accumulator.decision();
         }
-        Ok((plan.stop_early && decision.is_some()) || pairs.len() >= plan.max_pairs)
+        let stop = plan.stop_early && selected.is_none() && decision.is_some();
+        Ok(stop || pairs.len() >= count)
     };
 
-    crate::workers::run_ordered(plan.max_pairs, jobs, play, |_, output| commit(output?))?;
+    crate::workers::run_ordered(count, jobs, play, |_, output| commit(output?))?;
 
     let statistic = accumulator.statistic();
     let mut by_map = BTreeMap::<u32, (usize, f64)>::new();
@@ -575,7 +612,11 @@ pub fn run_sprt(
         method: "bounded-betting-map-round-v1".into(),
         log_e_h0_threshold,
         log_e_h1_threshold,
-        decision: decision.unwrap_or(SprtDecision::Inconclusive),
+        // Some pairs of a run are not complete rounds of maps, so they give
+        // no decision.
+        decision: decision
+            .filter(|_| selected.is_none())
+            .unwrap_or(SprtDecision::Inconclusive),
         statistic,
         maps: by_map
             .into_iter()
@@ -781,6 +822,7 @@ fn play_pair(
     candidate: &dyn AgentFactory,
     baseline: &dyn AgentFactory,
     limits: Limits,
+    trace: Option<&Path>,
 ) -> Result<PairOutput, SprtError> {
     let match_seed = Rng::mix(plan.run_seed ^ (u64::from(map.id) << 32) ^ pair_index as u64);
     let mut candidate_turn_nanos = Vec::new();
@@ -833,7 +875,31 @@ fn play_pair(
             SeatOrderVariant::AgentFirst => (0, [&mut *candidate_agent, &mut *baseline_agent]),
             SeatOrderVariant::BaselineFirst => (1, [&mut *baseline_agent, &mut *candidate_agent]),
         };
-        let record = play_measured(state, &mut session, &mut agents, &mut entropy, limits)?;
+        let mut game_trace = match trace {
+            Some(folder) => Some(crate::sprt_trace::GameTrace::create(
+                folder,
+                map.id,
+                pair_index,
+                match seat_order {
+                    SeatOrderVariant::AgentFirst => "agent-first",
+                    SeatOrderVariant::BaselineFirst => "baseline-first",
+                },
+                candidate_seat,
+            )?),
+            None => None,
+        };
+        let record = match game_trace.as_mut() {
+            // The same game as `play_measured`, with an observer.
+            Some(game_trace) => play_observed_fallible(
+                state,
+                &mut session,
+                &mut agents,
+                &mut entropy,
+                limits,
+                |state, command| game_trace.observe(state, command).map_err(SprtError::from),
+            )?,
+            None => play_measured(state, &mut session, &mut agents, &mut entropy, limits)?,
+        };
         let baseline_seat = 1 - candidate_seat;
         let by_seat = |values: &[u64], seat: usize| values.get(seat).copied().unwrap_or(0);
         let invalid = |seat: usize| {
@@ -869,6 +935,14 @@ fn play_pair(
                 ));
             }
         };
+        if let Some(game_trace) = game_trace {
+            game_trace.finish(
+                final_state,
+                points,
+                record.days,
+                outcome_reason(final_state).as_deref(),
+            )?;
+        }
         games.push(SprtGame {
             seat_order,
             candidate_points: points,
@@ -1062,7 +1136,16 @@ mod tests {
             } else {
                 invalid.limits.refusal_limit = 0;
             }
-            run_sprt(&invalid, &registry, &candidate, &baseline, 2, |_, _| {}).unwrap_err();
+            run_sprt(
+                &invalid,
+                &registry,
+                &candidate,
+                &baseline,
+                2,
+                None,
+                |_, _| {},
+            )
+            .unwrap_err();
         }
         assert!(candidate.seeds.lock().unwrap().is_empty());
         assert!(baseline.seeds.lock().unwrap().is_empty());
@@ -1089,8 +1172,16 @@ mod tests {
             for jobs in [1, 2] {
                 let candidate = SeedRecordingFactory::new();
                 let baseline = SeedRecordingFactory::new();
-                let result =
-                    run_sprt(&plan, &registry, &candidate, &baseline, jobs, |_, _| {}).unwrap();
+                let result = run_sprt(
+                    &plan,
+                    &registry,
+                    &candidate,
+                    &baseline,
+                    jobs,
+                    None,
+                    |_, _| {},
+                )
+                .unwrap();
                 assert_eq!(result.decision, SprtDecision::AcceptH1);
                 assert_eq!(result.pairs.len(), if stop_early { 16 } else { 17 });
                 if let Some(serial) = &serial {
@@ -1119,7 +1210,8 @@ mod tests {
             plan.rebuild_agent_each_turn = rebuild;
             let candidate = SeedRecordingFactory::new();
             let baseline = SeedRecordingFactory::new();
-            let result = run_sprt(&plan, &registry, &candidate, &baseline, 1, |_, _| {}).unwrap();
+            let result =
+                run_sprt(&plan, &registry, &candidate, &baseline, 1, None, |_, _| {}).unwrap();
             assert_eq!(result.pairs.len(), 1);
             let seeds = candidate.seeds.lock().unwrap().clone();
             if rebuild {
@@ -1230,9 +1322,11 @@ mod tests {
         let factory = SeedRecordingFactory::new();
         for jobs in [1, 2] {
             plan.max_pairs = 32;
-            let complete = run_sprt(&plan, &registry, &factory, &factory, jobs, |_, _| {}).unwrap();
+            let complete =
+                run_sprt(&plan, &registry, &factory, &factory, jobs, None, |_, _| {}).unwrap();
             plan.max_pairs = 33;
-            let partial = run_sprt(&plan, &registry, &factory, &factory, jobs, |_, _| {}).unwrap();
+            let partial =
+                run_sprt(&plan, &registry, &factory, &factory, jobs, None, |_, _| {}).unwrap();
             assert_eq!(complete.decision, SprtDecision::AcceptH1);
             assert_eq!(partial.decision, complete.decision);
             assert_eq!(partial.statistic.rounds, complete.statistic.rounds);
@@ -1246,7 +1340,7 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../assets/ai-diagnostics/sprt/planner-v3-seat-seeded-smoke.json");
         let output = tempfile::tempdir().unwrap();
-        let result = run_sprt_plan(&path, output.path(), 2, |_, _| {}).unwrap();
+        let result = run_sprt_plan(&path, output.path(), 2, None, |_, _| {}).unwrap();
         let expected = source_provenance(&path).unwrap();
         assert_eq!(result.source.as_ref(), Some(&expected));
         for game in result.pairs.iter().flat_map(|pair| &pair.games) {
@@ -1273,6 +1367,98 @@ mod tests {
                 .flat_map(|pair| &pair.games)
                 .all(|game| game.candidate_planner_stats.is_none())
         );
+    }
+
+    /// A plan of 4 pairs on two maps with a short day limit.
+    fn short_plan(pair_indices: Option<Vec<usize>>) -> SprtPlan {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/sprt/hard-vs-hard-null.json");
+        let mut plan = read_sprt_plan(path).unwrap();
+        plan.maps = vec![61748, 67945];
+        plan.max_pairs = 4;
+        plan.stop_early = false;
+        plan.limits.day_limit = 3;
+        plan.pair_indices = pair_indices;
+        plan
+    }
+
+    /// A plan with pair indices plays only those pairs, and each pair keeps
+    /// the map, the match seed and the games that it has in the full run.
+    #[test]
+    fn pair_indices_play_the_same_pairs_as_the_full_run() {
+        let registry = MapRegistry::load_checked_in().unwrap();
+        let factory = SeedRecordingFactory::new();
+        let run =
+            |plan: &SprtPlan| run_sprt(plan, &registry, &factory, &factory, 2, None, |_, _| {});
+        let full = run(&short_plan(None)).unwrap();
+        let some = run(&short_plan(Some(vec![3, 1]))).unwrap();
+        assert_eq!(some.pairs.len(), 2);
+        for (pair, index) in some.pairs.iter().zip([3, 1]) {
+            let other = &full.pairs[index];
+            assert_eq!(pair.pair_index, index);
+            assert_eq!(
+                (pair.map_id, pair.match_seed, &pair.games),
+                (other.map_id, other.match_seed, &other.games)
+            );
+        }
+        assert!(
+            serde_json::to_value(short_plan(None))
+                .unwrap()
+                .get("pair_indices")
+                .is_none()
+        );
+        assert_eq!(some.decision, SprtDecision::Inconclusive);
+        run(&short_plan(Some(Vec::new()))).unwrap_err();
+        run(&short_plan(Some(vec![1, 1]))).unwrap_err();
+    }
+
+    /// A trace does not change the games. Each game writes one file with
+    /// the game line, the terrain, a snapshot for each turn, each command
+    /// and the end.
+    #[test]
+    fn a_trace_writes_each_game_and_does_not_change_it() {
+        let registry = MapRegistry::load_checked_in().unwrap();
+        let factory = SeedRecordingFactory::new();
+        let plan = short_plan(Some(vec![1]));
+        let folder = tempfile::tempdir().unwrap();
+        let run = |trace| run_sprt(&plan, &registry, &factory, &factory, 1, trace, |_, _| {});
+        let plain = run(None).unwrap();
+        let traced = run(Some(folder.path())).unwrap();
+        assert_eq!(plain.pairs, traced.pairs);
+        let mut names = fs::read_dir(folder.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "map-67945-pair-1-agent-first.jsonl",
+                "map-67945-pair-1-baseline-first.jsonl"
+            ]
+        );
+        for (name, game) in names.iter().zip(&traced.pairs[0].games) {
+            let lines = fs::read_to_string(folder.path().join(name))
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+                .collect::<Vec<_>>();
+            let kind =
+                |line: &serde_json::Value| line.as_object().unwrap().keys().next().unwrap().clone();
+            assert_eq!(kind(&lines[0]), "game");
+            assert_eq!(kind(&lines[1]), "terrain");
+            assert_eq!(kind(&lines[2]), "turn");
+            assert_eq!(kind(lines.last().unwrap()), "end");
+            let count = |name: &str| lines.iter().filter(|line| kind(line) == name).count();
+            assert_eq!(count("command") as u64, game.commands);
+            assert_eq!(
+                lines.last().unwrap()["end"]["points"],
+                game.candidate_points
+            );
+            // A snapshot at the start, and one after each end of a turn
+            // while the match is active.
+            assert!(count("turn") >= 2);
+        }
     }
 
     #[derive(Debug)]
@@ -1386,8 +1572,16 @@ mod tests {
             for jobs in [1, 2] {
                 let candidate = SeedRecordingFactory::new();
                 let baseline = SeedRecordingFactory::new();
-                let result =
-                    run_sprt(&plan, &registry, &candidate, &baseline, jobs, |_, _| {}).unwrap();
+                let result = run_sprt(
+                    &plan,
+                    &registry,
+                    &candidate,
+                    &baseline,
+                    jobs,
+                    None,
+                    |_, _| {},
+                )
+                .unwrap();
                 let mut expected_candidate = Vec::new();
                 let mut expected_baseline = Vec::new();
                 for pair in &result.pairs {

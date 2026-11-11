@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use awbrn_ai_diagnostic_types::RunManifest;
@@ -55,9 +55,8 @@ fn search_sweep(arguments: &[String]) -> ExitCode {
 }
 
 fn sprt(arguments: &[String]) -> ExitCode {
-    const USAGE: &str =
-        "usage: ai-diagnostics sprt --plan sprt-plan.json --output target/sprt [--jobs N]";
-    let options = match parse_options(arguments, &["--plan", "--output", "--jobs"]) {
+    const USAGE: &str = "usage: ai-diagnostics sprt --plan sprt-plan.json --output target/sprt [--jobs N] [--trace folder]";
+    let options = match parse_options(arguments, &["--plan", "--output", "--jobs", "--trace"]) {
         Ok(options) => options,
         Err(message) => return invalid_arguments(&message, USAGE),
     };
@@ -69,7 +68,8 @@ fn sprt(arguments: &[String]) -> ExitCode {
         Some(Ok(jobs)) if jobs > 0 => jobs,
         Some(_) => return invalid_arguments("--jobs needs a positive number", USAGE),
     };
-    let result = run_sprt_plan(plan, output, jobs, |pair, statistic| {
+    let trace = options.get("--trace").map(Path::new);
+    let result = run_sprt_plan(plan, output, jobs, trace, |pair, statistic| {
         eprintln!(
             "pair {:>4} map {:>6} diff {:+.1} | n {:>4} mean {:+.4} ± {:.4} log evidence {:.3} / {:.3}",
             pair.pair_index,

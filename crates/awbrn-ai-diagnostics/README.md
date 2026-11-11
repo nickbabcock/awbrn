@@ -98,6 +98,29 @@ plan remains available for historical runs.
 Use sequential runs for development. Keep the frozen gate and the sealed
 holdout for a release decision.
 
+### Examine some games of a run again
+
+Set `"pair_indices"` in a plan to a list of pair indices to play only those
+pairs, in that order. Each pair keeps its map, match seed and agent seeds
+from the full run, so it plays the same games. The run plays at most
+`max_pairs` of them, does not stop early, and its decision is inconclusive.
+The indices must be distinct. The mean of such a run does not measure
+strength, because the pairs are not complete rounds of maps. For example,
+copy the plan of a run and add `"pair_indices": [17, 203]` to play pairs 17
+and 203 again.
+
+Add `--trace <folder>` to the `sprt` command to write one trace file for
+each game. Use a folder outside the worktree, because the source fingerprint
+of a later run reads the untracked files of the worktree. The trace does not
+change the games. Each file is JSON Lines: the game, the terrain, a snapshot
+at the start of each turn (funds, power state, units and properties), each
+accepted command with the units and properties that it changed, and the end
+of the game. The writer keeps only a small buffer and the state of the last
+command, so memory does not grow with the game. If a game stops with an
+error, the end of its file can be missing. `src/sprt_trace.rs` describes the
+fields. A game of 35 days writes less than 0.5 MB. The trace adds time to
+each turn, so do not compare the turn times of a traced run.
+
 ## Score the fog memory
 
 The fog memory (`awbrn_ai::fog`) remembers enemy units that go out of sight
