@@ -86,13 +86,13 @@ stopping rule. A clean day-limit exit scores as a draw. Invalid commands or
 other missing outcomes stop the run with an error.
 
 The planner respects the plan's `node_budget`, including reply evaluations.
-Use `32` to match the current Hard profile, which uses `planner-v7`.
+Use `256` to match the current Hard profile, which uses `planner-v8`.
 `planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
 it. A budget of `1` scores only the seed turn. Use a new run directory after a
 policy or budget change. The plan
 `assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json` recorded
 the promotion of `planner-v3` with 16 evaluations. Its profile now seats
-`planner-v7`, so it does not repeat that result. The earlier four-evaluation
+`planner-v8`, so it does not repeat that result. The earlier four-evaluation
 plan remains available for historical runs.
 
 Use sequential runs for development. Keep the frozen gate and the sealed
@@ -212,7 +212,7 @@ Wall-clock limits are excluded from CI; tests check deterministic work limits.
 
 ## Measure planner-v8
 
-`planner-v8` is a candidate for the Hard profile. It is `planner-v7` with:
+`planner-v8` is the planner of the Hard profile. It is `planner-v7` with:
 
 - the wider search of `planner-v7-wide`: no work threshold, and about four
   times the plans and reply checks. One plan uses at most 217 nodes, so its

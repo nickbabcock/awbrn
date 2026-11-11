@@ -28,11 +28,11 @@ pub const HARD_V2_CONFIG: BaselineConfig = BaselineConfig {
     ..BaselineConfig::PRODUCTION
 };
 
-/// The scoring configuration of `ai-hard-v3`: the `ai-hard-v2` scoring with a
-/// build floor, so a factory is not left empty while the funds can buy a
-/// unit.
+/// The `ai-hard-v2` scoring with a build floor, so a factory is not left
+/// empty while the funds can buy a unit.
 ///
-/// The planner of `ai-hard-v3` uses it for its seed plan and its fallback.
+/// Planner configurations from `planner-v5` to `planner-v7` use it for their
+/// seed plan and their fallback.
 pub const HARD_V3_CONFIG: BaselineConfig = BaselineConfig {
     identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor",
     weights: Weights {
@@ -42,11 +42,12 @@ pub const HARD_V3_CONFIG: BaselineConfig = BaselineConfig {
     ..HARD_V2_CONFIG
 };
 
-/// The greedy policy of `planner-v8`: the [`HARD_V3_CONFIG`] scoring with
-/// the build model, the commander effects, the power policy and the firing
-/// positions of indirect units.
+/// The scoring configuration of `ai-hard-v3`, the greedy policy of
+/// `planner-v8`: the [`HARD_V3_CONFIG`] scoring with the build model, the
+/// commander effects, the power policy and the firing positions of indirect
+/// units.
 ///
-/// No profile seats it.
+/// The planner of `ai-hard-v3` uses it for its seed plan and its fallback.
 pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8",
     weights: Weights {
@@ -82,7 +83,7 @@ pub enum AiImplementation {
     /// Uses the configured strategic baseline.
     Strategic,
     /// Compares complete own turns with the planner of
-    /// [`PlannerConfig::V7`].
+    /// [`PlannerConfig::V8`].
     Planner,
 }
 
@@ -143,7 +144,7 @@ pub const HARD: AiProfile = AiProfile {
     label: "Hard",
     blurb: "Plans its whole turn. It sets up kills, guards its bases, and keeps units out of focused fire.",
     implementation: AiImplementation::Planner,
-    config: HARD_V3_CONFIG,
+    config: V8_GREEDY_CONFIG,
 };
 
 /// Every profile a stored match may name, including retired profiles.
@@ -199,7 +200,7 @@ impl AiProfile {
     pub const fn planner(&self) -> PlannerConfig {
         PlannerConfig {
             baseline: self.config,
-            ..PlannerConfig::V7
+            ..PlannerConfig::V8
         }
     }
 
@@ -230,7 +231,7 @@ impl AiProfile {
     /// How many candidate turn plans this profile may evaluate.
     pub const fn node_budget(&self) -> NodeBudget {
         match self.implementation {
-            AiImplementation::Planner => NodeBudget::THIRTY_TWO,
+            AiImplementation::Planner => NodeBudget::TWO_HUNDRED_FIFTY_SIX,
             _ => self.config.node_budget,
         }
     }
@@ -387,19 +388,18 @@ mod tests {
     }
 
     #[test]
-    fn hard_tier_seats_the_v7_planner_on_the_v3_scoring() {
+    fn hard_tier_seats_the_v8_planner() {
         assert_eq!(profile_for_tier(AiTier::Hard), &HARD);
         assert_eq!(HARD.id, "ai-hard-v3");
         assert_eq!(HARD.implementation, AiImplementation::Planner);
-        assert_eq!(HARD.config, HARD_V3_CONFIG);
-        assert_eq!(HARD.planner(), PlannerConfig::V7);
-        assert_eq!(HARD.node_budget(), NodeBudget::THIRTY_TWO);
-        assert!(HARD.planner().turn_work.is_some());
+        assert_eq!(HARD.config, V8_GREEDY_CONFIG);
+        assert_eq!(HARD.planner(), PlannerConfig::V8);
+        assert_eq!(HARD.node_budget(), NodeBudget::TWO_HUNDRED_FIFTY_SIX);
     }
 
     #[test]
     fn hard_v3_profile_fingerprint_is_locked() {
-        assert_eq!(HARD.configuration_fingerprint(), "d129c71f76680849");
+        assert_eq!(HARD.configuration_fingerprint(), "7720b6cf803ac1e1");
     }
 
     #[test]

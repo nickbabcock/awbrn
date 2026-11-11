@@ -360,6 +360,7 @@ impl NodeBudget {
     pub const EIGHT: Self = Self(8);
     pub const SIXTEEN: Self = Self(16);
     pub const THIRTY_TWO: Self = Self(32);
+    pub const TWO_HUNDRED_FIFTY_SIX: Self = Self(256);
 
     /// Make a nonzero node budget.
     pub const fn new(nodes: u32) -> Option<Self> {

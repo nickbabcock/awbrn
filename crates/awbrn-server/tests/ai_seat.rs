@@ -156,6 +156,38 @@ fn a_played_match_replays_from_its_own_log() {
     );
 }
 
+/// The Hard seat plays Sami against Sami through the entry point of the host:
+/// a new seat for each turn, seeded from the match seed, the slot and the
+/// day. The planner of the Hard profile keeps a log of the power meter over
+/// the turns of one agent. A new agent starts with an empty log, and the
+/// match still plays and replays.
+#[test]
+fn the_hard_seat_plays_sami_with_a_new_agent_each_turn() {
+    let mut setup = contested_setup();
+    for player in &mut setup.players {
+        player.co = Co::Sami;
+    }
+    let mut server = GameServer::new(setup.clone()).expect("the setup is valid");
+    let mut events = Vec::new();
+    let current = profile_for_tier(AiTier::Hard);
+
+    for day in 0..8 {
+        for (slot, player) in [(0usize, p1()), (1, p2())] {
+            let played = play_ai_turn(
+                &mut server,
+                &mut events,
+                player,
+                current.id,
+                current.turn_seed(setup.rng_seed, slot, day),
+            );
+            assert_eq!(played.last(), Some(&GameCommand::EndTurn));
+        }
+    }
+
+    let replayed = reconstruct_from_events(setup, &events).expect("the log replays");
+    assert!(replayed.state() == server.state());
+}
+
 #[test]
 fn a_seat_plays_the_same_way_from_the_same_seed() {
     let setup = contested_setup();
