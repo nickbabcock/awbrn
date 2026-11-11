@@ -159,8 +159,8 @@ fn a_played_match_replays_from_its_own_log() {
 /// The Hard seat plays Sami against Sami through the entry point of the host:
 /// a new seat for each turn, seeded from the match seed, the slot and the
 /// day. The planner of the Hard profile keeps a log of the power meter over
-/// the turns of one agent. A new agent starts with an empty log, and the
-/// match still plays and replays.
+/// the turns of one agent, so each new agent starts with an empty log. The
+/// test checks only that such a match plays and replays.
 #[test]
 fn the_hard_seat_plays_sami_with_a_new_agent_each_turn() {
     let mut setup = contested_setup();

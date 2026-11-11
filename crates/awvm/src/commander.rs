@@ -1444,6 +1444,34 @@ mod tests {
         power_activation, power_activation_cost, power_fires_area_strikes, power_star_charge,
     };
 
+    /// Grit adds one to the range of an indirect unit day to day, and Max
+    /// takes one away. A direct unit and a commander with no such rule get
+    /// nothing.
+    #[test]
+    fn the_day_to_day_range_reads_the_commander() {
+        use super::{FireMode, UnitDomain, UnitKind, day_to_day_attack_range_add};
+        let artillery = |co| {
+            day_to_day_attack_range_add(
+                co,
+                UnitKind::Artillery,
+                UnitDomain::Ground,
+                FireMode::Indirect,
+            )
+        };
+        assert_eq!(artillery(CommanderKind::Grit), 1);
+        assert_eq!(artillery(CommanderKind::Max), -1);
+        assert_eq!(artillery(CommanderKind::Andy), 0);
+        assert_eq!(
+            day_to_day_attack_range_add(
+                CommanderKind::Grit,
+                UnitKind::Tank,
+                UnitDomain::Ground,
+                FireMode::Direct,
+            ),
+            0
+        );
+    }
+
     #[test]
     fn only_strike_powers_fire_area_strikes() {
         assert!(power_fires_area_strikes(
