@@ -14,9 +14,9 @@
 //!    planner uses it only for a seat with a power from [`decisive_powers`],
 //!    so that the games of other commanders do not change.
 //! 2. [`prepare`] makes a plan over many turns when a power of the seat
-//!    gives a decisive capture. It keeps the other powers back, steers one or
-//!    two capturers to tiles near the enemy headquarters, and keeps the
-//!    decisive power back until a capturer is in reach.
+//!    gives a decisive capture. It holds the other powers, steers one or
+//!    two capturers to tiles near the enemy headquarters, and holds the
+//!    decisive power until a capturer is in reach.
 //! 3. [`powered_captures`] finds the enemy captures of our headquarters, and
 //!    of our other properties, that an affordable enemy power makes possible.
 //!    The reply estimate reads it ([`super::reply::ReplyOptions::march`]).
@@ -48,7 +48,7 @@ const HORIZON: u32 = 6;
 /// power this number of turns before the capturer gets to a staging tile.
 const SLACK: u32 = 2;
 
-/// The most own turns that the plan keeps back a decisive power that the
+/// The most own turns that the plan holds a decisive power that the
 /// meter can already pay for.
 const MAX_HOLD: u32 = 3;
 
@@ -314,12 +314,12 @@ fn turns_to_power(
 /// The plan of one turn.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct March {
-    /// The powers that the plan keeps back.
+    /// The powers that the plan holds.
     pub hold: PowerHold,
     /// The moves of the steered capturers, in order. A move can become
     /// illegal after an earlier play of the turn. The planner then skips it.
     pub steer: Vec<Play>,
-    /// Whether the plan keeps back a decisive power that the meter can pay
+    /// Whether the plan holds a decisive power that the meter can pay
     /// for.
     pub holding: bool,
     /// The own turns until the nearest capturer gets to a staging tile.
@@ -340,7 +340,7 @@ struct Runner {
 /// The plan of `seat` in `session` for a decisive capture with a power.
 ///
 /// `rate` is the meter charge in one own turn, and `held` is the number of
-/// earlier own turns in a row in which the plan kept back a decisive power
+/// earlier own turns in a row in which the plan held a decisive power
 /// that the meter could pay for.
 ///
 /// The plan exists only when all of these are true:
@@ -358,7 +358,7 @@ struct Runner {
 ///   after the meter can pay. A staging tile is a tile from which the
 ///   capturer can get to the target with the power active. The engine gives
 ///   the movement and the movement costs of the power.
-/// - The plan has kept back an affordable decisive power for fewer than
+/// - The plan has held an affordable decisive power for fewer than
 ///   [`MAX_HOLD`] turns.
 ///
 /// While the plan exists, the other powers are held. A decisive super power
@@ -574,7 +574,6 @@ pub(crate) enum SwingTurn {
 ///
 /// The gain is the [`Swing::value`] of the captures that complete in this
 /// turn with the power, less the value of those that complete without it.
-#[cfg(test)]
 pub(crate) fn swing_share(state: &State, seat: PlayerIdx, level: PowerLevel) -> f64 {
     let total = properties(state);
     if total == 0 {
@@ -619,13 +618,7 @@ pub(crate) fn swing_turn(
     let Some(turns) = turns_to_power(state, seat, level, rate) else {
         return SwingTurn::None;
     };
-    let total = properties(state);
-    let with = swing(state, seat, Some(level));
-    let share = if total == 0 {
-        0.0
-    } else {
-        (with.value() - swing(state, seat, None).value()) / f64::from(total)
-    };
+    let share = swing_share(state, seat, level);
     if share < SWING_SHARE {
         return SwingTurn::None;
     }

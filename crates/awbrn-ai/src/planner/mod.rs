@@ -166,7 +166,7 @@ pub struct PlannerConfig {
     ///   power. If it finds one, it plays it. The reply check does the same
     ///   for the enemy when it has such a power.
     /// - When a power of the seat lets a capturer take a whole property in
-    ///   one capture, a plan over many turns keeps the other powers back and
+    ///   one capture, a plan over many turns holds the other powers and
     ///   steers one or two capturers near the enemy headquarters.
     /// - The swing rule ([`march::swing_turn`]): when the meter can pay for
     ///   the power and the properties that it takes in this turn, less those
@@ -330,7 +330,7 @@ impl PlannerConfig {
     /// - The ferry ([`PlannerConfig::ferry`]).
     /// - The march plan ([`PlannerConfig::march`]).
     ///
-    /// A power that the march plan keeps back gets no plan at a later
+    /// A power that the march plan holds gets no plan at a later
     /// position, and on a swing turn the power stays first. Use a node budget
     /// of 256.
     pub const V8: Self = Self {
@@ -546,7 +546,7 @@ pub struct PlannerAgent {
     fog: Option<(u64, Arc<FogEstimate>)>,
     /// The own power meter at the start of the recent own turns.
     meter: MeterLog,
-    /// The powers that the last plan of this turn keeps back.
+    /// The powers that the last plan of this turn holds.
     hold: Option<crate::power::PowerHold>,
 }
 
@@ -563,10 +563,10 @@ struct MeterLog {
     charges: Vec<u64>,
     /// The last charge in one own turn that the log measured.
     rate: Option<f64>,
-    /// The own turns in a row in which a plan kept back an affordable
+    /// The own turns in a row in which a plan held an affordable
     /// decisive power.
     held: u32,
-    /// Whether a plan of the current turn kept back an affordable decisive
+    /// Whether a plan of the current turn held an affordable decisive
     /// power.
     holding: bool,
 }
@@ -895,14 +895,14 @@ struct TurnPlanner<'a> {
 struct MarchTurn {
     /// The own meter charge in one own turn.
     rate: Option<f64>,
-    /// The own turns in a row in which a march plan kept back an affordable
+    /// The own turns in a row in which a march plan held an affordable
     /// decisive power.
     held: u32,
-    /// The powers that the march plan keeps back for the planning seat.
+    /// The powers that the march plan holds for the planning seat.
     hold: Option<crate::power::PowerHold>,
     /// Whether the march plan is live in this call.
     live: bool,
-    /// Whether the march plan keeps back a decisive power that the meter
+    /// Whether the march plan holds a decisive power that the meter
     /// can pay for.
     holding: bool,
     /// Whether the swing rule holds the other powers in this call.
@@ -1054,7 +1054,7 @@ impl TurnPlanner<'_> {
             return Some(best);
         }
         if self.config.power_first && !placing {
-            // A power that the march plan keeps back gets no plan. With no
+            // A power that the march plan holds gets no plan. With no
             // march plan, as in the earlier configurations, each power gets a
             // plan.
             let hold = self.march.hold;
@@ -1184,7 +1184,7 @@ impl TurnPlanner<'_> {
     /// orders. The opening plays go before it, as in the other plans.
     ///
     /// A power that the policy keeps for last ([`crate::power::PowerUse::Last`])
-    /// gets no prefix. A power that the march plan keeps back
+    /// gets no prefix. A power that the march plan holds
     /// ([`MarchTurn::hold`]) gets no prefix. On a swing turn of the march plan
     /// ([`MarchTurn::swing_fired`]), this returns no prefix.
     ///
@@ -1223,7 +1223,7 @@ impl TurnPlanner<'_> {
             ) {
                 continue;
             }
-            // A power that the march plan keeps back gets no plan.
+            // A power that the march plan holds gets no plan.
             if self
                 .march
                 .hold

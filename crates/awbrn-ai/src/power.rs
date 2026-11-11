@@ -49,14 +49,14 @@ use awvm::commander::PowerLevel;
 use awvm::ruleset::{self, CommanderKind, TerrainTrait};
 use awvm::semantic::{CAPTURE_REQUIRED_POINTS, Location, PlayerIdx, State, TileOwner};
 
-/// The powers that a plan keeps back for one seat in this turn.
+/// The powers that a plan holds for one seat in this turn.
 ///
 /// The planner sets it when it prepares a decisive capture with a power
 /// ([`crate::planner`], `march`). The greedy policy then gives a held power no
 /// score for that seat, and the planner adds no power plan for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PowerHold {
-    /// The seat that keeps the powers back.
+    /// The seat that holds the powers.
     pub seat: PlayerIdx,
     /// Whether the normal power is held.
     pub cop: bool,
@@ -65,7 +65,7 @@ pub struct PowerHold {
 }
 
 impl PowerHold {
-    /// Whether this hold keeps back the power `level` of `seat`.
+    /// Whether this hold holds the power `level` of `seat`.
     pub fn holds(&self, seat: PlayerIdx, level: PowerLevel) -> bool {
         self.seat == seat
             && match level {

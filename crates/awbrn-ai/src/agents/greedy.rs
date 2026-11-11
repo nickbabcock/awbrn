@@ -714,7 +714,7 @@ pub struct GreedyAgent {
     /// the enemy it cannot see. It is read only for that seat, so a policy
     /// that also plays the simulated enemy reply does not use it there.
     fog: Option<Arc<FogEstimate>>,
-    /// The powers that a plan keeps back for one seat. `None` holds nothing.
+    /// The powers that a plan holds for one seat. `None` holds nothing.
     power_hold: Option<crate::power::PowerHold>,
     /// Keep query buffers and terrain tables across observed decisions.
     session: Option<Session>,
@@ -1036,7 +1036,7 @@ impl GreedyAgent {
 
     /// Keep back the powers that `hold` names for its seat. `None` holds
     /// nothing.
-    pub fn set_power_hold(&mut self, hold: Option<crate::power::PowerHold>) {
+    pub(crate) fn set_power_hold(&mut self, hold: Option<crate::power::PowerHold>) {
         if self.power_hold != hold {
             self.power_hold = hold;
             self.selection.position = None;

@@ -1084,7 +1084,8 @@ mod tests {
         views
     }
 
-    /// The `ai-hard-v3` greedy configuration with the build model on.
+    /// The [`crate::profile::HARD_V3_CONFIG`] greedy configuration with only
+    /// the build model on.
     fn model_config() -> crate::baseline::BaselineConfig {
         crate::baseline::BaselineConfig {
             weights: crate::agents::Weights {

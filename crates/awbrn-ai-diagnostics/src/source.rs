@@ -233,6 +233,20 @@ fn plan_directory(plan_path: &Path) -> &Path {
 mod tests {
     use super::*;
 
+    /// A file whose size is not the size from its metadata is an error, both
+    /// when it is shorter and when it is longer.
+    #[test]
+    fn a_file_that_changes_size_during_the_read_is_an_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("file");
+        fs::write(&path, b"twelve bytes").unwrap();
+        for len in [11, 13] {
+            let error = append_file_contents(&mut Fingerprint::new(), &path, len).unwrap_err();
+            assert!(error.to_string().contains("changed size"), "{error}");
+        }
+        append_file_contents(&mut Fingerprint::new(), &path, 12).unwrap();
+    }
+
     fn repository() -> tempfile::TempDir {
         let directory = tempfile::tempdir().unwrap();
         for arguments in [
