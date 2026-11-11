@@ -197,6 +197,13 @@ impl ReplayReader {
         value
     }
 
+    /// The power meter term of [`ReplayReader::value_in`] for `seat`: the
+    /// weight [`ReplayScore::power_meter_army`] times the signed meter
+    /// feature.
+    pub(crate) fn meter_term(&self, state: &State, seat: PlayerIdx) -> f64 {
+        self.score.power_meter_army * power_features(state, seat)[0]
+    }
+
     fn seat(&mut self, session: &Session, seat: PlayerIdx) -> SeatFeatures {
         let state = session.state();
         let index = seat.get();

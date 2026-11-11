@@ -210,6 +210,79 @@ counts between builds before comparing times. Host load affects elapsed
 time. Measure the service host before setting a runtime requirement.
 Wall-clock limits are excluded from CI; tests check deterministic work limits.
 
+## Measure the wide candidate
+
+`planner-v7-wide-build2a-press-cap-scop-place4-march2` is a candidate
+against `planner-v7`. No profile seats it. It is `planner-v7-wide` with these
+parts:
+
+- `planner-v7-wide`: no work threshold, and approximately four times the
+  plans of each generator, the plans for each turn, and the alternatives in
+  the reply check. One plan of the candidate uses at most approximately 217
+  nodes, so its plans set a node budget of 256.
+- The build model `human-v2a` (`build_model`). The model chooses the kind
+  at each production site. The greedy scores still decide whether and when
+  a site builds. See `assets/ai-diagnostics/build-policy/README.md`.
+- The ferry of the press mode (`press`). A capturer on a landmass with no
+  property left to take goes by transport to a property that no capturer
+  can reach on foot.
+- The capture bonus of the commander in the capture estimates
+  (`capture_bonus`). Sami takes 1.5 times her visible health, and her super
+  power takes a property in one turn.
+- The power policy `human-v1` (`awbrn_ai::power`). Andy, Drake, Eagle,
+  Jake, Jess, Koal, Lash, Olaf and Rachel keep the meter for the super
+  power.
+- The power placement (`power_placement_first`, `power_refresh_last`). The
+  greedy policy uses a power before its other orders. The planner tries the
+  power after the attacks, after the unit orders and after the builds, and
+  takes a later position only when its score is better by 1,000 funds
+  (`awbrn_ai::planner::POWER_LATER_MARGIN`). A power that lets units act
+  again (only the Eagle super power) is used last, and the planner does not
+  move it.
+- The march plan with the swing rule (`march`, `march_swing`). The planner
+  plays a capture that wins at once, with no power or with a legal power.
+  When a power of the commander takes a property in one capture (Sami's
+  super power), a plan over many turns holds the other power and steers one
+  or two capturers near the enemy headquarters. The decisive power also
+  fires when the properties that it takes in this turn, less those taken
+  without it, are worth at least 6% of the properties of the map. The reply
+  estimate counts the enemy captures that an affordable enemy power makes
+  possible. The simulated enemy reply plays an enemy capture that wins at
+  once. The march plan keeps a log of the meter over the own turns. An
+  agent that the host builds again in each turn loses this log.
+
+The plans use the 14 development maps and a day limit of 35:
+
+- `planner-v7-wide-build2a-press-cap-scop-place4-march2-vs-v7-fixed280.json`:
+  the Andy mirror, 280 pairs.
+- `planner-v7-wide-build2a-press-cap-scop-place4-march2-vs-v7-co-<commander>-fixed56.json`:
+  the mirrors of Drake, Eagle, Grit, Kindle, Lash, Max and Sami, 56 pairs
+  each. The plans with `-seed2` use new seeds.
+- `planner-v7-wide-build2a-press-cap-scop-place4-march2-vs-v7-co-<candidate>-<baseline>-fixed28.json`:
+  eight matchups of two commanders, 28 pairs each.
+
+```text
+cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
+  sprt --plan assets/ai-diagnostics/sprt/planner-v7-wide-build2a-press-cap-scop-place4-march2-vs-v7-fixed280.json \
+  --output target/planner-v7-wide-candidate
+```
+
+The source fingerprint of a plan reads every untracked file that
+`.gitignore` does not exclude. It reads each file in chunks, and it records
+a file above 32 MiB by its size only. `.gitignore` excludes the build
+directories `target-*/` at the top of the worktree. Put other build
+directories outside the worktree.
+
+The example `power_use` writes one row for each player turn of the human
+replays, with the power meter, the power that the player used, the attacks,
+unit orders and builds before the power, and some facts about the board.
+The facts of the power policy come from these rows:
+
+```text
+cargo run --release -p awbrn-ai-diagnostics --example power_use -- \
+  <maps> <output.jsonl> <division>...
+```
+
 ## Run a search budget sweep
 
 ```text

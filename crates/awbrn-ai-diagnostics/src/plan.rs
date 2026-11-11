@@ -537,6 +537,9 @@ impl AgentSpec {
                     "v6" => PlannerConfig::V6,
                     "v6-canonical" => PlannerConfig::V6_CANONICAL,
                     "v7" => PlannerConfig::V7,
+                    "v7-wide-build2a-press-cap-scop-place4-march2" => {
+                        PlannerConfig::V7_WIDE_BUILD2A_PRESS_CAP_SCOP_PLACE4_MARCH2
+                    }
                     "v6-fog" => PlannerConfig::V6_FOG,
                     other => {
                         return Err(PlanError::Configuration(format!(
@@ -729,6 +732,27 @@ mod tests {
     }
 
     use super::*;
+
+    /// The agent identities of the measured runs do not change. The values
+    /// come from the result files of the runs.
+    #[test]
+    fn the_measured_planner_identities_do_not_change() {
+        for (name, identifier, expected) in [
+            ("v7", "planner-v7", "40093fcd6d29e46f"),
+            (
+                "v7-wide-build2a-press-cap-scop-place4-march2",
+                "planner-v7-wide-build2a-press-cap-scop-place4-march2",
+                "7017dcaed7751765",
+            ),
+        ] {
+            let spec: AgentSpec = serde_json::from_value(serde_json::json!({
+                "kind": "planner", "identifier": identifier, "configuration": name
+            }))
+            .unwrap();
+            let (factory, _) = spec.materialize(Path::new("plan.json")).unwrap();
+            assert_eq!(factory.identity().configuration_fingerprint, expected);
+        }
+    }
 
     #[test]
     fn ai_profile_plan_resolves_the_current_hard_profile() {

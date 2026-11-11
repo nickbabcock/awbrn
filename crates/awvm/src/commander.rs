@@ -1313,6 +1313,34 @@ pub fn effective_capture_points(state: &State, unit: &Unit, visual_hp: u64) -> u
     else {
         return visual_hp;
     };
+    capture_points_for(profile, power, visual_hp)
+}
+
+/// Return the capture points of `unit` with the power `level` of its
+/// commander active, or with no power when `level` is `None`.
+///
+/// A power ends at the start of the next turn of its owner. Use this value to
+/// estimate a capture that a unit makes in a later turn, when the power state
+/// of that turn is not the current one.
+pub fn capture_points_with_power(
+    state: &State,
+    unit: &Unit,
+    visual_hp: u64,
+    level: Option<PowerLevel>,
+) -> u64 {
+    let Some((profile, _)) = unit_seat(state, unit).and_then(|seat| effective_profile(state, seat))
+    else {
+        return visual_hp;
+    };
+    let power = match level {
+        None => Power::None,
+        Some(PowerLevel::Cop) => Power::Cop,
+        Some(PowerLevel::Scop) => Power::Scop,
+    };
+    capture_points_for(profile, power, visual_hp)
+}
+
+fn capture_points_for(profile: &EffectiveProfile, power: Power, visual_hp: u64) -> u64 {
     let effect = match power {
         Power::None => profile.capture.day_to_day,
         Power::Cop => profile.capture.cop.or(profile.capture.day_to_day),

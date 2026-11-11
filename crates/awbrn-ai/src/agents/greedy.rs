@@ -51,8 +51,10 @@ use awvm::session::{
 };
 
 use crate::agent::{Agent, NodeBudget, Play};
+use crate::build_policy::{BuildChoice, BuildContext, BuildModelId};
 use crate::fog::FogEstimate;
 use crate::map::ContestMap;
+use crate::power::{PowerPolicy, PowerUse};
 use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
 use crate::vision::{Needs, VisionMap};
@@ -61,6 +63,9 @@ use crate::vision::{Needs, VisionMap};
 const LATE_SAVE_MIN_FUNDS: u64 = 10_000;
 /// The score of a useful save at the day limit.
 const LATE_SAVE_SCORE: f64 = 100_000.0;
+/// The score of a power that the power policy uses first. It is above the
+/// score of every other order, also the capture of a headquarters.
+const POWER_FIRST: f64 = 1.0e12;
 
 /// What each objective is worth, in one place.
 ///
@@ -322,6 +327,50 @@ pub struct Weights {
     /// fingerprints of the earlier weightings do not change.
     #[serde(skip_serializing_if = "is_zero")]
     pub build_floor: f64,
+    /// The build model that chooses the unit kind at each production site.
+    ///
+    /// The greedy scores still decide whether and when a site builds. The
+    /// model only decides which kind. See [`crate::build_policy`] and the
+    /// production arm of the scorer. The field is left out of the serialized
+    /// weights when it is off, so the fingerprints of the earlier weightings
+    /// do not change.
+    #[serde(skip_serializing_if = "BuildModelId::is_off")]
+    pub build_model: BuildModelId,
+    /// Whether the capture estimates read the capture bonus of the
+    /// commander ([`capture_strength`]).
+    ///
+    /// When false, a unit takes its visible health off a property in each
+    /// turn. When true, the estimate uses the rate of the engine: Sami takes
+    /// 1.5 times her visible health, and her super power takes a property in
+    /// one turn. A commander with no bonus is not changed. The field is left
+    /// out of the serialized weights when it is false, so the fingerprints of
+    /// the earlier weightings do not change.
+    #[serde(skip_serializing_if = "is_false")]
+    pub capture_bonus: bool,
+    /// The rule that decides when a legal commander power is used
+    /// ([`crate::power`]).
+    ///
+    /// The field is left out of the serialized weights when it is off, so the
+    /// fingerprints of the earlier weightings do not change.
+    #[serde(skip_serializing_if = "PowerPolicy::is_off")]
+    pub power_policy: PowerPolicy,
+    /// Whether the planner chooses the position of a power in the turn, with
+    /// the power first when the position does not change the score.
+    ///
+    /// When true, this policy uses each power that the power policy does not
+    /// hold before all its other orders. The planner adds plans with the
+    /// power at later positions, and takes one only when it is better by a
+    /// margin ([`crate::planner`]). The field is left out of the serialized
+    /// weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub power_placement_first: bool,
+    /// With [`Weights::power_placement_first`]: a power that lets units act
+    /// again ([`crate::power::refreshes_units`]) is used last, as the Eagle
+    /// rule of [`crate::power::PowerPolicy::HumanV1`] does, and the planner
+    /// does not move it. The field is left out of the serialized weights
+    /// when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub power_refresh_last: bool,
 }
 
 impl Weights {
@@ -365,6 +414,11 @@ impl Weights {
         power: 200.0,
         supply: 10.0,
         build_floor: 0.0,
+        build_model: BuildModelId::Off,
+        capture_bonus: false,
+        power_policy: PowerPolicy::Off,
+        power_placement_first: false,
+        power_refresh_last: false,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -629,9 +683,89 @@ pub struct GreedyAgent {
     /// the enemy it cannot see. It is read only for that seat, so a policy
     /// that also plays the simulated enemy reply does not use it there.
     fog: Option<Arc<FogEstimate>>,
+    /// The powers that a plan keeps back for one seat. `None` holds nothing.
+    power_hold: Option<crate::power::PowerHold>,
     /// Keep query buffers and terrain tables across observed decisions.
     session: Option<Session>,
     selection: Selection,
+    /// The legal production sites of the position and the kind that the
+    /// build model chose at each. Empty when the build model is off.
+    build_sites: Vec<BuildSite>,
+}
+
+/// One production site with legal builds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BuildSite {
+    cell: CellIdx,
+    /// The legal kinds, one bit for each [`UnitKind::index`].
+    legal: u32,
+    /// The kind that the build model chose. `None` when the model holds no
+    /// legal kind here, so the greedy score decides.
+    choice: Option<UnitKind>,
+}
+
+/// Collects the legal production orders of a position by site.
+struct SiteCollector<'a>(&'a mut Vec<BuildSite>);
+
+impl LegalVisitor for SiteCollector<'_> {
+    fn order(&mut self, order: Order) {
+        let OrderKind::Produce(kind) = order.kind() else {
+            return;
+        };
+        let cell = order.destination();
+        let bit = 1_u32 << kind.index();
+        match self.0.iter_mut().find(|site| site.cell == cell) {
+            Some(site) => site.legal |= bit,
+            None => self.0.push(BuildSite {
+                cell,
+                legal: bit,
+                choice: None,
+            }),
+        }
+    }
+}
+
+/// Find the legal production sites of `session` and let the build model
+/// choose a kind at each.
+///
+/// The features come from [`BuildContext::site`], the same function that
+/// reads the human replays for the fit.
+fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mut Vec<BuildSite>) {
+    out.clear();
+    let Some(model) = weights.build_model.model() else {
+        return;
+    };
+    session.legal().visit_scoped(
+        LegalScope {
+            units: &[],
+            unitless: true,
+        },
+        &mut SiteCollector(out),
+    );
+    if out.is_empty() {
+        return;
+    }
+    let state = session.state();
+    let context = BuildContext::new(state, seat);
+    let dimensions = state.board.dimensions();
+    let mut legal = Vec::with_capacity(UnitKind::COUNT);
+    for site in out.iter_mut() {
+        let Some(position) = dimensions.position_of(site.cell) else {
+            continue;
+        };
+        legal.clear();
+        legal.extend(
+            UnitKind::ALL
+                .into_iter()
+                .filter(|kind| site.legal & (1 << kind.index()) != 0)
+                .map(BuildChoice::Build),
+        );
+        // The choices hold no "no build", so the model chooses a kind.
+        site.choice = match model.choose(&context.site(position), &legal) {
+            Some(BuildChoice::Build(kind)) => Some(kind),
+            Some(BuildChoice::NoBuild) | None => None,
+        };
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -851,8 +985,10 @@ impl GreedyAgent {
             vision: VisionMap::new(),
             threat: ThreatMap::new(),
             fog: None,
+            power_hold: None,
             session: None,
             selection: Selection::new(),
+            build_sites: Vec::new(),
         }
     }
 
@@ -866,6 +1002,15 @@ impl GreedyAgent {
     pub fn set_fog(&mut self, estimate: Option<Arc<FogEstimate>>) {
         self.fog = estimate;
         self.selection.position = None;
+    }
+
+    /// Keep back the powers that `hold` names for its seat. `None` holds
+    /// nothing.
+    pub fn set_power_hold(&mut self, hold: Option<crate::power::PowerHold>) {
+        if self.power_hold != hold {
+            self.power_hold = hold;
+            self.selection.position = None;
+        }
     }
 
     /// Build the weighting with generic tactical corrections enabled.
@@ -905,6 +1050,48 @@ impl GreedyAgent {
     /// Score the visible legal orders without changing the tie-break stream.
     pub fn scored_orders(&mut self, view: &Observation) -> Option<ScoredOrders> {
         self.with_observation(view, |agent, session| agent.score_in_session(session))
+    }
+
+    /// Score the visible legal orders that belong to no unit: production,
+    /// powers and the end of the turn. The tie-break stream does not change.
+    pub fn scored_unitless_orders(&mut self, view: &Observation) -> Option<ScoredOrders> {
+        self.with_observation(view, |agent, session| {
+            let mut candidates = Vec::new();
+            agent.act_in_session_scoped::<true>(
+                session,
+                Some(LegalScope {
+                    units: &[],
+                    unitless: true,
+                }),
+                Some(&mut candidates),
+            );
+            ScoredOrders { candidates }
+        })
+    }
+
+    /// The kind that the build model chooses at each legal production site
+    /// of the view. A site where the model holds no legal kind is not in the
+    /// list. The list is empty when the build model is off.
+    pub fn model_build_choices(&mut self, view: &Observation) -> Vec<(Pos, UnitKind)> {
+        let weights = self.weights;
+        let mut sites = std::mem::take(&mut self.build_sites);
+        let choices = self
+            .with_observation(view, |_, session| {
+                let state = session.state();
+                let Some(seat) = state.players.seat(&state.turn.active_player) else {
+                    return Vec::new();
+                };
+                choose_builds(session, seat, &weights, &mut sites);
+                let dimensions = state.board.dimensions();
+                sites
+                    .iter()
+                    .filter_map(|site| Some((dimensions.position_of(site.cell)?, site.choice?)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        sites.clear();
+        self.build_sites = sites;
+        choices
     }
 
     fn with_observation<R>(
@@ -1334,7 +1521,7 @@ impl CounterTable {
 ///
 /// Both sides are read at whole health and a full magazine, which is the
 /// unit this table is about: the one that has not been built yet.
-fn strike(attacker: UnitKind, defender: UnitKind) -> f64 {
+pub(crate) fn strike(attacker: UnitKind, defender: UnitKind) -> f64 {
     static STRIKES: std::sync::LazyLock<[[f64; UnitKind::COUNT]; UnitKind::COUNT]> =
         std::sync::LazyLock::new(|| {
             let mut values = [[0.0; UnitKind::COUNT]; UnitKind::COUNT];
@@ -1509,7 +1696,9 @@ impl GreedyAgent {
             vision,
             threat,
             fog,
+            power_hold,
             selection,
+            build_sites,
             ..
         } = self;
         let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
@@ -1609,6 +1798,11 @@ impl GreedyAgent {
             None
         };
         target_reductions.borrow_mut().clear();
+        if scope.is_none_or(|scope| scope.unitless) {
+            choose_builds(session, seat, weights, build_sites);
+        } else {
+            build_sites.clear();
+        }
         let scorer = Scorer {
             board: &board,
             movement_bounds,
@@ -1627,6 +1821,8 @@ impl GreedyAgent {
             policy: *policy,
             min_step: &min_step,
             target_reductions,
+            build_sites,
+            power_hold: *power_hold,
         };
 
         let mut visitor = GreedyVisitor::<RECORD> {
@@ -2012,6 +2208,11 @@ fn is_zero(value: &f64) -> bool {
     *value == 0.0
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// `score`, or a value between zero and `floor` when `score` is below
 /// `floor`.
 ///
@@ -2039,10 +2240,61 @@ fn health_of(unit: &Unit) -> f64 {
 /// Capture progress one turn of this unit puts into a property.
 ///
 /// The ruleset spends the unit's visible health, so a unit at half health
-/// takes twice as long. Commander capture multipliers are not read here; the
-/// two commanders that carry one are a term this tier does not model.
+/// takes twice as long. This value does not read the commander capture bonus.
+/// [`capture_strength`] reads it.
 fn capture_progress(unit: &Unit) -> u8 {
     unit.hp.div_ceil(10)
+}
+
+/// When a capture estimate applies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CaptureTurn {
+    /// The current turn, with the power that is active now.
+    Now,
+    /// The next turn of the owner of the unit.
+    ///
+    /// A power ends at the start of the next turn of its owner, so the power
+    /// that is active now does not apply. The owner can use a power before
+    /// the capture, so the estimate is the largest rate of no power and each
+    /// power that the meter of the owner can pay for now.
+    Next,
+}
+
+/// The capture points that `unit` takes off a property in one turn, at
+/// `visual_hp` visible health, with the capture bonus of its commander.
+///
+/// The value comes from [`commander::effective_capture_points`] and
+/// [`commander::capture_points_with_power`], so it agrees with the engine.
+pub(crate) fn capture_strength(state: &State, unit: &Unit, visual_hp: u8, turn: CaptureTurn) -> u8 {
+    let hp = u64::from(visual_hp);
+    let points = match turn {
+        CaptureTurn::Now => commander::effective_capture_points(state, unit, hp),
+        CaptureTurn::Next => {
+            let mut best = commander::capture_points_with_power(state, unit, hp, None);
+            let owner = state
+                .players
+                .get(unit.owner.get())
+                .and_then(|player| player.commanders.iter().find(|co| co.active));
+            if let Some(co) = owner {
+                for level in [commander::PowerLevel::Cop, commander::PowerLevel::Scop] {
+                    let affordable = commander::power_activation_cost(co.id, level, co.power_uses)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|cost| co.power_charge >= cost);
+                    if affordable {
+                        best = best.max(commander::capture_points_with_power(
+                            state,
+                            unit,
+                            hp,
+                            Some(level),
+                        ));
+                    }
+                }
+            }
+            best
+        }
+    };
+    u8::try_from(points).unwrap_or(u8::MAX)
 }
 
 /// The `capture_points` of a property nobody is capturing.
@@ -2202,6 +2454,8 @@ struct Scorer<'a> {
     min_step: &'a [u16; MovementClass::COUNT],
     target_reductions:
         &'a std::cell::RefCell<Vec<(awvm::semantic::UnitId, awvm::semantic::UnitId, f64)>>,
+    build_sites: &'a [BuildSite],
+    power_hold: Option<crate::power::PowerHold>,
 }
 
 impl Scorer<'_> {
@@ -2446,8 +2700,8 @@ impl Scorer<'_> {
             // transport is cargo, which sees nothing at all.
             OrderKind::Join | OrderKind::Load => self.arrival(order) - self.weights().unit_count,
             OrderKind::Supply => self.arrival(order) + self.weights().supply + self.sight(order),
-            OrderKind::Produce(kind) => floored(self.produce(kind), self.weights().build_floor),
-            OrderKind::Power(_) => self.weights().power,
+            OrderKind::Produce(kind) => self.produce_at(order.destination(), kind),
+            OrderKind::Power(level) => self.power(level),
             // Nothing below is scored. Resignation and deletion decide a game
             // for a reason no policy holds; ending the turn is what `None`
             // means, so an order for it would end a turn twice; and the rest
@@ -2489,6 +2743,33 @@ impl Scorer<'_> {
         }
     }
 
+    /// A legal commander power.
+    ///
+    /// The power policy can hold the power, which scores nothing, use it
+    /// first, with a score above all other orders, or keep it for last. A
+    /// power kept for last has a score above zero that is below every other
+    /// order that scores above zero.
+    fn power(&self, level: awvm::commander::PowerLevel) -> f64 {
+        if self
+            .power_hold
+            .is_some_and(|hold| hold.holds(self.board.seat, level))
+        {
+            return 0.0;
+        }
+        match crate::power::power_use(
+            self.weights().power_policy,
+            crate::power::PowerPlacement::of(self.weights()),
+            self.board.state,
+            self.board.seat,
+            level,
+        ) {
+            PowerUse::Now => self.weights().power,
+            PowerUse::Last => f64::MIN_POSITIVE,
+            PowerUse::First => POWER_FIRST,
+            PowerUse::Hold => 0.0,
+        }
+    }
+
     /// Standing on a property and turning the crank.
     #[inline(always)]
     fn capture(&self, order: Order) -> f64 {
@@ -2506,7 +2787,16 @@ impl Scorer<'_> {
             self.weights(),
             self.board.property_weight(tile.terrain),
             tile.capture_points.unwrap_or(WHOLE_PROPERTY),
-            capture_progress(unit),
+            if self.weights().capture_bonus {
+                capture_strength(
+                    self.board.state,
+                    unit,
+                    unit.hp.div_ceil(10),
+                    CaptureTurn::Now,
+                )
+            } else {
+                capture_progress(unit)
+            },
         )
     }
 
@@ -2679,7 +2969,17 @@ impl Scorer<'_> {
         };
 
         let points = tile.capture_points.unwrap_or(WHOLE_PROPERTY);
-        let before = self.urgency(points, capture_progress(defender));
+        // With the capture bonus, the rate is that of the next enemy turn,
+        // when the capture continues.
+        let bonus = self.weights().capture_bonus;
+        let rate = |visual_hp: u8| {
+            if bonus {
+                capture_strength(self.board.state, defender, visual_hp, CaptureTurn::Next)
+            } else {
+                visual_hp
+            }
+        };
+        let before = self.urgency(points, rate(capture_progress(defender)));
         // A kill resets the tile, so the whole of the urgency goes away. The
         // worst roll is what proves one.
         let after = if f64::from(forecast.attack.low) >= f64::from(forecast.target_hp) {
@@ -2688,7 +2988,7 @@ impl Scorer<'_> {
             let dealt = u8::try_from(forecast.attack.low).unwrap_or(u8::MAX);
             self.urgency(
                 points,
-                forecast.target_hp.saturating_sub(dealt).div_ceil(10),
+                rate(forecast.target_hp.saturating_sub(dealt).div_ceil(10)),
             )
         };
 
@@ -2788,6 +3088,40 @@ impl Scorer<'_> {
         let immediate = self.threat.immediate(cell, unit.kind);
         let deferred = self.threat.deferred(cell, unit.kind);
         weights.threat * (immediate + weights.deferred_threat * deferred)
+    }
+
+    /// What building `kind` at the site `cell` is worth, after the build
+    /// floor.
+    ///
+    /// Without a build model this is the floored [`Scorer::produce`] score,
+    /// which does not read the site. With a build model the greedy scores
+    /// still decide whether and when the site builds, and the model decides
+    /// the kind:
+    ///
+    /// - The chosen kind gets the highest floored greedy score of the legal
+    ///   kinds at the site. Thus the build has the same rank against the
+    ///   other orders as the build that the greedy policy would make there.
+    /// - Each other kind at the site gets zero. A score of zero is never
+    ///   played, so only the chosen kind can be built.
+    ///
+    /// The model utilities are not added to the scores. They are logits of a
+    /// human choice, not funds, so they have no common scale with the other
+    /// orders.
+    fn produce_at(&self, cell: CellIdx, kind: UnitKind) -> f64 {
+        let floor = self.weights().build_floor;
+        let greedy = |kind: UnitKind| floored(self.produce(kind), floor);
+        let Some(site) = self.build_sites.iter().find(|site| site.cell == cell) else {
+            return greedy(kind);
+        };
+        match site.choice {
+            None => greedy(kind),
+            Some(chosen) if chosen == kind => UnitKind::ALL
+                .into_iter()
+                .filter(|legal| site.legal & (1 << legal.index()) != 0)
+                .map(greedy)
+                .fold(f64::NEG_INFINITY, f64::max),
+            Some(_) => 0.0,
+        }
     }
 
     /// What building this kind is worth.

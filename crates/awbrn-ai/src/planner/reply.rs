@@ -17,6 +17,7 @@
 //! forecast range. Destination conflicts between enemy attackers are not
 //! checked, so the estimate is a little pessimistic in crowded positions.
 
+use crate::agents::greedy::{CaptureTurn, capture_strength};
 use awvm::ruleset::{self, TerrainTrait};
 use awvm::semantic::{CAPTURE_REQUIRED_POINTS, CellIdx, PlayerIdx, TileOwner, UnitId, UnitStore};
 use awvm::session::{
@@ -133,10 +134,53 @@ impl LegalVisitor for Collector<'_> {
     }
 }
 
+/// The switches of [`estimate_with`]. All are off by default, which is the
+/// estimate of [`estimate`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReplyOptions {
+    /// When true, an enemy capturer takes the points that the engine gives
+    /// it, with the capture bonus of its commander and of each power that the
+    /// enemy meter can pay for now. When false, it takes its visible health.
+    pub capture_bonus: bool,
+    /// When true and the enemy meter can pay for a power that lets an enemy
+    /// capturer take a property in one turn
+    /// ([`super::march::decisive_powers`]), the estimate also reads the
+    /// captures of our headquarters that the enemy can make with that power.
+    /// The engine gives the movement and the capture points of the power.
+    /// When the capture takes the headquarters, the estimate counts its loss,
+    /// and the headquarters goes into [`ReplyEstimate::threatened`], so that a
+    /// block plan can put a unit on it.
+    pub power_reach: bool,
+    /// When true and the enemy meter can pay for a power that lets an enemy
+    /// capturer take a property in one capture, the estimate also counts the
+    /// loss of each of our properties that the enemy capturers take with that
+    /// power, one property for each capturer
+    /// ([`super::march::powered_captures`]). Each property counts its whole
+    /// value, and it goes into [`ReplyEstimate::threatened`], so that a block
+    /// plan can put a unit on it. It has no effect when `power_reach` is
+    /// false.
+    pub power_swing: bool,
+}
+
 /// Estimate the loss that the active enemy seat can cause to `ours`.
 ///
 /// `session` must hold the position at the start of the enemy turn.
 pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> ReplyEstimate {
+    estimate_with(session, ours, values, ReplyOptions::default())
+}
+
+/// [`estimate`] with the switches of `options`.
+pub fn estimate_with(
+    session: &Session,
+    ours: PlayerIdx,
+    values: PropertyValues,
+    options: ReplyOptions,
+) -> ReplyEstimate {
+    let ReplyOptions {
+        capture_bonus,
+        power_reach,
+        power_swing,
+    } = options;
     let state = session.state();
     let mut collector = Collector {
         ours,
@@ -237,7 +281,11 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
         else {
             continue;
         };
-        let strength = capturer.hp.div_ceil(10);
+        let strength = if capture_bonus {
+            capture_strength(state, capturer, capturer.hp.div_ceil(10), CaptureTurn::Next)
+        } else {
+            capturer.hp.div_ceil(10)
+        };
         let left = tile.capture_points.unwrap_or(CAPTURE_REQUIRED_POINTS);
         let has = |value| ruleset::terrain_has(tile.terrain, value);
         let headquarters = has(TerrainTrait::CaptureDefeatsOwner);
@@ -265,6 +313,26 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
         match taken.iter_mut().find(|(other, _)| *other == cell) {
             Some((_, best)) => *best = best.max(loss),
             None => taken.push((cell, loss)),
+        }
+    }
+    if power_reach {
+        for (cell, decisive) in super::march::powered_captures(state, ours, power_swing) {
+            let worth = if decisive {
+                estimate.headquarters_lost = true;
+                values.headquarters
+            } else {
+                let produces = dimensions.position_of(cell).is_some_and(|position| {
+                    let terrain = state.board.tile(position).terrain;
+                    ruleset::terrain_has(terrain, TerrainTrait::ProducesGround)
+                        || ruleset::terrain_has(terrain, TerrainTrait::ProducesAir)
+                        || ruleset::terrain_has(terrain, TerrainTrait::ProducesSea)
+                });
+                values.income + if produces { values.production } else { 0.0 }
+            };
+            match taken.iter_mut().find(|(other, _)| *other == cell) {
+                Some((_, best)) => *best = best.max(worth),
+                None => taken.push((cell, worth)),
+            }
         }
     }
     estimate.property_loss = taken.iter().map(|(_, loss)| loss).sum();

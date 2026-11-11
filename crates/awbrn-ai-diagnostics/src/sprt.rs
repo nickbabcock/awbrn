@@ -1008,6 +1008,46 @@ mod tests {
         }
     }
 
+    /// The plans of the wide candidate resolve their agents and maps.
+    #[test]
+    fn candidate_plans_resolve_their_agents_and_maps() {
+        let directory =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ai-diagnostics/sprt");
+        let prefix = "planner-v7-wide-build2a-press-cap-scop-place4-march2-vs-v7-";
+        let mut plans = 0;
+        let mut pairs = 0;
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
+            if !name.starts_with(prefix) {
+                continue;
+            }
+            let plan = read_sprt_plan(&path).unwrap();
+            assert_eq!(plan.run_id, name);
+            assert_eq!(plan.maps.len(), 14);
+            assert_eq!(plan.limits.day_limit, 35);
+            assert_eq!(plan.limits.node_budget, 256);
+            let registry = plan_registry(&plan, &path).unwrap();
+            assert!(plan.maps.iter().all(|map| registry.get(*map).is_some()));
+            let (factory, _) = plan.candidate.materialize(&path).unwrap();
+            assert_eq!(
+                factory.identity().configuration_fingerprint,
+                "7017dcaed7751765"
+            );
+            let (factory, _) = plan.baseline.materialize(&path).unwrap();
+            assert_eq!(
+                factory.identity().configuration_fingerprint,
+                "40093fcd6d29e46f"
+            );
+            plans += 1;
+            pairs += plan.max_pairs;
+        }
+        // The Andy mirror, seven mirrors with two seed sets, and eight
+        // matchups of two commanders.
+        assert_eq!(plans, 23);
+        assert_eq!(pairs, 280 + 14 * 56 + 8 * 28);
+    }
+
     #[test]
     fn old_sprt_plans_keep_role_seeded_json() {
         let directory =
