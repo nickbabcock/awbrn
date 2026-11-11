@@ -44,7 +44,7 @@ use awbrn_ai::harness::{Limits, play_measured};
 use awbrn_ai::planner::PlannerStats;
 use awbrn_ai::rng::Rng;
 use awbrn_ai_diagnostic_types::{AgentIdentity, AgentSeedProtocol, RunLimits, SeatOrderVariant};
-use awvm::semantic::{Match, Outcome, State};
+use awvm::semantic::{Match, Observation, Outcome, State};
 use awvm::session::Session;
 use serde::{Deserialize, Serialize};
 
@@ -146,6 +146,10 @@ pub struct SprtPlan {
     pub limits: RunLimits,
     #[serde(default)]
     pub bounds: SprtBounds,
+    /// Build each agent again at the start of each of its turns, as the host
+    /// does ([`RebuiltEachTurn`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rebuild_agent_each_turn: bool,
 }
 
 fn stop_early_default() -> bool {
@@ -601,6 +605,104 @@ struct PairOutput {
     baseline_turn_nanos: Vec<u64>,
 }
 
+/// An agent that is built again at the start of each of its turns.
+///
+/// The host builds a new agent for each turn of a seat that the server
+/// plays (`awbrn_server::AiSeat`), from a seed of the match seed, the seat
+/// and the day. This wrapper does the same from the agent seed of the seat,
+/// so a run measures the play of the host. An agent that keeps state over
+/// turns loses it here, as it does in the host. The planner counters are the
+/// sums over the agents of the turns.
+struct RebuiltEachTurn<'a> {
+    factory: &'a dyn AgentFactory,
+    seed: u64,
+    agent: Box<dyn Agent>,
+    turn: Option<(awvm::semantic::PlayerId, u64)>,
+    /// The planner counters of the agents of the earlier turns.
+    stats: Option<PlannerStats>,
+}
+
+impl<'a> RebuiltEachTurn<'a> {
+    fn boxed(factory: &'a dyn AgentFactory, seed: u64) -> Box<dyn Agent + 'a> {
+        Box::new(Self {
+            factory,
+            seed,
+            agent: factory.create(seed),
+            turn: None,
+            stats: None,
+        })
+    }
+}
+
+impl Agent for RebuiltEachTurn<'_> {
+    fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<awbrn_ai::agent::Play> {
+        self.agent.act(view, budget)
+    }
+
+    fn observe(&mut self, events: &[awvm::semantic::ObservedEvent]) {
+        self.agent.observe(events);
+    }
+
+    fn start_match(&mut self) {
+        self.agent.start_match();
+    }
+
+    fn start_turn(&mut self, view: &Observation) {
+        let turn = (view.turn.active_player.clone(), view.turn.day);
+        if self.turn.as_ref() != Some(&turn) {
+            if let Some(stats) = self.agent.planner_stats() {
+                self.stats
+                    .get_or_insert_with(PlannerStats::default)
+                    .add(&stats);
+            }
+            // The host seeds each turn from the match seed, the seat and the
+            // day (`AiProfile::turn_seed`).
+            let seed = Rng::mix(self.seed ^ turn.1.wrapping_mul(0x9e37_79b9));
+            self.agent = self.factory.create(seed);
+            self.agent.start_match();
+            self.turn = Some(turn);
+        }
+        self.agent.start_turn(view);
+    }
+
+    fn refresh(&mut self, view: &Observation) {
+        self.agent.refresh(view);
+    }
+
+    fn planned_state(&self) -> Option<awvm::semantic::State> {
+        self.agent.planned_state()
+    }
+
+    fn planned_command(&self) -> Option<awvm::transition::Command> {
+        self.agent.planned_command()
+    }
+
+    fn reject(&mut self, view: &Observation) {
+        self.agent.reject(view);
+    }
+
+    fn requires_command_preflight(&self) -> bool {
+        self.agent.requires_command_preflight()
+    }
+
+    fn classify_command(&mut self, view: &Observation, command: &awvm::transition::Command) {
+        self.agent.classify_command(view, command);
+    }
+
+    fn planner_stats(&self) -> Option<PlannerStats> {
+        let current = self.agent.planner_stats();
+        match (&self.stats, current) {
+            (Some(earlier), Some(current)) => {
+                let mut total = earlier.clone();
+                total.add(&current);
+                Some(total)
+            }
+            (Some(earlier), None) => Some(earlier.clone()),
+            (None, current) => current,
+        }
+    }
+}
+
 fn play_pair(
     plan: &SprtPlan,
     map: &RegisteredMap,
@@ -645,8 +747,17 @@ fn play_pair(
             candidate_seat,
             1 - candidate_seat,
         );
-        let mut candidate_agent = candidate.create(candidate_seed);
-        let mut baseline_agent = baseline.create(baseline_seed);
+        let (mut candidate_agent, mut baseline_agent) = if plan.rebuild_agent_each_turn {
+            (
+                RebuiltEachTurn::boxed(candidate, candidate_seed),
+                RebuiltEachTurn::boxed(baseline, baseline_seed),
+            )
+        } else {
+            (
+                candidate.create(candidate_seed),
+                baseline.create(baseline_seed),
+            )
+        };
         let (candidate_seat, mut agents): (usize, [&mut dyn Agent; 2]) = match seat_order {
             SeatOrderVariant::AgentFirst => (0, [&mut *candidate_agent, &mut *baseline_agent]),
             SeatOrderVariant::BaselineFirst => (1, [&mut *baseline_agent, &mut *candidate_agent]),
@@ -920,6 +1031,40 @@ mod tests {
         }
     }
 
+    /// With `rebuild_agent_each_turn`, each seat gets a new agent at the
+    /// start of each own turn, with a seed for each day. Without it, each
+    /// game creates one agent for each seat.
+    #[test]
+    fn a_rebuilt_agent_gets_a_new_seed_each_turn() {
+        let registry = MapRegistry::load_checked_in().unwrap();
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/sprt/hard-vs-hard-null.json");
+        let mut plan = read_sprt_plan(path).unwrap();
+        plan.maps = vec![61748];
+        plan.max_pairs = 1;
+        plan.stop_early = false;
+        plan.limits.day_limit = 3;
+        for rebuild in [false, true] {
+            plan.rebuild_agent_each_turn = rebuild;
+            let candidate = SeedRecordingFactory::new();
+            let baseline = SeedRecordingFactory::new();
+            let result = run_sprt(&plan, &registry, &candidate, &baseline, 1, |_, _| {}).unwrap();
+            assert_eq!(result.pairs.len(), 1);
+            let seeds = candidate.seeds.lock().unwrap().clone();
+            if rebuild {
+                // Two games: one agent at the start of each game and one for
+                // each of its three turns.
+                assert_eq!(seeds.len(), 2 * 4, "{seeds:?}");
+                // The plan seeds by role, so both games repeat the same
+                // four seeds.
+                let unique: std::collections::BTreeSet<_> = seeds.iter().collect();
+                assert_eq!(unique.len(), 4, "{seeds:?}");
+            } else {
+                assert_eq!(seeds.len(), 2, "{seeds:?}");
+            }
+        }
+    }
+
     #[test]
     fn a_partial_final_round_keeps_the_last_complete_round_decision() {
         let registry = MapRegistry::load_checked_in().unwrap();
@@ -1008,32 +1153,30 @@ mod tests {
         }
     }
 
-    /// The plans of the wide candidate resolve their agents and maps.
+    /// The plans of planner-v8 against planner-v7 resolve their agents and
+    /// maps.
     #[test]
-    fn candidate_plans_resolve_their_agents_and_maps() {
+    fn planner_v8_plans_resolve_their_agents_and_maps() {
         let directory =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ai-diagnostics/sprt");
-        let prefix = "planner-v7-wide-build2a-press-cap-scop-place4-march2-vs-v7-";
         let mut plans = 0;
         let mut pairs = 0;
         for entry in fs::read_dir(directory).unwrap() {
             let path = entry.unwrap().path();
             let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
-            if !name.starts_with(prefix) {
+            if !name.starts_with("planner-v8-vs-v7-") {
                 continue;
             }
             let plan = read_sprt_plan(&path).unwrap();
             assert_eq!(plan.run_id, name);
             assert_eq!(plan.maps.len(), 14);
+            assert_eq!(plan.fog == Some(true), name.contains("-fog-"));
             assert_eq!(plan.limits.day_limit, 35);
             assert_eq!(plan.limits.node_budget, 256);
             let registry = plan_registry(&plan, &path).unwrap();
             assert!(plan.maps.iter().all(|map| registry.get(*map).is_some()));
             let (factory, _) = plan.candidate.materialize(&path).unwrap();
-            assert_eq!(
-                factory.identity().configuration_fingerprint,
-                "7017dcaed7751765"
-            );
+            assert_eq!(factory.identity().identifier, "planner-v8");
             let (factory, _) = plan.baseline.materialize(&path).unwrap();
             assert_eq!(
                 factory.identity().configuration_fingerprint,
@@ -1042,10 +1185,10 @@ mod tests {
             plans += 1;
             pairs += plan.max_pairs;
         }
-        // The Andy mirror, seven mirrors with two seed sets, and eight
-        // matchups of two commanders.
-        assert_eq!(plans, 23);
-        assert_eq!(pairs, 280 + 14 * 56 + 8 * 28);
+        // The Andy mirror, seven commander mirrors, and the Andy mirror in
+        // fog.
+        assert_eq!(plans, 9);
+        assert_eq!(pairs, 280 + 7 * 56 + 56);
     }
 
     #[test]

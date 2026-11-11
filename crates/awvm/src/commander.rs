@@ -993,16 +993,6 @@ pub fn day_to_day_attack_range_add(
         })
 }
 
-/// The movement that the day-to-day rules of `commander` add to a unit.
-pub fn day_to_day_move_add(commander: CommanderKind, kind: UnitKind, domain: UnitDomain) -> i64 {
-    profile_table()
-        .commanders
-        .get(commander)
-        .map_or(0, |profile| {
-            sum_unit_additions(&profile.movement, Power::None, kind, domain)
-        })
-}
-
 fn combat_of(
     commander: CommanderKind,
     power: Power,

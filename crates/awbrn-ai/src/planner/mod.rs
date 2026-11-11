@@ -18,7 +18,7 @@
 //!      estimate. The best orders become plans.
 //!    - Power plans use a legal commander power before all other orders.
 //!      With the power placement
-//!      ([`crate::agents::Weights::power_placement_first`]), the seed plan
+//!      ([`crate::agents::Weights::power_policy`]), the seed plan
 //!      uses the power first, and power plans also put it after the attacks,
 //!      after the unit orders and after the builds
 //!      ([`TurnPlanner::placements`]).
@@ -39,9 +39,9 @@
 //! Simulation uses the middle of each luck range, so a plan is deterministic.
 
 mod combat;
+mod ferry;
 mod march;
 mod position;
-mod press;
 mod reply;
 
 use std::sync::Arc;
@@ -60,9 +60,8 @@ use crate::eval::{EvalWeights, Evaluator};
 use crate::fog::{FogEstimate, FogMemory};
 use crate::rng::Rng;
 
-pub use press::PressConfig;
-use press::ferry_plays;
-pub use reply::{PropertyValues, ReplyEstimate, estimate as reply_estimate};
+use ferry::ferry_plays;
+pub use reply::{PropertyValues, ReplyEstimate};
 
 use crate::replay_score::{ReplayReader, ReplayScore};
 
@@ -125,9 +124,8 @@ pub struct PlannerConfig {
     /// after it. For each legal power, the plan uses that power first and the
     /// Hard policy plays the rest of the turn.
     ///
-    /// With the power placement
-    /// ([`crate::agents::Weights::power_placement_first`]), the planner does
-    /// not make these plans. [`TurnPlanner::placements`] makes the power
+    /// With the power policy ([`crate::agents::Weights::power_policy`]), the
+    /// planner does not make these plans. [`TurnPlanner::placements`] makes the power
     /// plans.
     #[serde(skip_serializing_if = "is_false")]
     pub power_first: bool,
@@ -149,14 +147,15 @@ pub struct PlannerConfig {
     /// Continue a plan when unit names change and all game facts remain equal.
     #[serde(skip_serializing_if = "is_false")]
     pub reuse_equivalent_positions: bool,
-    /// The press mode ([`press`]). `None` turns it off.
+    /// Whether spare capturers go by transport to properties that they cannot
+    /// reach on foot ([`ferry`]).
     ///
     /// The ferry plays come before the plays of the plan generators in every
     /// own line. On a swing turn of the march plan, the power and its
     /// captures come before the ferry plays. The line of a capture that wins
     /// at once has no ferry plays.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub press: Option<PressConfig>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub ferry: bool,
     /// Whether the planner plays and prepares decisive captures, and reads
     /// the decisive captures of the enemy powers ([`march`]).
     ///
@@ -170,29 +169,21 @@ pub struct PlannerConfig {
     /// - When a power of the seat lets a capturer take a whole property in
     ///   one capture, a plan over many turns keeps the other powers back and
     ///   steers one or two capturers near the enemy headquarters.
-    /// - The reply estimate reads the enemy captures of our headquarters that
+    /// - The swing rule ([`march::swing_turn`]): when the meter can pay for
+    ///   the power and the properties that it takes in this turn, less those
+    ///   taken without it, are worth at least 6% of the map's properties, the
+    ///   power comes first in every line. An enemy property counts 1 and a
+    ///   neutral property counts 0.5. When a capturer of the headquarters
+    ///   plan is two turns or less from its staging tile, the power waits for
+    ///   it unless the swing is 12% or more. When the meter pays within six
+    ///   turns and the swing is large enough now, the other power is held.
+    /// - The reply estimate reads the enemy captures of our properties that
     ///   an affordable enemy power of that kind makes possible.
     ///
     /// A commander with no such power, against an enemy with no such power,
     /// plays as before.
     #[serde(skip_serializing_if = "is_false")]
     pub march: bool,
-    /// Whether the march plan also uses a decisive power for a large
-    /// property swing, and the reply estimate counts the property swing of
-    /// an enemy decisive power ([`march::swing_turn`]). It has no effect
-    /// when [`PlannerConfig::march`] is false.
-    ///
-    /// - When the meter can pay for the power and the properties that it
-    ///   takes in this turn, less those taken without it, are worth at least
-    ///   6% of the map's properties, the power comes first in every line. An
-    ///   enemy property counts 1 and a neutral property counts 0.5. When a
-    ///   capturer of the headquarters plan is two turns or less from its
-    ///   staging tile, the power waits for it unless the swing is 12% or
-    ///   more.
-    /// - When the meter pays within six turns and the swing is large enough
-    ///   now, the other power is held.
-    #[serde(skip_serializing_if = "is_false")]
-    pub march_swing: bool,
 }
 
 // The fields that later configurations add are left out of the fingerprint
@@ -244,9 +235,8 @@ impl PlannerConfig {
         replay_score: None,
         fog_memory: false,
         reuse_equivalent_positions: false,
-        press: None,
+        ferry: false,
         march: false,
-        march_swing: false,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -335,13 +325,11 @@ impl PlannerConfig {
     /// planner-v7-wide with these additions:
     ///
     /// - The greedy policy of the seed plan, the fallback and the simulated
-    ///   replies uses [`crate::profile::V8_GREEDY_CONFIG`]:
-    ///   the build model `human-v2a`, the commander capture bonus, the power
-    ///   policy [`crate::power::PowerPolicy::HumanV1`] and the power
-    ///   placement.
-    /// - The ferry of the press mode ([`press`]).
-    /// - The march plan and the swing rule ([`PlannerConfig::march`],
-    ///   [`PlannerConfig::march_swing`]).
+    ///   replies uses [`crate::profile::V8_GREEDY_CONFIG`]: the build model,
+    ///   the commander effects, the power policy and the firing positions of
+    ///   indirect units.
+    /// - The ferry ([`PlannerConfig::ferry`]).
+    /// - The march plan ([`PlannerConfig::march`]).
     ///
     /// A power that the march plan keeps back gets no placement plan, and on
     /// a swing turn the placement does not move the power. Use a node budget
@@ -349,12 +337,8 @@ impl PlannerConfig {
     pub const V8: Self = Self {
         identifier: "planner-v8",
         baseline: crate::profile::V8_GREEDY_CONFIG,
-        press: Some(PressConfig {
-            ferry: true,
-            ferry_transports: 2,
-        }),
+        ferry: true,
         march: true,
-        march_swing: true,
         ..Self::V7_WIDE
     };
 
@@ -455,6 +439,53 @@ pub struct PlannerStats {
     pub max_turn_work: u64,
 }
 
+impl PlannerStats {
+    /// Add the counters of `other`, for one agent of a seat that the host
+    /// builds again. The most work in one turn is the larger of the two.
+    pub fn add(&mut self, other: &Self) {
+        let Self {
+            plans,
+            evaluations,
+            candidates,
+            chose_seed,
+            chose_kill,
+            chose_safety,
+            chose_block,
+            chose_reroute,
+            chose_power,
+            chose_march,
+            march_live,
+            swing_live,
+            swing_fired,
+            swing_expected,
+            mismatches,
+            fallbacks,
+            rejections,
+            work,
+            max_turn_work,
+        } = other;
+        self.plans += plans;
+        self.evaluations += evaluations;
+        self.candidates += candidates;
+        self.chose_seed += chose_seed;
+        self.chose_kill += chose_kill;
+        self.chose_safety += chose_safety;
+        self.chose_block += chose_block;
+        self.chose_reroute += chose_reroute;
+        self.chose_power += chose_power;
+        self.chose_march += chose_march;
+        self.march_live += march_live;
+        self.swing_live += swing_live;
+        self.swing_fired += swing_fired;
+        self.swing_expected += swing_expected;
+        self.mismatches += mismatches;
+        self.fallbacks += fallbacks;
+        self.rejections += rejections;
+        self.work += work;
+        self.max_turn_work = self.max_turn_work.max(*max_turn_work);
+    }
+}
+
 /// Luck at the middle of each range. Weather stays clear.
 pub(crate) struct MeanLuck;
 
@@ -483,7 +514,7 @@ struct Line {
 }
 
 /// How much better than the power first a later position of the power must
-/// be, in funds, with [`crate::agents::Weights::power_placement_first`].
+/// be, in funds, with [`crate::agents::Weights::power_policy`].
 ///
 /// The difference in the power meter term of the replay score does not
 /// count: the planner removes it before it compares. A player gets no meter
@@ -595,7 +626,8 @@ impl PlannerAgent {
             observed: None,
             evaluator: Evaluator::new(config.eval_weights),
             replay: config.replay_score.map(|score| {
-                ReplayReader::new(score).with_threat_effects(config.baseline.weights.threat_effects)
+                ReplayReader::new(score)
+                    .with_threat_effects(config.baseline.weights.commander_effects)
             }),
             plan: Vec::new(),
             positions: Vec::new(),
@@ -895,10 +927,12 @@ impl TurnPlanner<'_> {
 
     fn plan(&mut self, root: &Session) -> Option<Line> {
         let mut session = Session::new(root.state().clone());
-        // The press plays come first in every line.
-        let mut press = match self.config.press {
-            Some(press) if press.ferry => ferry_plays(root, press.ferry_transports),
-            _ => Vec::new(),
+        // The opening plays come first in every line: the ferry plays, the march
+        // steers and, on a swing turn, the power and its captures.
+        let mut opening = if self.config.ferry {
+            ferry_plays(root)
+        } else {
+            Vec::new()
         };
         // The march steers come after the ferry plays, in every line.
         let snipe = if self.config.march {
@@ -906,7 +940,7 @@ impl TurnPlanner<'_> {
         } else {
             None
         };
-        let swing = if self.config.march && self.config.march_swing {
+        let swing = if self.config.march {
             march::swing_turn(root, self.seat, self.march.rate, snipe.as_ref())
         } else {
             march::SwingTurn::None
@@ -918,7 +952,7 @@ impl TurnPlanner<'_> {
             // On a swing turn the capturers take properties, so they are
             // not steered.
             if !matches!(swing, march::SwingTurn::Fire(..)) {
-                press.extend(plan.steer);
+                opening.extend(plan.steer);
             }
         }
         match swing {
@@ -937,17 +971,17 @@ impl TurnPlanner<'_> {
                 self.march.swing_expected = u32::try_from(captures.len()).unwrap_or(u32::MAX);
                 self.march.hold = None;
                 self.march.holding = false;
-                press.splice(0..0, std::iter::once(play).chain(captures));
+                opening.splice(0..0, std::iter::once(play).chain(captures));
             }
         }
-        let pressed = |prefix: Vec<Play>| -> Vec<Play> {
-            if press.is_empty() {
+        let opened = |prefix: Vec<Play>| -> Vec<Play> {
+            if opening.is_empty() {
                 prefix
             } else {
-                press.iter().copied().chain(prefix).collect()
+                opening.iter().copied().chain(prefix).collect()
             }
         };
-        let seed = self.line(&mut session, Generator::Seed, &press)?;
+        let seed = self.line(&mut session, Generator::Seed, &opening)?;
         if self.config.march
             && Evaluator::terminal_value(&seed.end_state, self.seat)
                 .is_none_or(|value| value <= 0.0)
@@ -963,39 +997,32 @@ impl TurnPlanner<'_> {
         let mut best = seed;
         let seed_score = best.score;
 
-        // Each alternative is the generator, the prefix, whether the press
+        // Each alternative is the generator, the prefix, whether the opening
         // plays go before the prefix, and whether it puts the power later
         // than the seed plan does. A prefix that copies the seed plan already
-        // has the press plays.
+        // has the opening plays.
         let mut alternatives: Vec<(Generator, Vec<Play>, bool, bool)> = Vec::new();
-        let placement = crate::power::PowerPlacement::of(&self.config.baseline.weights);
-        let placing = placement != crate::power::PowerPlacement::Off;
+        let placing = self.config.baseline.weights.power_policy;
         if placing && !self.out_of_work() {
             // The power plans come first: they are few, and a work limit must
             // not stop them.
             alternatives.extend(
-                self.placements(&session, &best, placement)
+                self.placements(&session, &best)
                     .into_iter()
-                    .map(|(prefix, press, later)| (Generator::Power, prefix, press, later)),
+                    .map(|(prefix, opening, later)| (Generator::Power, prefix, opening, later)),
             );
         }
         // With the power first, the other plans also use the power of the
         // seed plan before their own orders. On a swing turn of the march
-        // plan, the press plays start with the power already, so the plans
+        // plan, the opening plays start with the power already, so the plans
         // do not add a second power.
         let swing_fired = self.march.swing_fired;
-        let policy = self.config.baseline.weights.power_policy;
         let first_power = (placing && !swing_fired)
             .then(|| {
                 best.plays.iter().find(|play| match play.kind() {
                     OrderKind::Power(level) => {
-                        crate::power::power_use(
-                            policy,
-                            placement,
-                            session.state(),
-                            self.seat,
-                            level,
-                        ) == crate::power::PowerUse::First
+                        crate::power::power_use(true, session.state(), self.seat, level)
+                            == crate::power::PowerUse::First
                     }
                     _ => false,
                 })
@@ -1026,25 +1053,16 @@ impl TurnPlanner<'_> {
             return Some(best);
         }
         if self.config.power_first && !placing {
-            // A power that the power policy does not use at once, or that the
-            // march plan keeps back, gets no plan. With the power policy off
-            // and no march plan, as in the earlier configurations, each power
-            // gets a plan.
-            let policy = self.config.baseline.weights.power_policy;
+            // A power that the march plan keeps back gets no plan. With no
+            // march plan, as in the earlier configurations, each power gets a
+            // plan.
             let hold = self.march.hold;
             alternatives.extend(
                 powers(&session)
                     .filter(|play| best.plays.first() != Some(play))
                     .filter(|play| match play.kind() {
                         OrderKind::Power(level) => {
-                            crate::power::power_use(
-                                policy,
-                                crate::power::PowerPlacement::Off,
-                                session.state(),
-                                self.seat,
-                                level,
-                            ) == crate::power::PowerUse::Now
-                                && !hold.is_some_and(|hold| hold.holds(self.seat, level))
+                            !hold.is_some_and(|hold| hold.holds(self.seat, level))
                         }
                         _ => true,
                     })
@@ -1070,15 +1088,15 @@ impl TurnPlanner<'_> {
         let better = seed_score + self.config.seed_margin;
         let mut contenders: Vec<Line> = Vec::new();
         let seed_meter = self.meter_term(&best.end_state);
-        for (generator, prefix, press, later) in alternatives {
+        for (generator, prefix, opening, later) in alternatives {
             if self.out_of_work() {
                 break;
             }
             let prefix = match first_power {
-                Some(power) if press && !later => {
-                    pressed(std::iter::once(power).chain(prefix).collect())
+                Some(power) if opening && !later => {
+                    opened(std::iter::once(power).chain(prefix).collect())
                 }
-                _ if press => pressed(prefix),
+                _ if opening => opened(prefix),
                 _ => prefix,
             };
             let Some(mut line) = self.line(&mut session, generator, &prefix) else {
@@ -1142,8 +1160,8 @@ impl TurnPlanner<'_> {
         }
     }
 
-    /// The power plans of the power placement
-    /// ([`crate::power::PowerPlacement`]).
+    /// The power plans of the power policy
+    /// ([`crate::agents::Weights::power_policy`]).
     ///
     /// The greedy policy uses each power that the power policy does not hold
     /// before all other orders, so the seed plan uses such a power first.
@@ -1162,16 +1180,16 @@ impl TurnPlanner<'_> {
     ///
     /// A legal power that the seed plan does not use, because it uses the
     /// other power first, gets one prefix: the power before all other
-    /// orders. The press plays go before it, as in the other plans.
+    /// orders. The opening plays go before it, as in the other plans.
     ///
     /// A power that the policy keeps for last ([`crate::power::PowerUse::Last`])
     /// gets no prefix. A power that the march plan keeps back
     /// ([`MarchTurn::hold`]) gets no prefix. On a swing turn of the march plan
     /// ([`MarchTurn::swing_fired`]), this returns no prefix.
     ///
-    /// Each prefix comes with two flags: whether the press plays go before
+    /// Each prefix comes with two flags: whether the opening plays go before
     /// it, and whether it puts the power later than the seed plan does. A
-    /// prefix that copies the seed plan has the press plays already.
+    /// prefix that copies the seed plan has the opening plays already.
     ///
     /// Known limits:
     ///
@@ -1183,26 +1201,19 @@ impl TurnPlanner<'_> {
     ///   of the seed plan before it (see `first_power` in
     ///   [`TurnPlanner::plan`]). The engine refuses a second power in the
     ///   same turn, so the line skips this power and repeats the seed plan.
-    fn placements(
-        &self,
-        session: &Session,
-        seed: &Line,
-        placement: crate::power::PowerPlacement,
-    ) -> Vec<(Vec<Play>, bool, bool)> {
-        // On a swing turn of the march plan, the press plays start with the
+    fn placements(&self, session: &Session, seed: &Line) -> Vec<(Vec<Play>, bool, bool)> {
+        // On a swing turn of the march plan, the opening plays start with the
         // power and the captures that need it. The placement does not move
         // that power.
         if self.march.swing_fired {
             return Vec::new();
         }
-        let policy = self.config.baseline.weights.power_policy;
         let mut prefixes: Vec<(Vec<Play>, bool, bool)> = Vec::new();
         for power in powers(session) {
             let OrderKind::Power(level) = power.kind() else {
                 continue;
             };
-            let use_ =
-                crate::power::power_use(policy, placement, session.state(), self.seat, level);
+            let use_ = crate::power::power_use(true, session.state(), self.seat, level);
             // A held power gets no plan, and a power that lets units act
             // again stays last.
             if matches!(
@@ -1377,14 +1388,13 @@ impl TurnPlanner<'_> {
 
     /// The reply estimate of the enemy turn that starts in `session`.
     fn reply_estimate(&self, session: &Session) -> ReplyEstimate {
-        reply::estimate_with(
+        reply::estimate(
             session,
             self.seat,
             self.config.property_values,
             reply::ReplyOptions {
-                capture_bonus: self.config.baseline.weights.capture_bonus,
-                power_reach: self.config.march,
-                power_swing: self.config.march_swing,
+                commander_effects: self.config.baseline.weights.commander_effects,
+                march: self.config.march,
             },
         )
     }
@@ -1487,14 +1497,13 @@ impl TurnPlanner<'_> {
         let mut plays = Vec::new();
         let mut root = None;
         let mut prefix = prefix.iter();
-        let weights = &self.config.baseline.weights;
-        // With the refresh power last, a commander with a power that lets
-        // units act again plays the lines of the power policy without the
-        // placement, which do not skip a failed order. The other commanders
-        // play the lines of the power placement first.
-        let lenient = weights.power_placement_first
-            && (!weights.power_refresh_last
-                || !crate::power::has_refresh_power(session.state(), self.seat));
+        // With the power policy, a later power position copies orders that
+        // the seed plan made with the power active, and some of them fail
+        // without it. The line skips them. A commander with a power that lets
+        // units act again uses that power last, so its lines do not skip a
+        // failed order.
+        let lenient = self.config.baseline.weights.power_policy
+            && !crate::power::has_refresh_power(session.state(), self.seat);
         let mut work = 0;
         let decisions = &mut work;
         let result = (|| {

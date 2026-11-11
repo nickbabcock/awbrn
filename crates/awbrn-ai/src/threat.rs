@@ -51,6 +51,7 @@
 //! against the tens of thousands of commands this crate plays each second.
 
 use awvm::combat::{self, Side};
+use awvm::commander;
 use awvm::query::{MoveScratch, Sweep};
 use awvm::ruleset::{self, CommanderKind, Domain, FireMode, UnitKind};
 use awvm::semantic::{
@@ -58,7 +59,7 @@ use awvm::semantic::{
     TerrainId, TileOwner, Unit, UnitId, WeatherKind,
 };
 use awvm::session::{PositionKey, Session};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 /// Terrain defense runs from no stars to four, so a row holds five columns.
 const STAR_LEVELS: usize = 5;
@@ -254,7 +255,7 @@ impl ThreatMap {
     /// When false (the default), each unit attacks and defends with the
     /// neutral values, and an indirect unit has the range of its profile.
     /// When true, the map reads from the engine the day-to-day values of the
-    /// active commander of each side ([`crate::build_policy`]):
+    /// active commander of each side ([`seat_day_to_day`]):
     ///
     /// - the attack of the enemy unit,
     /// - the defense of our unit of each kind,
@@ -281,9 +282,8 @@ impl ThreatMap {
         if !self.effects {
             return DamageTable::cached(unit);
         }
-        let attack = crate::build_policy::seat_day_to_day(state, unit.owner, unit.kind).attack;
-        let defense = UnitKind::ALL
-            .map(|kind| crate::build_policy::seat_day_to_day(state, seat, kind).defense);
+        let attack = seat_day_to_day(state, unit.owner, unit.kind).attack;
+        let defense = UnitKind::ALL.map(|kind| seat_day_to_day(state, seat, kind).defense);
         if attack == NEUTRAL && defense.iter().all(|value| *value == NEUTRAL) {
             return DamageTable::cached(unit);
         }
@@ -306,7 +306,7 @@ impl ThreatMap {
     /// maximum attack range. Zero when the map does not read effects.
     fn range_add(&self, state: &State, unit: &Unit) -> i64 {
         if self.effects {
-            crate::build_policy::seat_day_to_day(state, unit.owner, unit.kind).range_add
+            seat_day_to_day(state, unit.owner, unit.kind).range_add
         } else {
             0
         }
@@ -1255,6 +1255,89 @@ impl ThreatOverlay {
         rows.get(usize::from(cell.get()) * UnitKind::COUNT + kind.index())
             .map_or(0.0, |value| f64::from(*value))
     }
+}
+
+/// The day-to-day values of a commander for one unit kind, from the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DayToDay {
+    /// The attack, in percent. 100 is the value with no rule.
+    pub attack: i64,
+    /// The defense, in percent. 100 is the value with no rule.
+    pub defense: i64,
+    /// The range that the commander adds to the maximum attack range of an
+    /// indirect unit.
+    pub range_add: i64,
+}
+
+impl DayToDay {
+    /// The values with no commander rule.
+    pub const NEUTRAL: Self = Self {
+        attack: 100,
+        defense: 100,
+        range_add: 0,
+    };
+}
+
+/// The day-to-day values of `co` for a unit of `kind`.
+///
+/// The engine gives each value ([`commander::day_to_day_combat`] and
+/// [`commander::day_to_day_attack_range_add`]). The unit stands on a plain
+/// that is not a property, in clear weather, with no tower and no funds. No
+/// power is active. The function does not read the identity of the
+/// commander.
+pub(crate) fn day_to_day(co: CommanderKind, kind: UnitKind) -> DayToDay {
+    static TABLE: LazyLock<Vec<[DayToDay; UnitKind::COUNT]>> = LazyLock::new(|| {
+        static NO_CAPABILITIES: LazyLock<std::collections::HashSet<String>> =
+            LazyLock::new(std::collections::HashSet::new);
+        CommanderKind::ALL
+            .into_iter()
+            .map(|co| {
+                UnitKind::ALL.map(|kind| {
+                    let profile = ruleset::profile(kind);
+                    let unit = crate::build_policy::plain_combatant(
+                        kind,
+                        awvm::ruleset::WeatherKind::Clear,
+                        &NO_CAPABILITIES,
+                    );
+                    let context = commander::CombatContext {
+                        tower_count: 0,
+                        funds: 0,
+                        owned_properties: 0,
+                        base_terrain_stars: 1,
+                    };
+                    let (attack, defense) =
+                        commander::day_to_day_combat(co, unit, commander::Strike::Initial, context)
+                            .map_or((100, 100), |combat| (combat.attack, combat.defense));
+                    let range_add = if profile.indirect_range.is_some() {
+                        commander::day_to_day_attack_range_add(
+                            co,
+                            kind,
+                            profile.domain,
+                            ruleset::FireMode::Indirect,
+                        )
+                    } else {
+                        0
+                    };
+                    DayToDay {
+                        attack,
+                        defense,
+                        range_add,
+                    }
+                })
+            })
+            .collect()
+    });
+    TABLE[co.index()][kind.index()]
+}
+
+/// The day-to-day values of the active commander of `seat` for a unit of
+/// `kind`. A seat with no active commander gets [`DayToDay::NEUTRAL`].
+pub(crate) fn seat_day_to_day(state: &State, seat: PlayerIdx, kind: UnitKind) -> DayToDay {
+    state
+        .players
+        .get(seat.get())
+        .and_then(|player| player.commanders.iter().find(|co| co.active))
+        .map_or(DayToDay::NEUTRAL, |co| day_to_day(co.id, kind))
 }
 
 #[cfg(test)]

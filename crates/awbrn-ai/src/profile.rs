@@ -10,10 +10,8 @@
 use crate::agent::{Agent, NodeBudget};
 use crate::agents::{GreedyAgent, RandomAgent, StrategicAgent, Weights};
 use crate::baseline::BaselineConfig;
-use crate::build_policy::BuildModelId;
 use crate::fingerprint::fnv1a;
 use crate::planner::{PlannerAgent, PlannerConfig};
-use crate::power::PowerPolicy;
 use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -44,22 +42,17 @@ pub const HARD_V3_CONFIG: BaselineConfig = BaselineConfig {
     ..HARD_V2_CONFIG
 };
 
-/// The greedy policy of `planner-v8`: the `ai-hard-v3` scoring with the
-/// build model, the commander capture bonus, the power policy, the power
-/// placement, the commander effect term of the build model, the threat maps
-/// that read the commander effects, and the firing position term.
+/// The greedy policy of `planner-v8`: the [`HARD_V3_CONFIG`] scoring with
+/// the build model, the commander effects, the power policy and the firing
+/// positions of indirect units.
 ///
 /// No profile seats it.
 pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8",
     weights: Weights {
-        build_model: BuildModelId::HumanV2a,
-        capture_bonus: true,
-        power_policy: PowerPolicy::HumanV1,
-        power_placement_first: true,
-        power_refresh_last: true,
-        build_effect: 1.5,
-        threat_effects: true,
+        build_model: true,
+        commander_effects: true,
+        power_policy: true,
         indirect_zoc: 0.01,
         ..HARD_V3_CONFIG.weights
     },

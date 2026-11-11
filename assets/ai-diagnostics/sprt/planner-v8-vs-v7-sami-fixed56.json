@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "run_id": "planner-v7-wide-build2a-press-cap-scop-place4-march2-vs-v7-co-grit-eagle-fixed28",
+  "run_id": "planner-v8-vs-v7-sami-fixed56",
   "candidate": {
     "kind": "planner",
-    "identifier": "planner-v7-wide-build2a-press-cap-scop-place4-march2",
-    "configuration": "v7-wide-build2a-press-cap-scop-place4-march2"
+    "identifier": "planner-v8",
+    "configuration": "v8"
   },
   "baseline": {
     "kind": "planner",
@@ -29,8 +29,8 @@
     169382
   ],
   "fog": false,
-  "run_seed": 202611091815,
-  "max_pairs": 28,
+  "run_seed": 202611091802,
+  "max_pairs": 56,
   "stop_early": false,
   "limits": {
     "day_limit": 35,
@@ -45,7 +45,7 @@
   },
   "agent_seed_protocol": "seat-seeded",
   "commanders": [
-    "grit",
-    "eagle"
+    "sami",
+    "sami"
   ]
 }

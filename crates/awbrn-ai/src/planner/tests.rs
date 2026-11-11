@@ -818,30 +818,21 @@ const CANDIDATE: PlannerConfig = PlannerConfig::V8;
 /// The candidate without the march plan.
 const WITHOUT_MARCH: PlannerConfig = PlannerConfig {
     march: false,
-    march_swing: false,
     ..CANDIDATE
 };
 
-/// The candidate with the march plan but without the swing rule.
-const WITHOUT_SWING: PlannerConfig = PlannerConfig {
-    march_swing: false,
-    ..CANDIDATE
-};
-
-/// [`WITHOUT_SWING`] without the power policy and the power placement. Its
-/// seed plan does not use a power first, so only the march plan finds a
+/// The candidate without the power policy. Its seed plan does not use a
+/// power first. On a board of [`win_board`], only the march plan finds the
 /// power that wins at once.
 const MARCH_ONLY: PlannerConfig = PlannerConfig {
     baseline: crate::baseline::BaselineConfig {
         weights: crate::agents::Weights {
-            power_policy: crate::power::PowerPolicy::Off,
-            power_placement_first: false,
-            power_refresh_last: false,
+            power_policy: false,
             ..CANDIDATE.baseline.weights
         },
         ..CANDIDATE.baseline
     },
-    ..WITHOUT_SWING
+    ..CANDIDATE
 };
 
 /// The new fields and configurations do not change the fingerprints of the
@@ -884,7 +875,7 @@ fn plan_node_bound(config: &PlannerConfig) -> usize {
     let lines = 1
         + usize::from(config.march)
         + config.kill_plans
-        + if config.baseline.weights.power_placement_first {
+        + if config.baseline.weights.power_policy {
             6
         } else {
             usize::from(config.power_first) * 2
@@ -967,7 +958,7 @@ fn empty_board(seed: u64) -> (State, PlayerIdx, PlayerIdx) {
     (state, ours, theirs)
 }
 
-fn press_unit(
+fn board_unit(
     id: u32,
     kind: awvm::ruleset::UnitKind,
     owner: PlayerIdx,
@@ -1034,7 +1025,7 @@ fn island_board(seed: u64) -> (State, PlayerIdx, PlayerIdx) {
         .tile_mut(Pos::new(width - 2, height - 1))
         .terrain = Terrain::Plain;
     set_property(&mut state, far, Terrain::Hq, TileOwner::Owned(theirs));
-    state.units.push(press_unit(
+    state.units.push(board_unit(
         90,
         awvm::ruleset::UnitKind::Infantry,
         theirs,
@@ -1054,13 +1045,13 @@ fn the_ferry_carries_a_spare_capturer_to_an_island() {
     use awvm::semantic::Pos;
     let (mut state, ours, _) = island_board(5);
     let board = |position| Location::Board { position };
-    state.units.push(press_unit(
+    state.units.push(board_unit(
         1,
         UnitKind::Infantry,
         ours,
         board(Pos::new(1, 1)),
     ));
-    state.units.push(press_unit(
+    state.units.push(board_unit(
         2,
         UnitKind::TCopter,
         ours,
@@ -1070,7 +1061,7 @@ fn the_ferry_carries_a_spare_capturer_to_an_island() {
 
     // The capturer boards.
     let session = Session::new(state.clone());
-    let plays = ferry_plays(&session, 2);
+    let plays = ferry_plays(&session);
     let load = Play::new(
         UnitId::new(1),
         cell(&state, Pos::new(2, 1)),
@@ -1085,7 +1076,7 @@ fn the_ferry_carries_a_spare_capturer_to_an_island() {
         slot: 0,
     };
     let mut session = Session::new(loaded.clone());
-    let plays = ferry_plays(&session, 2);
+    let plays = ferry_plays(&session);
     assert_eq!(plays.len(), 2, "{plays:?}");
     assert_eq!(plays[0].unit(), Some(UnitId::new(2)));
     assert_eq!(plays[0].kind(), OrderKind::Wait);
@@ -1104,7 +1095,7 @@ fn the_ferry_carries_a_spare_capturer_to_an_island() {
         }
     );
     // The island now holds an own capturer, so the ferry has nothing to do.
-    assert!(ferry_plays(&session, 2).is_empty());
+    assert!(ferry_plays(&session).is_empty());
 }
 
 /// Without a transport, the ferry builds the cheapest one. A capturer with
@@ -1116,7 +1107,7 @@ fn the_ferry_builds_a_transport_only_for_a_spare_capturer() {
     use awvm::semantic::{Pos, TileOwner};
     let (mut state, ours, _) = island_board(6);
     let board = |position| Location::Board { position };
-    state.units.push(press_unit(
+    state.units.push(board_unit(
         1,
         UnitKind::Infantry,
         ours,
@@ -1130,7 +1121,7 @@ fn the_ferry_builds_a_transport_only_for_a_spare_capturer() {
     );
     state.player_mut(ours).funds = 20_000;
     let session = Session::new(state.clone());
-    let plays = ferry_plays(&session, 2);
+    let plays = ferry_plays(&session);
     let site = state.board.dimensions().cell_index(Pos::new(3, 3)).unwrap();
     assert_eq!(
         plays,
@@ -1138,10 +1129,10 @@ fn the_ferry_builds_a_transport_only_for_a_spare_capturer() {
     );
     let mut busy = state.clone();
     set_property(&mut busy, Pos::new(0, 3), Terrain::City, TileOwner::Neutral);
-    assert!(ferry_plays(&Session::new(busy), 2).is_empty());
+    assert!(ferry_plays(&Session::new(busy)).is_empty());
     let mut fog = state;
     fog.settings.fog = true;
-    assert!(ferry_plays(&Session::new(fog), 2).is_empty());
+    assert!(ferry_plays(&Session::new(fog)).is_empty());
 }
 
 /// A board with an enemy infantry of `commander` at 7 visible health on our
@@ -1156,7 +1147,7 @@ fn capture_board(
     let hq = Pos::new(2, 2);
     set_property(&mut state, hq, Terrain::Hq, TileOwner::Owned(ours));
     state.board.tile_mut(hq).capture_points = Some(points);
-    let mut capturer = press_unit(
+    let mut capturer = board_unit(
         1,
         UnitKind::Infantry,
         theirs,
@@ -1223,32 +1214,32 @@ fn the_capture_bonus_follows_the_engine_for_sami() {
     let session = Session::new(state.clone());
     let values = PropertyValues::STANDARD;
     assert!(
-        reply::estimate_with(
+        reply::estimate(
             &session,
             ours,
             values,
             reply::ReplyOptions {
-                capture_bonus: true,
-                power_reach: false,
-                power_swing: false
+                commander_effects: true,
+                march: false
             }
         )
         .headquarters_lost
     );
     assert!(
-        !reply::estimate_with(
+        !reply::estimate(
             &session,
             ours,
             values,
             reply::ReplyOptions {
-                capture_bonus: false,
-                power_reach: false,
-                power_swing: false
+                commander_effects: false,
+                march: false
             }
         )
         .headquarters_lost
     );
-    assert!(!reply::estimate(&session, ours, values).headquarters_lost);
+    assert!(
+        !reply::estimate(&session, ours, values, reply::ReplyOptions::default()).headquarters_lost
+    );
 }
 
 /// When the enemy meter can pay for the Sami super power, a capture in the
@@ -1272,14 +1263,13 @@ fn the_capture_bonus_reads_an_affordable_super_power() {
     let session = Session::new(state.clone());
     let values = PropertyValues::STANDARD;
     assert!(
-        reply::estimate_with(
+        reply::estimate(
             &session,
             ours,
             values,
             reply::ReplyOptions {
-                capture_bonus: true,
-                power_reach: false,
-                power_swing: false
+                commander_effects: true,
+                march: false
             }
         )
         .headquarters_lost
@@ -1304,24 +1294,22 @@ fn the_capture_bonus_does_not_change_a_commander_without_one() {
         let session = Session::new(state.clone());
         let values = PropertyValues::STANDARD;
         assert_eq!(
-            reply::estimate_with(
+            reply::estimate(
                 &session,
                 ours,
                 values,
                 reply::ReplyOptions {
-                    capture_bonus: true,
-                    power_reach: false,
-                    power_swing: false
+                    commander_effects: true,
+                    march: false
                 }
             ),
-            reply::estimate_with(
+            reply::estimate(
                 &session,
                 ours,
                 values,
                 reply::ReplyOptions {
-                    capture_bonus: false,
-                    power_reach: false,
-                    power_swing: false
+                    commander_effects: false,
+                    march: false
                 }
             ),
             "{commander:?}"
@@ -1380,11 +1368,7 @@ fn placement_probe(state: State, config: &PlannerConfig) -> (Vec<Placed>, Line) 
     let before = session.state().clone();
     let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
     let prefixes: Vec<Vec<Play>> = planner
-        .placements(
-            &session,
-            &seed,
-            crate::power::PowerPlacement::of(&config.baseline.weights),
-        )
+        .placements(&session, &seed)
         .into_iter()
         .map(|(prefix, _, _)| prefix)
         .collect();
@@ -1469,13 +1453,13 @@ fn eagle_board() -> State {
     let (mut state, ours, theirs) = power_board(CommanderKind::Eagle);
     let board = |position| Location::Board { position };
     for x in 0..4u8 {
-        state.units.push(press_unit(
+        state.units.push(board_unit(
             1 + u32::from(x),
             UnitKind::Tank,
             ours,
             board(Pos::new(3 + 2 * x, 3)),
         ));
-        state.units.push(press_unit(
+        state.units.push(board_unit(
             11 + u32::from(x),
             UnitKind::Tank,
             theirs,
@@ -1483,7 +1467,7 @@ fn eagle_board() -> State {
         ));
     }
     for (id, x) in [(15, 14), (16, 16)] {
-        state.units.push(press_unit(
+        state.units.push(board_unit(
             id,
             UnitKind::Tank,
             theirs,
@@ -1499,7 +1483,7 @@ fn grit_board(distance: u8) -> State {
     use awvm::semantic::Pos;
     let (mut state, ours, theirs) = power_board(CommanderKind::Grit);
     let board = |position| Location::Board { position };
-    state.units.push(press_unit(
+    state.units.push(board_unit(
         1,
         UnitKind::Artillery,
         ours,
@@ -1507,14 +1491,14 @@ fn grit_board(distance: u8) -> State {
     ));
     state
         .units
-        .push(press_unit(2, UnitKind::Tank, ours, board(Pos::new(1, 1))));
-    state.units.push(press_unit(
+        .push(board_unit(2, UnitKind::Tank, ours, board(Pos::new(1, 1))));
+    state.units.push(board_unit(
         11,
         UnitKind::Tank,
         theirs,
         board(Pos::new(4, 2 + distance)),
     ));
-    state.units.push(press_unit(
+    state.units.push(board_unit(
         12,
         UnitKind::Infantry,
         theirs,
@@ -1530,7 +1514,7 @@ fn andy_board(hp: u8) -> State {
     let (mut state, ours, theirs) = power_board(CommanderKind::Andy);
     let board = |position| Location::Board { position };
     for x in 0..3u8 {
-        let mut unit = press_unit(
+        let mut unit = board_unit(
             1 + u32::from(x),
             UnitKind::Tank,
             ours,
@@ -1538,14 +1522,14 @@ fn andy_board(hp: u8) -> State {
         );
         unit.hp = hp;
         state.units.push(unit);
-        state.units.push(press_unit(
+        state.units.push(board_unit(
             11 + u32::from(x),
             UnitKind::Tank,
             theirs,
             board(Pos::new(3 + 2 * x, 4)),
         ));
     }
-    state.units.push(press_unit(
+    state.units.push(board_unit(
         5,
         UnitKind::Infantry,
         ours,
@@ -1613,50 +1597,6 @@ fn the_first_placement_moves_the_andy_super_power_only_past_the_margin() {
     }
 }
 
-/// With the first placement, the greedy policy uses an allowed power before
-/// all its other orders, so the fallback uses it in the same turn. A held
-/// power stays held. With the refresh power last, the Eagle super power
-/// goes last.
-#[test]
-fn the_first_placement_puts_each_allowed_power_first() {
-    use crate::power::{PowerPlacement, PowerPolicy, PowerUse, power_use};
-    use awvm::commander::PowerLevel;
-    use awvm::ruleset::CommanderKind;
-    let policy = PowerPolicy::HumanV1;
-    let (state, ours, _) = power_board(CommanderKind::Eagle);
-    assert_eq!(
-        power_use(
-            policy,
-            PowerPlacement::First,
-            &state,
-            ours,
-            PowerLevel::Scop
-        ),
-        PowerUse::First
-    );
-    let refresh_last = PowerPlacement::of(&CANDIDATE.baseline.weights);
-    assert_eq!(refresh_last, PowerPlacement::FirstRefreshLast);
-    assert_eq!(
-        power_use(policy, refresh_last, &state, ours, PowerLevel::Scop),
-        PowerUse::Last
-    );
-    for placement in [PowerPlacement::First, refresh_last] {
-        assert_eq!(
-            power_use(policy, placement, &state, ours, PowerLevel::Cop),
-            PowerUse::Hold
-        );
-    }
-    let (state, ours, _) = power_board(CommanderKind::Andy);
-    assert_eq!(
-        power_use(policy, refresh_last, &state, ours, PowerLevel::Scop),
-        PowerUse::First
-    );
-    let mut greedy = CANDIDATE.baseline.build_greedy(1);
-    let session = Session::new(andy_board(50));
-    let order = greedy.order_in_session(&session).unwrap();
-    assert!(matches!(order.kind(), OrderKind::Power(PowerLevel::Scop)));
-}
-
 /// A board for the march tests. Our seat moves. Both seats have a
 /// headquarters: ours at (0, 0) and the enemy one at (9, 2). An enemy tank
 /// stands far away at (0, 9). The commanders are `ours_co` and `theirs_co`,
@@ -1681,7 +1621,7 @@ fn march_board(
         Terrain::Hq,
         TileOwner::Owned(theirs),
     );
-    state.units.push(press_unit(
+    state.units.push(board_unit(
         1,
         UnitKind::Tank,
         theirs,
@@ -1709,7 +1649,7 @@ fn add_unit(
     let id = state.next_unit_id.unwrap_or(1);
     state
         .units
-        .push(press_unit(id, kind, owner, Location::Board { position }));
+        .push(board_unit(id, kind, owner, Location::Board { position }));
     state.next_unit_id = Some(id + 1);
     UnitId::new(id)
 }
@@ -1806,19 +1746,38 @@ fn the_win_now_check_finds_a_last_capture() {
     assert_eq!(plays[0].kind(), OrderKind::Capture);
 }
 
+/// A march board where our Sami can take the enemy headquarters with
+/// Victory March in this turn. Twenty neutral cities far away make the
+/// properties of the power a small share of the map, so the swing rule does
+/// not use the power.
+fn win_board() -> (State, PlayerIdx) {
+    use awvm::commander::PowerLevel;
+    use awvm::ruleset::{CommanderKind, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, ours, _) = march_board(CommanderKind::Sami, CommanderKind::Andy);
+    add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(4, 2));
+    add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(3, 4));
+    charge_power(&mut state, ours, PowerLevel::Scop);
+    let dimensions = state.board.dimensions();
+    let (width, height) = (dimensions.width(), dimensions.height());
+    for row in [height - 1, height - 2] {
+        add_cities(
+            &mut state,
+            TileOwner::Neutral,
+            Pos::new(width - 10, row),
+            10,
+        );
+    }
+    (state, ours)
+}
+
 /// The march planner plays the winning Victory March. The planner with no
 /// march plan also finds it: its power plan uses the power first, and the
 /// Hard policy then captures. The candidate finds it in its seed plan,
 /// because its seed plan uses the power first.
 #[test]
 fn the_march_planner_wins_with_victory_march() {
-    use awvm::commander::PowerLevel;
-    use awvm::ruleset::{CommanderKind, UnitKind};
-    use awvm::semantic::Pos;
-    let (mut state, ours, _) = march_board(CommanderKind::Sami, CommanderKind::Andy);
-    add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(4, 2));
-    add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(3, 4));
-    charge_power(&mut state, ours, PowerLevel::Scop);
+    let (state, ours) = win_board();
     let mut agent = PlannerAgent::with_config(7, MARCH_ONLY);
     let mut session = Session::new(state.clone());
     play_turn(&mut agent, &mut session);
@@ -1889,13 +1848,7 @@ fn the_meter_log_measures_the_charge_rate() {
 /// winning capture of the march plan.
 #[test]
 fn the_march_line_needs_a_node_after_the_seed() {
-    use awvm::commander::PowerLevel;
-    use awvm::ruleset::{CommanderKind, UnitKind};
-    use awvm::semantic::Pos;
-    let (mut state, ours, _) = march_board(CommanderKind::Sami, CommanderKind::Andy);
-    add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(4, 2));
-    add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(3, 4));
-    charge_power(&mut state, ours, PowerLevel::Scop);
+    let (state, ours) = win_board();
     let config = MARCH_ONLY;
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut replay = config.replay_score.map(ReplayReader::new);
@@ -1984,24 +1937,22 @@ fn the_reply_estimate_reads_an_enemy_victory_march() {
         state.turn.active_player = state.player(theirs).id().clone();
         let session = Session::new(state.clone());
         let values = PropertyValues::STANDARD;
-        let with = reply::estimate_with(
+        let with = reply::estimate(
             &session,
             ours,
             values,
             reply::ReplyOptions {
-                capture_bonus: true,
-                power_reach: true,
-                power_swing: false,
+                commander_effects: true,
+                march: true,
             },
         );
-        let without = reply::estimate_with(
+        let without = reply::estimate(
             &session,
             ours,
             values,
             reply::ReplyOptions {
-                capture_bonus: true,
-                power_reach: false,
-                power_swing: false,
+                commander_effects: true,
+                march: false,
             },
         );
         assert!(!without.headquarters_lost, "{commander:?}");
@@ -2038,7 +1989,7 @@ fn the_march_planner_answers_an_enemy_victory_march() {
         );
         !march::powered_headquarters_captures(session.state(), ours).is_empty()
     };
-    assert!(!threat_after(WITHOUT_SWING));
+    assert!(!threat_after(CANDIDATE));
     // Without the march switch, the simulated enemy reply does not use the
     // power, so the planner attacks the infantry and leaves the capture.
     assert!(threat_after(WITHOUT_MARCH));
@@ -2231,8 +2182,8 @@ fn the_march2_planner_takes_the_swing() {
 
 /// At the start of the enemy turn, an enemy Sami with the meter for Victory
 /// March and three infantry in reach of three of our cities can take them.
-/// The estimate with the swing counts their loss. With Andy, it does not
-/// change.
+/// The estimate with the march plan counts their loss. With Andy, it does
+/// not change.
 #[test]
 fn the_reply_estimate_counts_an_enemy_swing() {
     use awvm::commander::PowerLevel;
@@ -2248,24 +2199,22 @@ fn the_reply_estimate_counts_an_enemy_swing() {
         state.turn.active_player = state.player(theirs).id().clone();
         let session = Session::new(state.clone());
         let values = PropertyValues::STANDARD;
-        let with = reply::estimate_with(
+        let with = reply::estimate(
             &session,
             ours,
             values,
             reply::ReplyOptions {
-                capture_bonus: true,
-                power_reach: true,
-                power_swing: true,
+                commander_effects: true,
+                march: true,
             },
         );
-        let without = reply::estimate_with(
+        let without = reply::estimate(
             &session,
             ours,
             values,
             reply::ReplyOptions {
-                capture_bonus: true,
-                power_reach: true,
-                power_swing: false,
+                commander_effects: true,
+                march: false,
             },
         );
         assert!(!with.headquarters_lost);
@@ -2359,8 +2308,6 @@ fn the_placement_does_not_use_a_power_that_the_march_plan_holds() {
     );
 
     let config = CANDIDATE;
-    let placement = crate::power::PowerPlacement::of(&config.baseline.weights);
-    assert_eq!(placement, crate::power::PowerPlacement::FirstRefreshLast);
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut replay = config.replay_score.map(ReplayReader::new);
     let mut planner = probe_planner(&config, &mut evaluator, replay.as_mut(), ours);
@@ -2376,7 +2323,7 @@ fn the_placement_does_not_use_a_power_that_the_march_plan_holds() {
     // it.
     let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
     assert_eq!(power_plays(&seed.plays), Vec::new());
-    let held = planner.placements(&session, &seed, placement);
+    let held = planner.placements(&session, &seed);
     assert!(
         held.iter()
             .all(|(prefix, _, _)| power_plays(prefix).is_empty()),
@@ -2385,7 +2332,7 @@ fn the_placement_does_not_use_a_power_that_the_march_plan_holds() {
 
     // Without the hold, the placement tries the normal power.
     planner.march.hold = None;
-    let free = planner.placements(&session, &seed, placement);
+    let free = planner.placements(&session, &seed);
     assert!(
         free.iter().any(|(prefix, _, _)| power_plays(prefix)
             .iter()
@@ -2420,10 +2367,9 @@ fn the_placement_keeps_the_swing_power_first_and_once() {
     );
     // The placement makes no plan on the swing turn. Without the swing, it
     // makes plans that put the power after the captures.
-    let placement = crate::power::PowerPlacement::of(&config.baseline.weights);
-    assert!(planner.placements(&session, &line, placement).is_empty());
+    assert!(planner.placements(&session, &line).is_empty());
     planner.march.swing_fired = false;
-    let moved = planner.placements(&session, &line, placement);
+    let moved = planner.placements(&session, &line);
     assert!(
         moved.iter().any(|(prefix, _, _)| {
             let capture = prefix

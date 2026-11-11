@@ -1,5 +1,5 @@
-//! Press mode: orders that the Hard policy does not give when a game is
-//! decided by properties that its capturers cannot reach.
+//! Ferry: orders that the Hard policy does not give when a game is decided by
+//! properties that its capturers cannot reach.
 //!
 //! The Hard policy walks a capturer to properties on its own landmass. It
 //! does not carry a capturer across water. On some maps, small islands hold
@@ -19,29 +19,8 @@ use awvm::session::{LegalScope, LegalVisitor, Order, OrderKind, Session};
 use crate::agent::Play;
 use crate::threat;
 
-/// The press settings of a planner configuration.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PressConfig {
-    /// Whether spare capturers go by transport to properties that they cannot
-    /// reach on foot.
-    pub ferry: bool,
-    /// The most transports that the ferry uses at one time.
-    pub ferry_transports: usize,
-}
-
-/// The serialized press settings also hold the key `lead` with the value
-/// `null`. An earlier lead gate used this key. The key stays, so that the
-/// fingerprints of the measured configurations do not change.
-impl serde::Serialize for PressConfig {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut press = serializer.serialize_struct("PressConfig", 3)?;
-        press.serialize_field("ferry", &self.ferry)?;
-        press.serialize_field("ferry_transports", &self.ferry_transports)?;
-        press.serialize_field("lead", &None::<()>)?;
-        press.end()
-    }
-}
+/// The most transports that the ferry uses at one time.
+const FERRY_TRANSPORTS: usize = 2;
 
 /// A distance that is not reachable.
 const FAR: u32 = u32::MAX;
@@ -341,7 +320,7 @@ fn production_orders(session: &Session) -> Vec<Order> {
 ///
 /// The plays are for the active seat. A play can become illegal after an
 /// earlier play of the turn. The planner then skips it.
-pub(crate) fn ferry_plays(session: &Session, max_transports: usize) -> Vec<Play> {
+pub(crate) fn ferry_plays(session: &Session) -> Vec<Play> {
     let state = session.state();
     let Some(seat) = state.players.seat(&state.turn.active_player) else {
         return Vec::new();
@@ -482,7 +461,7 @@ pub(crate) fn ferry_plays(session: &Session, max_transports: usize) -> Vec<Play>
         return plays;
     }
     let mut taken: Vec<UnitId> = Vec::new();
-    for unit in empty.iter().take(max_transports.saturating_sub(used)) {
+    for unit in empty.iter().take(FERRY_TRANSPORTS.saturating_sub(used)) {
         let Some(at) = board_position(unit) else {
             continue;
         };

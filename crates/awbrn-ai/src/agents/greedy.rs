@@ -51,10 +51,10 @@ use awvm::session::{
 };
 
 use crate::agent::{Agent, NodeBudget, Play};
-use crate::build_policy::{BuildChoice, BuildContext, BuildModelId};
+use crate::build_policy::BuildContext;
 use crate::fog::FogEstimate;
 use crate::map::ContestMap;
-use crate::power::{PowerPolicy, PowerUse};
+use crate::power::PowerUse;
 use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
 use crate::vision::{Needs, VisionMap};
@@ -327,73 +327,41 @@ pub struct Weights {
     /// fingerprints of the earlier weightings do not change.
     #[serde(skip_serializing_if = "is_zero")]
     pub build_floor: f64,
-    /// The build model that chooses the unit kind at each production site.
+    /// Whether the build model fitted to human builds chooses the unit kind
+    /// at each production site ([`crate::build_policy`]).
     ///
     /// The greedy scores still decide whether and when a site builds. The
-    /// model only decides which kind. See [`crate::build_policy`] and the
-    /// production arm of the scorer. The field is left out of the serialized
-    /// weights when it is off, so the fingerprints of the earlier weightings
-    /// do not change.
-    #[serde(skip_serializing_if = "BuildModelId::is_off")]
-    pub build_model: BuildModelId,
-    /// Whether the capture estimates read the capture bonus of the
-    /// commander ([`capture_strength`]).
-    ///
-    /// When false, a unit takes its visible health off a property in each
-    /// turn. When true, the estimate uses the rate of the engine: Sami takes
-    /// 1.5 times her visible health, and her super power takes a property in
-    /// one turn. A commander with no bonus is not changed. The field is left
-    /// out of the serialized weights when it is false, so the fingerprints of
-    /// the earlier weightings do not change.
+    /// model only decides which kind. See the production arm of the scorer.
+    /// The field is left out of the serialized weights when it is false, so
+    /// the fingerprints of the earlier weightings do not change.
     #[serde(skip_serializing_if = "is_false")]
-    pub capture_bonus: bool,
-    /// The rule that decides when a legal commander power is used
-    /// ([`crate::power`]).
+    pub build_model: bool,
+    /// Whether the estimates read the rules of each commander from the
+    /// engine.
     ///
-    /// The field is left out of the serialized weights when it is off, so the
-    /// fingerprints of the earlier weightings do not change.
-    #[serde(skip_serializing_if = "PowerPolicy::is_off")]
-    pub power_policy: PowerPolicy,
-    /// Whether the planner chooses the position of a power in the turn, with
-    /// the power first when the position does not change the score.
+    /// - The capture estimates read the capture bonus of the commander
+    ///   ([`capture_strength`]). Sami takes 1.5 times her visible health,
+    ///   and her super power takes a property in one turn. When false, a
+    ///   unit takes its visible health off a property in each turn.
+    /// - The threat maps of this policy and of the planner score read the
+    ///   day-to-day attack, defense and range of each commander
+    ///   ([`ThreatMap::set_commander_effects`]).
     ///
-    /// When true, this policy uses each power that the power policy does not
-    /// hold before all its other orders. The planner adds plans with the
-    /// power at later positions, and takes one only when it is better by a
-    /// margin ([`crate::planner`]). The field is left out of the serialized
-    /// weights when it is false.
+    /// A commander with no such rule is not changed. The field is left out
+    /// of the serialized weights when it is false.
     #[serde(skip_serializing_if = "is_false")]
-    pub power_placement_first: bool,
-    /// With [`Weights::power_placement_first`]: a power that lets units act
-    /// again ([`crate::power::refreshes_units`]) is used last, as the Eagle
-    /// rule of [`crate::power::PowerPolicy::HumanV1`] does, and the planner
-    /// does not move it. The field is left out of the serialized weights
-    /// when it is false.
-    #[serde(skip_serializing_if = "is_false")]
-    pub power_refresh_last: bool,
-    /// The strength of the commander effect term of the build model.
+    pub commander_effects: bool,
+    /// Whether the power policy decides when and where in the turn a legal
+    /// commander power is used ([`crate::power::power_use`]).
     ///
-    /// When it is not zero, the utility of each kind gets this value times
-    /// the day-to-day effect of our commander on the kind
-    /// ([`crate::build_policy::effect_bias`]). The effect reads the attack,
-    /// the defense, the attack range and the movement that the engine gives
-    /// for the kind. Thus a commander with stronger indirect units buys more
-    /// of them. A commander with no day-to-day effect is not changed. The term
-    /// applies to the choice at each site, not to the joint choice
-    /// ([`Weights::build_model_joint`]). The field is left out of the
-    /// serialized weights at zero, so the fingerprints of the earlier
-    /// weightings do not change.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub build_effect: f64,
-    /// Whether the threat maps read the day-to-day commander effects
-    /// ([`ThreatMap::set_commander_effects`]).
-    ///
-    /// The switch applies to the threat map of this policy and to the threat
-    /// maps of the planner score ([`crate::replay_score`]). A commander with
-    /// no day-to-day rule is not changed. The field is left out of the
-    /// serialized weights when it is false.
+    /// When true, a commander whose human players save for the super power
+    /// holds the normal power. This policy uses each other power before all
+    /// its other orders, except a power that lets units act again, which
+    /// goes last. The planner adds plans with the power at later positions,
+    /// and takes one only when it is better by a margin ([`crate::planner`]).
+    /// The field is left out of the serialized weights when it is false.
     #[serde(skip_serializing_if = "is_false")]
-    pub threat_effects: bool,
+    pub power_policy: bool,
     /// The value of a firing position of our indirect units, for each fund
     /// of the best strike that the unit can make from the tile on its next
     /// turn.
@@ -402,7 +370,7 @@ pub struct Weights {
     /// it stops at the end of the turn sets the targets of the next turn.
     /// The term adds to the pull of each tile the best expected damage, in
     /// funds, against one enemy unit in the attack range of the unit from
-    /// that tile ([`Board::fire_field`]). The exposure term still applies, so
+    /// that tile ([`Board::fire_fields`]). The exposure term still applies, so
     /// a tile that an enemy can attack costs the unit its threat. Zero turns
     /// the term off. The field is left out of the serialized weights at zero.
     #[serde(skip_serializing_if = "is_zero")]
@@ -450,13 +418,9 @@ impl Weights {
         power: 200.0,
         supply: 10.0,
         build_floor: 0.0,
-        build_model: BuildModelId::Off,
-        capture_bonus: false,
-        power_policy: PowerPolicy::Off,
-        power_placement_first: false,
-        power_refresh_last: false,
-        build_effect: 0.0,
-        threat_effects: false,
+        build_model: false,
+        commander_effects: false,
+        power_policy: false,
         indirect_zoc: 0.0,
     };
 
@@ -786,9 +750,10 @@ impl LegalVisitor for SiteCollector<'_> {
 /// reads the human replays for the fit.
 fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mut Vec<BuildSite>) {
     out.clear();
-    let Some(model) = weights.build_model.model() else {
+    if !weights.build_model {
         return;
-    };
+    }
+    let model = crate::build_policy::model();
     session.legal().visit_scoped(
         LegalScope {
             units: &[],
@@ -802,7 +767,6 @@ fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mu
     let state = session.state();
     let context = BuildContext::new(state, seat);
     let dimensions = state.board.dimensions();
-    let bias = crate::build_policy::effect_bias(state, seat, weights.build_effect);
     let mut legal = Vec::with_capacity(UnitKind::COUNT);
     for site in out.iter_mut() {
         let Some(position) = dimensions.position_of(site.cell) else {
@@ -812,14 +776,9 @@ fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mu
         legal.extend(
             UnitKind::ALL
                 .into_iter()
-                .filter(|kind| site.legal & (1 << kind.index()) != 0)
-                .map(BuildChoice::Build),
+                .filter(|kind| site.legal & (1 << kind.index()) != 0),
         );
-        // The choices hold no "no build", so the model chooses a kind.
-        site.choice = match model.choose_with(&context.site(position), &legal, bias.as_ref()) {
-            Some(BuildChoice::Build(kind)) => Some(kind),
-            Some(BuildChoice::NoBuild) | None => None,
-        };
+        site.choice = model.choose(&context.site(position), &legal);
     }
 }
 
@@ -1111,7 +1070,8 @@ impl GreedyAgent {
 
     /// Score the visible legal orders that belong to no unit: production,
     /// powers and the end of the turn. The tie-break stream does not change.
-    pub fn scored_unitless_orders(&mut self, view: &Observation) -> Option<ScoredOrders> {
+    #[cfg(test)]
+    pub(crate) fn scored_unitless_orders(&mut self, view: &Observation) -> Option<ScoredOrders> {
         self.with_observation(view, |agent, session| {
             let mut candidates = Vec::new();
             agent.act_in_session_scoped::<true>(
@@ -1129,7 +1089,8 @@ impl GreedyAgent {
     /// The kind that the build model chooses at each legal production site
     /// of the view. A site where the model holds no legal kind is not in the
     /// list. The list is empty when the build model is off.
-    pub fn model_build_choices(&mut self, view: &Observation) -> Vec<(Pos, UnitKind)> {
+    #[cfg(test)]
+    pub(crate) fn model_build_choices(&mut self, view: &Observation) -> Vec<(Pos, UnitKind)> {
         let weights = self.weights;
         let mut sites = std::mem::take(&mut self.build_sites);
         let choices = self
@@ -1804,7 +1765,7 @@ impl GreedyAgent {
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
         if unit_fields_needed && weights.threat != 0.0 {
-            threat.set_commander_effects(weights.threat_effects);
+            threat.set_commander_effects(weights.commander_effects);
             threat.set_overlay(fog.map(|estimate| Arc::clone(&estimate.threat)));
             threat.build(session, seat);
         }
@@ -2129,7 +2090,7 @@ impl Board<'_> {
             let Some(range) = profile.indirect_range else {
                 continue;
             };
-            let values = crate::build_policy::seat_day_to_day(state, self.seat, *kind);
+            let values = crate::threat::seat_day_to_day(state, self.seat, *kind);
             let attack = values.attack as f64 / 100.0;
             let maximum = range
                 .maximum
@@ -2938,7 +2899,6 @@ impl Scorer<'_> {
         }
         match crate::power::power_use(
             self.weights().power_policy,
-            crate::power::PowerPlacement::of(self.weights()),
             self.board.state,
             self.board.seat,
             level,
@@ -2967,7 +2927,7 @@ impl Scorer<'_> {
             self.weights(),
             self.board.property_weight(tile.terrain),
             tile.capture_points.unwrap_or(WHOLE_PROPERTY),
-            if self.weights().capture_bonus {
+            if self.weights().commander_effects {
                 capture_strength(
                     self.board.state,
                     unit,
@@ -3151,7 +3111,7 @@ impl Scorer<'_> {
         let points = tile.capture_points.unwrap_or(WHOLE_PROPERTY);
         // With the capture bonus, the rate is that of the next enemy turn,
         // when the capture continues.
-        let bonus = self.weights().capture_bonus;
+        let bonus = self.weights().commander_effects;
         let rate = |visual_hp: u8| {
             if bonus {
                 capture_strength(self.board.state, defender, visual_hp, CaptureTurn::Next)
@@ -3454,7 +3414,11 @@ mod tests {
     #[test]
     fn the_firing_position_term_moves_an_indirect_unit_into_range() {
         use awvm::ruleset::CommanderKind;
-        let base = crate::profile::V8_GREEDY_CONFIG.weights;
+        let base = Weights {
+            indirect_zoc: 0.0,
+            commander_effects: false,
+            ..crate::profile::V8_GREEDY_CONFIG.weights
+        };
         let zoc = Weights {
             indirect_zoc: 0.05,
             ..base
@@ -3469,7 +3433,7 @@ mod tests {
         assert!(!(2..=3).contains(&without), "without the term: {without}");
         let (state, _, tank) = artillery_and_tank(CommanderKind::Grit, 7).unwrap();
         let grit = Weights {
-            threat_effects: true,
+            commander_effects: true,
             ..zoc
         };
         let with = artillery_distance(&state, grit, tank).unwrap();

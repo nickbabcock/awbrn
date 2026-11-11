@@ -22,25 +22,22 @@
 //! the headquarters, a player who keeps the meter for the super power uses
 //! the normal power on 6 of 11 turns.
 //!
-//! [`PowerPolicy::HumanV1`] is the smallest rule that agrees with these
-//! facts. See [`power_use`].
+//! The power policy ([`crate::agents::Weights::power_policy`]) is the
+//! smallest rule that agrees with these facts. See [`power_use`].
 //!
 //! # The position of the power in the turn
 //!
-//! Without the placement switch
-//! ([`crate::agents::Weights::power_placement_first`]), the flat greedy score
-//! puts the power between the orders with a higher score (most attacks) and
-//! the orders with a lower score (most moves). The position thus comes from
-//! the score scale, not from the effect of the power. The rule of
-//! [`power_use`] puts the Eagle super power last.
+//! Without the policy, the flat greedy score puts the power between the
+//! orders with a higher score (most attacks) and the orders with a lower
+//! score (most moves). The position thus comes from the score scale, not
+//! from the effect of the power.
 //!
-//! With the placement switch, the greedy policy uses the power before all
-//! other orders. The planner tries the later positions, and takes one only
-//! when its score is better than the score with the power first by a margin.
-//! See [`crate::planner`]. When the position does not change the score, the
-//! power thus comes first, as for most human powers. With
-//! [`crate::agents::Weights::power_refresh_last`], a power that lets units
-//! act again is used last, and the planner does not move it.
+//! With the policy, the greedy policy uses the power before all other
+//! orders. The planner tries the later positions, and takes one only when its
+//! score is better than the score with the power first by a margin. See
+//! [`crate::planner`]. When the position does not change the score, the power
+//! thus comes first, as for most human powers. A power that lets units act
+//! again is used last, and the planner does not move it.
 //!
 //! In the Division 1 games, human players use most powers after some orders
 //! (median of 1 to 4 unit orders), and almost never after all unit orders.
@@ -51,27 +48,6 @@
 use awvm::commander::PowerLevel;
 use awvm::ruleset::{self, CommanderKind, TerrainTrait};
 use awvm::semantic::{CAPTURE_REQUIRED_POINTS, Location, PlayerIdx, State, TileOwner};
-
-/// The rule that decides when a legal power is used.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PowerPolicy {
-    /// Use each legal power at once. This is the rule of the earlier
-    /// configurations.
-    #[default]
-    Off,
-    /// Keep the meter for the super power with the commanders whose human
-    /// players do so. See [`power_use`].
-    HumanV1,
-}
-
-impl PowerPolicy {
-    /// Whether the policy is [`PowerPolicy::Off`].
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub const fn is_off(&self) -> bool {
-        matches!(self, Self::Off)
-    }
-}
 
 /// The powers that a plan keeps back for one seat in this turn.
 ///
@@ -102,8 +78,8 @@ impl PowerHold {
 /// What the policy does with one legal power.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PowerUse {
-    /// Use the power with the normal power score, and let the planner try it
-    /// before all other orders.
+    /// The policy is off: use the power with the normal power score, and let
+    /// the planner try it before all other orders.
     Now,
     /// Use the power after all other orders that have a score above zero.
     /// The planner does not try it first.
@@ -115,34 +91,6 @@ pub enum PowerUse {
     Hold,
 }
 
-/// Who chooses the position of a power in the turn.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PowerPlacement {
-    /// The greedy score and the rule of [`power_use`] choose it.
-    #[default]
-    Off,
-    /// The greedy policy uses the power first, and the planner tries it at
-    /// later positions ([`crate::agents::Weights::power_placement_first`]).
-    /// No configuration uses this placement. The tests use it.
-    First,
-    /// [`PowerPlacement::First`], but a power that lets units act again
-    /// ([`refreshes_units`]) is [`PowerUse::Last`], as the Eagle rule of
-    /// [`PowerPolicy::HumanV1`] does
-    /// ([`crate::agents::Weights::power_refresh_last`]).
-    FirstRefreshLast,
-}
-
-impl PowerPlacement {
-    /// The placement of the greedy weights `weights`.
-    pub const fn of(weights: &crate::agents::Weights) -> Self {
-        match (weights.power_placement_first, weights.power_refresh_last) {
-            (true, true) => Self::FirstRefreshLast,
-            (true, false) => Self::First,
-            (false, _) => Self::Off,
-        }
-    }
-}
-
 /// How a commander uses the meter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Style {
@@ -152,7 +100,7 @@ enum Style {
     Save,
 }
 
-/// The style of each commander for [`PowerPolicy::HumanV1`].
+/// The style of each commander for the power policy.
 ///
 /// A commander gets [`Style::Save`] when the super power is at least 40% of
 /// the powers of its human players, over at least 8 powers. Hawke (36%),
@@ -180,44 +128,33 @@ const fn style(commander: CommanderKind) -> Style {
     }
 }
 
-/// What `policy` does with the legal power `level` of `seat` in `state`.
+/// What the power policy does with the legal power `level` of `seat` in
+/// `state`. `on` is [`crate::agents::Weights::power_policy`].
 ///
-/// With [`PowerPolicy::HumanV1`]:
+/// With the policy off, each power is [`PowerUse::Now`]. With the policy on:
 ///
 /// - A commander with the save style holds the normal power, except when an
 ///   enemy capturer stands on a property of `seat` whose capture defeats
 ///   `seat`. A lab counts only on a map with no headquarters.
-/// - Eagle uses the super power last. It lets each own unit that is not
-///   infantry or mech act again, so it is worth most after those units have
-///   acted. Human Eagle players make 8 attacks on average before it.
-/// - All other powers are used at once, as before.
-///
-/// With [`PowerPlacement::First`], each power that the policy does not hold
-/// is [`PowerUse::First`], and the Eagle rule does not apply. With
-/// [`PowerPlacement::FirstRefreshLast`], it is also [`PowerUse::First`],
-/// except a power that lets units act again ([`refreshes_units`]), which is
-/// [`PowerUse::Last`]. This rule replaces the Eagle rule. The planner then
-/// chooses the position.
-pub fn power_use(
-    policy: PowerPolicy,
-    placement: PowerPlacement,
-    state: &State,
-    seat: PlayerIdx,
-    level: PowerLevel,
-) -> PowerUse {
-    let use_ = held_or_now(policy, state, seat, level);
-    match (use_, placement) {
-        (PowerUse::Hold, _) | (_, PowerPlacement::Off) => use_,
-        (_, PowerPlacement::First) => PowerUse::First,
-        (_, PowerPlacement::FirstRefreshLast) => {
-            let refresh = active_commander(state, seat)
-                .is_some_and(|commander| refreshes_units(commander, level));
-            if refresh {
-                PowerUse::Last
-            } else {
-                PowerUse::First
-            }
-        }
+/// - A power that lets units act again ([`refreshes_units`]) is
+///   [`PowerUse::Last`]. Only the Eagle super power does this. It is worth
+///   most after the other units have acted. Human Eagle players make 8
+///   attacks on average before it.
+/// - Each other power is [`PowerUse::First`]. The planner then chooses its
+///   position.
+pub fn power_use(on: bool, state: &State, seat: PlayerIdx, level: PowerLevel) -> PowerUse {
+    if !on {
+        return PowerUse::Now;
+    }
+    let commander = active_commander(state, seat);
+    let saves = commander.is_some_and(|commander| style(commander) == Style::Save);
+    if level == PowerLevel::Cop && saves && !decisive_capture(state, seat) {
+        return PowerUse::Hold;
+    }
+    if commander.is_some_and(|commander| refreshes_units(commander, level)) {
+        PowerUse::Last
+    } else {
+        PowerUse::First
     }
 }
 
@@ -326,32 +263,6 @@ fn refresh_probe(commander: CommanderKind, level: PowerLevel) -> bool {
         .any(|unit| unit.owner == seat && unit.action == UnitAction::Ready)
 }
 
-/// [`power_use`] without the placement switch.
-fn held_or_now(policy: PowerPolicy, state: &State, seat: PlayerIdx, level: PowerLevel) -> PowerUse {
-    if policy.is_off() {
-        return PowerUse::Now;
-    }
-    let Some(commander) = state
-        .players
-        .get(seat.get())
-        .and_then(|player| player.commanders.iter().find(|co| co.active))
-        .map(|co| co.id)
-    else {
-        return PowerUse::Now;
-    };
-    match (level, style(commander)) {
-        (PowerLevel::Cop, Style::Save) => {
-            if decisive_capture(state, seat) {
-                PowerUse::Now
-            } else {
-                PowerUse::Hold
-            }
-        }
-        (PowerLevel::Scop, _) if commander == CommanderKind::Eagle => PowerUse::Last,
-        _ => PowerUse::Now,
-    }
-}
-
 /// Whether an enemy unit captures a property of `seat` whose capture
 /// defeats `seat`.
 pub(crate) fn decisive_capture(state: &State, seat: PlayerIdx) -> bool {
@@ -448,38 +359,37 @@ mod tests {
     #[test]
     fn the_policy_holds_the_normal_power_of_a_saving_commander() {
         let (state, seat) = arena_with(CommanderKind::Andy);
-        let off = PowerPolicy::Off;
-        let on = PowerPolicy::HumanV1;
         assert_eq!(
-            power_use(off, PowerPlacement::Off, &state, seat, PowerLevel::Cop),
+            power_use(false, &state, seat, PowerLevel::Cop),
             PowerUse::Now
         );
         assert_eq!(
-            power_use(on, PowerPlacement::Off, &state, seat, PowerLevel::Cop),
+            power_use(true, &state, seat, PowerLevel::Cop),
             PowerUse::Hold
         );
         assert_eq!(
-            power_use(on, PowerPlacement::Off, &state, seat, PowerLevel::Scop),
-            PowerUse::Now
+            power_use(true, &state, seat, PowerLevel::Scop),
+            PowerUse::First
         );
 
         let (state, seat) = arena_with(CommanderKind::Kindle);
         assert_eq!(
-            power_use(on, PowerPlacement::Off, &state, seat, PowerLevel::Cop),
-            PowerUse::Now
+            power_use(true, &state, seat, PowerLevel::Cop),
+            PowerUse::First
         );
 
+        // The Eagle super power lets units act again, so it goes last.
         let (state, seat) = arena_with(CommanderKind::Eagle);
         assert_eq!(
-            power_use(on, PowerPlacement::Off, &state, seat, PowerLevel::Cop),
+            power_use(true, &state, seat, PowerLevel::Cop),
             PowerUse::Hold
         );
         assert_eq!(
-            power_use(on, PowerPlacement::Off, &state, seat, PowerLevel::Scop),
+            power_use(true, &state, seat, PowerLevel::Scop),
             PowerUse::Last
         );
         assert_eq!(
-            power_use(off, PowerPlacement::Off, &state, seat, PowerLevel::Scop),
+            power_use(false, &state, seat, PowerLevel::Scop),
             PowerUse::Now
         );
     }
@@ -489,14 +399,8 @@ mod tests {
         let (mut state, seat) = arena_with(CommanderKind::Andy);
         capture_headquarters(&mut state, seat);
         assert_eq!(
-            power_use(
-                PowerPolicy::HumanV1,
-                PowerPlacement::Off,
-                &state,
-                seat,
-                PowerLevel::Cop
-            ),
-            PowerUse::Now
+            power_use(true, &state, seat, PowerLevel::Cop),
+            PowerUse::First
         );
     }
 
@@ -508,15 +412,13 @@ mod tests {
         use crate::agents::{GreedyAgent, Weights};
         use awvm::semantic::{AwbwVisibility, observe};
         use awvm::session::OrderKind;
-        let score = |commander, policy, placement| {
+        let score = |commander, policy| {
             let (state, _) = arena_with(commander);
             let view = observe(&AwbwVisibility, &state, &state.turn.active_player).unwrap();
             let mut agent = GreedyAgent::with_weights(
                 1,
                 Weights {
                     power_policy: policy,
-                    power_placement_first: placement,
-                    power_refresh_last: placement,
                     ..Weights::DEFAULT
                 },
             );
@@ -534,34 +436,23 @@ mod tests {
         };
         let power = Weights::DEFAULT.power;
         assert_eq!(
-            score(CommanderKind::Andy, PowerPolicy::Off, false),
+            score(CommanderKind::Andy, false),
             vec![(PowerLevel::Cop, power), (PowerLevel::Scop, power)]
         );
-        assert_eq!(
-            score(CommanderKind::Andy, PowerPolicy::HumanV1, false),
-            vec![(PowerLevel::Cop, 0.0), (PowerLevel::Scop, power)]
-        );
-        assert_eq!(
-            score(CommanderKind::Eagle, PowerPolicy::HumanV1, false),
-            vec![
-                (PowerLevel::Cop, 0.0),
-                (PowerLevel::Scop, f64::MIN_POSITIVE)
-            ]
-        );
-        // With the placement, each power that the policy does not hold comes
-        // before all other orders, except a power that lets units act again,
-        // which stays last.
+        // With the policy, each power that it does not hold comes before all
+        // other orders, except a power that lets units act again, which
+        // stays last.
         let first = 1.0e12;
         assert_eq!(
-            score(CommanderKind::Andy, PowerPolicy::HumanV1, true),
+            score(CommanderKind::Andy, true),
             vec![(PowerLevel::Cop, 0.0), (PowerLevel::Scop, first)]
         );
         assert_eq!(
-            score(CommanderKind::Kindle, PowerPolicy::HumanV1, true),
+            score(CommanderKind::Kindle, true),
             vec![(PowerLevel::Cop, first), (PowerLevel::Scop, first)]
         );
         assert_eq!(
-            score(CommanderKind::Eagle, PowerPolicy::HumanV1, true),
+            score(CommanderKind::Eagle, true),
             vec![
                 (PowerLevel::Cop, 0.0),
                 (PowerLevel::Scop, f64::MIN_POSITIVE)

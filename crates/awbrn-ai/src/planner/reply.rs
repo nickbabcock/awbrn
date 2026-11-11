@@ -134,52 +134,38 @@ impl LegalVisitor for Collector<'_> {
     }
 }
 
-/// The switches of [`estimate_with`]. All are off by default, which is the
-/// estimate of [`estimate`].
+/// The switches of [`estimate`]. All are off by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReplyOptions {
     /// When true, an enemy capturer takes the points that the engine gives
     /// it, with the capture bonus of its commander and of each power that the
     /// enemy meter can pay for now. When false, it takes its visible health.
-    pub capture_bonus: bool,
+    pub commander_effects: bool,
     /// When true and the enemy meter can pay for a power that lets an enemy
-    /// capturer take a property in one turn
-    /// ([`super::march::decisive_powers`]), the estimate also reads the
-    /// captures of our headquarters that the enemy can make with that power.
-    /// The engine gives the movement and the capture points of the power.
-    /// When the capture takes the headquarters, the estimate counts its loss,
-    /// and the headquarters goes into [`ReplyEstimate::threatened`], so that a
-    /// block plan can put a unit on it.
-    pub power_reach: bool,
-    /// When true and the enemy meter can pay for a power that lets an enemy
-    /// capturer take a property in one capture, the estimate also counts the
-    /// loss of each of our properties that the enemy capturers take with that
-    /// power, one property for each capturer
-    /// ([`super::march::powered_captures`]). Each property counts its whole
-    /// value, and it goes into [`ReplyEstimate::threatened`], so that a block
-    /// plan can put a unit on it. It has no effect when `power_reach` is
-    /// false.
-    pub power_swing: bool,
+    /// capturer take a property in one capture
+    /// ([`super::march::decisive_powers`]), the estimate also counts our
+    /// properties that the enemy capturers take with that power, one
+    /// property for each capturer ([`super::march::powered_captures`]). The
+    /// engine gives the movement and the capture points of the power. The
+    /// headquarters counts its whole loss, and each other property its whole
+    /// value. Each such property goes into [`ReplyEstimate::threatened`], so
+    /// that a block plan can put a unit on it.
+    pub march: bool,
 }
 
-/// Estimate the loss that the active enemy seat can cause to `ours`.
+/// Estimate the loss that the active enemy seat can cause to `ours`, with
+/// the switches of `options`.
 ///
 /// `session` must hold the position at the start of the enemy turn.
-pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> ReplyEstimate {
-    estimate_with(session, ours, values, ReplyOptions::default())
-}
-
-/// [`estimate`] with the switches of `options`.
-pub fn estimate_with(
+pub fn estimate(
     session: &Session,
     ours: PlayerIdx,
     values: PropertyValues,
     options: ReplyOptions,
 ) -> ReplyEstimate {
     let ReplyOptions {
-        capture_bonus,
-        power_reach,
-        power_swing,
+        commander_effects,
+        march,
     } = options;
     let state = session.state();
     let mut collector = Collector {
@@ -281,7 +267,7 @@ pub fn estimate_with(
         else {
             continue;
         };
-        let strength = if capture_bonus {
+        let strength = if commander_effects {
             capture_strength(state, capturer, capturer.hp.div_ceil(10), CaptureTurn::Next)
         } else {
             capturer.hp.div_ceil(10)
@@ -315,8 +301,8 @@ pub fn estimate_with(
             None => taken.push((cell, loss)),
         }
     }
-    if power_reach {
-        for (cell, decisive) in super::march::powered_captures(state, ours, power_swing) {
+    if march {
+        for (cell, decisive) in super::march::powered_captures(state, ours, true) {
             let worth = if decisive {
                 estimate.headquarters_lost = true;
                 values.headquarters
