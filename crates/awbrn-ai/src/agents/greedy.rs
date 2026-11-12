@@ -1886,6 +1886,7 @@ impl GreedyAgent {
         }
         let model = (!RECORD && weights.move_policy != 0.0)
             .then(|| (move_policy::model(), weights.move_policy));
+        move_context.clear();
         let scorer = Scorer {
             board: &board,
             movement_bounds,
@@ -1923,7 +1924,6 @@ impl GreedyAgent {
             model,
             moves,
             context: move_context,
-            context_ready: false,
             unit_orders: Vec::new(),
         };
         match scope {
@@ -2541,9 +2541,8 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     /// Where the move candidates go when they are collected.
     moves: Option<&'a mut Vec<MoveCandidate>>,
     /// The board values of the move features. They are calculated when the
-    /// first unit needs them ([`GreedyVisitor::context_ready`]).
+    /// first unit needs them.
     context: &'a mut MoveContext,
-    context_ready: bool,
     /// The scored orders of the current unit, until all its orders are
     /// scored.
     unit_orders: Vec<UnitOrder>,
@@ -2608,13 +2607,11 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
             self.unit_orders = orders;
             return;
         }
-        if !self.context_ready {
-            self.context.build(self.scorer.board);
-            self.context_ready = true;
-        }
         let first = orders[0].order;
         let basis = self.scorer.unit_basis(first);
         let unit = first.unit().and_then(|index| self.scorer.unit(index));
+        let capturer = unit.is_some_and(|unit| ruleset::profile(unit.kind).can_capture);
+        self.context.prepare(self.scorer.board, capturer);
         let features: Vec<_> = orders
             .iter()
             .map(|entry| {

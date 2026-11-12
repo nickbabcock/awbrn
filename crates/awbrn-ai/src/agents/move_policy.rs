@@ -147,23 +147,28 @@ impl From<&Forecast> for ForecastValues {
 }
 
 /// The board values that the features read, calculated once for each
-/// position.
+/// position when a unit first needs them ([`MoveContext::prepare`]).
 ///
 /// The vectors stay in place from one position to the next, so that a new
 /// position does not allocate.
 #[derive(Debug)]
 pub(super) struct MoveContext {
+    /// Whether the values other than `property_distance` are for the
+    /// current position.
+    built: bool,
+    /// Whether `property_distance` is for the current position.
+    properties_built: bool,
     width: usize,
+    height: usize,
     /// The distance from each tile to the nearest enemy unit, capped.
     enemy_distance: Vec<u8>,
     /// The distance from each tile to the nearest enemy headquarters or, on
     /// a map with no headquarters, the nearest enemy factory, capped.
     hq_distance: Vec<u8>,
     /// The distance from each tile to the nearest property that we can
-    /// capture, capped.
+    /// capture, capped. Only the features of a unit that can capture read
+    /// it.
     property_distance: Vec<u8>,
-    /// The distance from each tile to the nearest enemy capturer, capped.
-    capturer_distance: Vec<u8>,
     /// The number of our units next to each tile.
     friends_adjacent: Vec<u8>,
     /// The number of our units at most three tiles from each tile.
@@ -174,9 +179,11 @@ pub(super) struct MoveContext {
     lead: f64,
     /// Whether the day is 15 or later.
     late: bool,
-    /// The positions that a distance field starts from.
+    /// The positions of the enemy units.
     enemies: Vec<Pos>,
+    /// The positions of the enemy units that can capture.
     capturers: Vec<Pos>,
+    /// The positions that the other distance fields start from.
     headquarters: Vec<Pos>,
     factories: Vec<Pos>,
     properties: Vec<Pos>,
@@ -188,11 +195,13 @@ const FAR: u8 = 40;
 impl MoveContext {
     pub(super) const fn new() -> Self {
         Self {
+            built: false,
+            properties_built: false,
             width: 0,
+            height: 0,
             enemy_distance: Vec::new(),
             hq_distance: Vec::new(),
             property_distance: Vec::new(),
-            capturer_distance: Vec::new(),
             friends_adjacent: Vec::new(),
             friends_near: Vec::new(),
             enemies_adjacent: Vec::new(),
@@ -206,13 +215,38 @@ impl MoveContext {
         }
     }
 
-    pub(super) fn build(&mut self, board: &Board<'_>) {
+    /// Mark the values as out of date, for a new position.
+    pub(super) fn clear(&mut self) {
+        self.built = false;
+        self.properties_built = false;
+    }
+
+    /// Calculate the values that the features of a unit read, if they are
+    /// out of date. `capturer` tells whether the unit can capture.
+    pub(super) fn prepare(&mut self, board: &Board<'_>, capturer: bool) {
+        if !self.built {
+            self.build(board);
+            self.built = true;
+        }
+        if capturer && !self.properties_built {
+            distance_field(
+                &self.properties,
+                self.width,
+                self.height,
+                &mut self.property_distance,
+            );
+            self.properties_built = true;
+        }
+    }
+
+    fn build(&mut self, board: &Board<'_>) {
         let state = board.state;
         let seat = board.seat;
         let cells = state.board.dimensions().len();
         let width = usize::from(state.board.width());
         let height = usize::from(state.board.height());
         self.width = width;
+        self.height = height;
         for field in [
             &mut self.friends_adjacent,
             &mut self.friends_near,
@@ -273,8 +307,14 @@ impl MoveContext {
         };
         distance_field(&self.enemies, width, height, &mut self.enemy_distance);
         distance_field(goals, width, height, &mut self.hq_distance);
-        distance_field(&self.properties, width, height, &mut self.property_distance);
-        distance_field(&self.capturers, width, height, &mut self.capturer_distance);
+    }
+
+    /// Whether an enemy unit that can capture is at most three tiles from
+    /// `position`.
+    fn capturer_near(&self, position: Pos) -> bool {
+        self.capturers
+            .iter()
+            .any(|capturer| capturer.distance(position) <= 3)
     }
 
     fn at(field: &[u8], cell: usize) -> f64 {
@@ -303,40 +343,44 @@ fn count(field: &mut [u8], width: usize, height: usize, center: Pos, radius: i32
 }
 
 /// The Manhattan distance from each tile to the nearest target, capped at
-/// [`FAR`]. Two passes over the grid give the exact distance.
+/// [`FAR`]. Two passes over the grid give the exact distance. All values stay
+/// at or below [`FAR`], so one more step cannot overflow.
 fn distance_field(targets: &[Pos], width: usize, height: usize, out: &mut Vec<u8>) {
     out.clear();
     out.resize(width * height, FAR);
+    if width == 0 {
+        return;
+    }
     for target in targets {
         let (x, y) = (usize::from(target.x), usize::from(target.y));
         if x < width && y < height {
             out[y * width + x] = 0;
         }
     }
+    // From the top left: the tile above, then the tile to the left.
     for y in 0..height {
-        for x in 0..width {
-            let cell = y * width + x;
-            let mut value = out[cell];
-            if x > 0 {
-                value = value.min(out[cell - 1].saturating_add(1));
+        let (done, rest) = out.split_at_mut(y * width);
+        let row = &mut rest[..width];
+        if y > 0 {
+            for (value, above) in row.iter_mut().zip(&done[(y - 1) * width..]) {
+                *value = (*value).min(above + 1);
             }
-            if y > 0 {
-                value = value.min(out[cell - width].saturating_add(1));
-            }
-            out[cell] = value.min(FAR);
+        }
+        for x in 1..width {
+            row[x] = row[x].min(row[x - 1] + 1);
         }
     }
+    // From the bottom right: the tile below, then the tile to the right.
     for y in (0..height).rev() {
-        for x in (0..width).rev() {
-            let cell = y * width + x;
-            let mut value = out[cell];
-            if x + 1 < width {
-                value = value.min(out[cell + 1].saturating_add(1));
+        let (rest, done) = out.split_at_mut((y + 1) * width);
+        let row = &mut rest[y * width..];
+        if y + 1 < height {
+            for (value, below) in row.iter_mut().zip(&done[..width]) {
+                *value = (*value).min(below + 1);
             }
-            if y + 1 < height {
-                value = value.min(out[cell + width].saturating_add(1));
-            }
-            out[cell] = value.min(FAR);
+        }
+        for x in (0..width - 1).rev() {
+            row[x] = row[x].min(row[x + 1] + 1);
         }
     }
 }
@@ -524,7 +568,7 @@ impl Scorer<'_> {
         }
         set(
             Feature::Guard,
-            flag(own && MoveContext::at(&context.capturer_distance, cell) <= 3.0),
+            flag(own && context.capturer_near(destination)),
         );
 
         // The capture.
@@ -807,3 +851,41 @@ const _: () = assert!(Feature::ActCapture as usize == OWN_START);
 const _: () = assert!(Feature::DealtValue as usize == 12);
 const _: () = assert!(Feature::PullGain as usize == 35);
 const _: () = assert!(Feature::UnitHp as usize == MOVE_FEATURE_COUNT - 1);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The distance field is the capped Manhattan distance to the nearest
+    /// target.
+    #[test]
+    fn the_distance_field_is_the_capped_distance_to_the_nearest_target() {
+        type Grid = (usize, usize, &'static [(u8, u8)]);
+        let grids: [Grid; 4] = [
+            (1, 1, &[]),
+            (7, 3, &[(0, 0)]),
+            (22, 18, &[(3, 4), (20, 1), (11, 17)]),
+            (60, 50, &[(0, 0)]),
+        ];
+        let mut field = Vec::new();
+        for (width, height, targets) in grids {
+            let targets: Vec<Pos> = targets.iter().map(|(x, y)| Pos::new(*x, *y)).collect();
+            distance_field(&targets, width, height, &mut field);
+            for y in 0..height {
+                for x in 0..width {
+                    let here = Pos::new(x as u8, y as u8);
+                    let expected = targets
+                        .iter()
+                        .map(|target| target.distance(here))
+                        .min()
+                        .map_or(FAR, |distance| distance.min(u64::from(FAR)) as u8);
+                    assert_eq!(
+                        field[y * width + x],
+                        expected,
+                        "{width}x{height} at {x},{y}"
+                    );
+                }
+            }
+        }
+    }
+}
