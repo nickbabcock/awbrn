@@ -409,6 +409,16 @@ pub struct Weights {
     /// serialized weights at zero.
     #[serde(skip_serializing_if = "is_zero")]
     pub move_policy_fog: f64,
+    /// Whether the move features in fog games read the map that the player
+    /// knows: a property in fog is a property that this player can capture,
+    /// and a headquarters in fog is an enemy headquarters. A property of
+    /// this player is always in sight, so a property in fog is not ours.
+    /// With this field, fog games use the second fog move model
+    /// ([`super::move_policy::fog_map_model`]). This field has no effect in
+    /// games without fog. The field is left out of the serialized weights
+    /// when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub move_fog_map: bool,
 }
 
 impl Weights {
@@ -459,6 +469,7 @@ impl Weights {
         firing_positions: 0.0,
         move_policy: 0.0,
         move_policy_fog: 0.0,
+        move_fog_map: false,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -1898,8 +1909,12 @@ impl GreedyAgent {
         let model = if RECORD {
             None
         } else if state.settings.fog {
-            (weights.move_policy_fog != 0.0)
-                .then(|| (move_policy::fog_model(), weights.move_policy_fog))
+            let model = if weights.move_fog_map {
+                move_policy::fog_map_model()
+            } else {
+                move_policy::fog_model()
+            };
+            (weights.move_policy_fog != 0.0).then(|| (model, weights.move_policy_fog))
         } else {
             (weights.move_policy != 0.0).then(|| (move_policy::model(), weights.move_policy))
         };
@@ -1974,7 +1989,7 @@ pub fn order_candidate_id(order: Order) -> u64 {
 pub(super) struct Board<'a> {
     pub(super) state: &'a State,
     pub(super) seat: PlayerIdx,
-    weights: &'a Weights,
+    pub(super) weights: &'a Weights,
 }
 
 impl Board<'_> {
@@ -4972,6 +4987,15 @@ mod tests {
             game(blend, true),
             game(both, true),
             "the fog move model changes a fog game"
+        );
+        let map = Weights {
+            move_fog_map: true,
+            ..both
+        };
+        assert_eq!(
+            game(both, false),
+            game(map, false),
+            "the fog map features do not change a game without fog"
         );
     }
 

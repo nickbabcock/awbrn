@@ -106,7 +106,10 @@ fn main() -> Result<()> {
         .as_slice()
     {
         ["extract", maps, output, divisions @ ..] if !divisions.is_empty() => {
-            extract(divisions, Path::new(maps), Path::new(output))
+            extract(divisions, Path::new(maps), Path::new(output), false)
+        }
+        ["extract-fog-map", maps, output, divisions @ ..] if !divisions.is_empty() => {
+            extract(divisions, Path::new(maps), Path::new(output), true)
         }
         ["score", strength, prefix] => score(strength.parse()?, prefix),
         ["names", output] => Ok(fs::write(
@@ -114,7 +117,8 @@ fn main() -> Result<()> {
             serde_json::to_vec_pretty(&MOVE_FEATURES.as_slice())?,
         )?),
         _ => bail!(
-            "usage: move_policy extract <maps> <output> <division>... | names <output> \
+            "usage: move_policy extract|extract-fog-map <maps> <output> <division>... \
+             | names <output> \
              | score <strength> <prefix>"
         ),
     }
@@ -175,7 +179,9 @@ fn score(strength: f64, prefix: &str) -> Result<()> {
     Ok(())
 }
 
-fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
+/// Extract the rows of the divisions. With `fog_map`, the features read the
+/// map that the player knows in fog ([`awbrn_ai::agents::Weights::move_fog_map`]).
+fn extract(divisions: &[&str], maps: &Path, output: &Path, fog_map: bool) -> Result<()> {
     let mut paths = Vec::new();
     for division in divisions {
         for entry in fs::read_dir(division).with_context(|| format!("read {division}"))? {
@@ -201,7 +207,7 @@ fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
     for path in &paths {
         coverage.archives += 1;
         let mut game = Game::default();
-        if let Err(error) = game_rows(path, maps, &mut game, &mut coverage)? {
+        if let Err(error) = game_rows(path, maps, fog_map, &mut game, &mut coverage)? {
             coverage.failed += 1;
             eprintln!("{}: {error:#}", path.display());
         }
@@ -256,6 +262,7 @@ struct Game {
 fn game_rows(
     path: &Path,
     maps: &Path,
+    fog_map: bool,
     game: &mut Game,
     coverage: &mut Coverage,
 ) -> Result<Result<()>> {
@@ -281,7 +288,9 @@ fn game_rows(
         &fs::read(&map_path).with_context(|| format!("read {}", map_path.display()))?,
     )
     .with_context(|| format!("parse {}", map_path.display()))?;
-    Ok(replay_rows(&replay, &map, game_id, map_id, game, coverage))
+    Ok(replay_rows(
+        &replay, &map, game_id, map_id, fog_map, game, coverage,
+    ))
 }
 
 /// The order kind of a replay action of one unit, or `None` for an action
@@ -370,6 +379,7 @@ fn replay_rows(
     map: &AwbwMapData,
     game_id: u64,
     map_id: u32,
+    fog_map: bool,
     game: &mut Game,
     coverage: &mut Coverage,
 ) -> Result<()> {
@@ -378,7 +388,15 @@ fn replay_rows(
     if fog {
         coverage.fog += 1;
     }
-    let mut agent = awbrn_ai::profile::V8_GREEDY_CONFIG.build_greedy(0x6d6f_7665_5f70_6f6c);
+    let config = awbrn_ai::profile::V8_GREEDY_CONFIG;
+    let mut agent = awbrn_ai::baseline::BaselineConfig {
+        weights: awbrn_ai::agents::Weights {
+            move_fog_map: fog_map,
+            ..config.weights
+        },
+        ..config
+    }
+    .build_greedy(0x6d6f_7665_5f70_6f6c);
     let mut step = 0_u32;
     let mut turn_owner = None;
     let mut turn_index = 0_usize;

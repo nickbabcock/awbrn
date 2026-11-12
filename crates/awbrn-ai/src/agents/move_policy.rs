@@ -285,8 +285,21 @@ impl MoveContext {
         self.headquarters.clear();
         self.factories.clear();
         self.properties.clear();
+        // In fog, a tile out of sight has no owner in the observation. With
+        // `move_fog_map`, the features read the map that the player knows:
+        // the properties of this player are always in sight, so a property
+        // in fog is an enemy or neutral property, and a headquarters in fog
+        // is an enemy headquarters.
+        let fog_map = state.settings.fog && board.weights.move_fog_map;
         for (position, tile) in state.board.iter() {
             if !ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
+                continue;
+            }
+            if fog_map && tile.owner == TileOwner::NotOwnable {
+                if ruleset::terrain_has(tile.terrain, TerrainTrait::CaptureDefeatsOwner) {
+                    self.headquarters.push(position);
+                }
+                self.properties.push(position);
                 continue;
             }
             let enemy = matches!(tile.owner, TileOwner::Owned(holder) if board.hostile(holder));
@@ -865,6 +878,19 @@ pub fn fog_model() -> &'static MoveModel {
 
 const FOG_MODEL_JSON: &str =
     include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-fog-v1.json");
+
+/// The move model of this crate for games with fog when the features read
+/// the map that the player knows ([`super::Weights::move_fog_map`])
+/// (`human-move-fog-v2.json`).
+pub fn fog_map_model() -> &'static MoveModel {
+    static MODEL: LazyLock<MoveModel> = LazyLock::new(|| {
+        MoveModel::from_json(FOG_MAP_MODEL_JSON).expect("the fog map move model is valid")
+    });
+    &MODEL
+}
+
+const FOG_MAP_MODEL_JSON: &str =
+    include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-fog-v2.json");
 
 // Each feature index agrees with its name in `MOVE_FEATURES`.
 const _: () = assert!(Feature::ActCapture as usize == OWN_START);
