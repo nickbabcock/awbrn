@@ -61,7 +61,8 @@ mise run ai:fit:build -- \
 ```
 
 The script uses one BLAS thread. To use a different number, set
-`OPENBLAS_NUM_THREADS`. With one thread, the fit does not give
-`human-v2a-model.json` exactly: 1,807 of its 2,138 numbers change, by up to
-0.0021. Other versions of NumPy and SciPy can also give small
+`OPENBLAS_NUM_THREADS`. With two threads
+(`OPENBLAS_NUM_THREADS=2 mise run ai:fit:build -- ...`), the fit gives all
+2,137 values of `human-v2a-model.json` exactly. With one thread, 1,807 values
+change, by up to 0.0021. Other versions of NumPy and SciPy can also give small
 differences.
