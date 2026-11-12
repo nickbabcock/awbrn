@@ -853,6 +853,19 @@ pub fn model() -> &'static MoveModel {
 const MODEL_JSON: &str =
     include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-v1-blend.json");
 
+/// The move model of this crate for games with fog (`human-move-fog-v1.json`).
+/// The fit read the decisions of games with fog, with the features of the
+/// observation of the acting player.
+pub fn fog_model() -> &'static MoveModel {
+    static MODEL: LazyLock<MoveModel> = LazyLock::new(|| {
+        MoveModel::from_json(FOG_MODEL_JSON).expect("the fog move model is valid")
+    });
+    &MODEL
+}
+
+const FOG_MODEL_JSON: &str =
+    include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-fog-v1.json");
+
 // Each feature index agrees with its name in `MOVE_FEATURES`.
 const _: () = assert!(Feature::ActCapture as usize == OWN_START);
 const _: () = assert!(Feature::DealtValue as usize == 12);

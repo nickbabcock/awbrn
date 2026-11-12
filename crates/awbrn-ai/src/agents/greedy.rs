@@ -398,10 +398,17 @@ pub struct Weights {
     /// other part. At one, the utility is the fitted model. The field is left
     /// out of the serialized weights at zero.
     ///
-    /// The model is off in fog games. The fit used only games without fog,
-    /// and a fog run of 56 pairs measured no gain.
+    /// This model is off in fog games. The fit used only games without fog,
+    /// and a fog run of 56 pairs measured no gain. In fog games,
+    /// [`Weights::move_policy_fog`] applies.
     #[serde(skip_serializing_if = "is_zero")]
     pub move_policy: f64,
+    /// The strength of the fog move model ([`super::move_policy::fog_model`])
+    /// in fog games. Zero turns the model off in fog games. This field has
+    /// no effect in games without fog. The field is left out of the
+    /// serialized weights at zero.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub move_policy_fog: f64,
 }
 
 impl Weights {
@@ -451,6 +458,7 @@ impl Weights {
         power_policy: false,
         firing_positions: 0.0,
         move_policy: 0.0,
+        move_policy_fog: 0.0,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -1887,8 +1895,14 @@ impl GreedyAgent {
         } else {
             build_sites.clear();
         }
-        let model = (!RECORD && weights.move_policy != 0.0 && !state.settings.fog)
-            .then(|| (move_policy::model(), weights.move_policy));
+        let model = if RECORD {
+            None
+        } else if state.settings.fog {
+            (weights.move_policy_fog != 0.0)
+                .then(|| (move_policy::fog_model(), weights.move_policy_fog))
+        } else {
+            (weights.move_policy != 0.0).then(|| (move_policy::model(), weights.move_policy))
+        };
         move_context.clear();
         let scorer = Scorer {
             board: &board,
@@ -4901,11 +4915,11 @@ mod tests {
         use crate::harness::{Limits, play};
         use awvm::session::Session;
 
-        fn game(weights: Weights) -> String {
+        fn game(weights: Weights, fog: bool) -> String {
             let mut first = GreedyAgent::with_generic_tactical_policy(1, weights);
             let mut second = GreedyAgent::with_generic_tactical_policy(2, weights);
             let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
-            let state = amber_valley(false, 1);
+            let state = amber_valley(fog, 1);
             let mut session = Session::new(state.clone());
             let record = play(
                 state,
@@ -4935,7 +4949,30 @@ mod tests {
             move_policy: 1.0,
             ..plain
         };
-        assert_ne!(game(plain), game(blend), "the move model changes the play");
+        let both = Weights {
+            move_policy_fog: 1.0,
+            ..blend
+        };
+        assert_ne!(
+            game(plain, false),
+            game(blend, false),
+            "the move model changes the play"
+        );
+        assert_eq!(
+            game(blend, false),
+            game(both, false),
+            "the fog move model does not change a game without fog"
+        );
+        assert_eq!(
+            game(plain, true),
+            game(blend, true),
+            "the move model is off in fog"
+        );
+        assert_ne!(
+            game(blend, true),
+            game(both, true),
+            "the fog move model changes a fog game"
+        );
     }
 
     #[test]

@@ -75,6 +75,22 @@ pub const V8_MOVE_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     ..V8_GREEDY_CONFIG
 };
 
+/// The [`V8_MOVE_GREEDY_CONFIG`] scoring with the fog move model
+/// ([`crate::agents::move_policy::fog_model`]) in fog games
+/// ([`crate::agents::Weights::move_policy_fog`]). In games without fog, the
+/// play is the same as [`V8_MOVE_GREEDY_CONFIG`].
+///
+/// [`PlannerConfig::V8_MOVE_FOG`] uses it for its seed plan, its fallback and
+/// its simulated replies.
+pub const V8_MOVE_FOG_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move-fog",
+    weights: Weights {
+        move_policy_fog: 0.5,
+        ..V8_MOVE_GREEDY_CONFIG.weights
+    },
+    ..V8_MOVE_GREEDY_CONFIG
+};
+
 /// How hard an opponent is meant to be, as a player reads it.
 ///
 /// One tier holds one profile at a time. The tier is for selection. A match
@@ -432,6 +448,29 @@ mod tests {
         assert_ne!(
             PlannerConfig::V8_MOVE.fingerprint(),
             PlannerConfig::V8.fingerprint()
+        );
+    }
+
+    /// `planner-v8-move-fog` is `planner-v8-move` with the fog move model in
+    /// fog games, and nothing else.
+    #[test]
+    fn the_v8_move_fog_planner_adds_only_the_fog_move_model() {
+        let expected = PlannerConfig {
+            identifier: "planner-v8-move-fog",
+            baseline: BaselineConfig {
+                identifier: V8_MOVE_FOG_GREEDY_CONFIG.identifier,
+                weights: Weights {
+                    move_policy_fog: 0.5,
+                    ..V8_MOVE_GREEDY_CONFIG.weights
+                },
+                ..V8_MOVE_GREEDY_CONFIG
+            },
+            ..PlannerConfig::V8_MOVE
+        };
+        assert_eq!(PlannerConfig::V8_MOVE_FOG, expected);
+        assert_ne!(
+            PlannerConfig::V8_MOVE_FOG.fingerprint(),
+            PlannerConfig::V8_MOVE.fingerprint()
         );
     }
 
