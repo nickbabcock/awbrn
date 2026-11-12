@@ -397,6 +397,9 @@ pub struct Weights {
     /// an order is the greedy part of the model plus this value times the
     /// other part. At one, the utility is the fitted model. The field is left
     /// out of the serialized weights at zero.
+    ///
+    /// The model is off in fog games. The fit used only games without fog,
+    /// and a fog run of 56 pairs measured no gain.
     #[serde(skip_serializing_if = "is_zero")]
     pub move_policy: f64,
 }
@@ -1884,7 +1887,7 @@ impl GreedyAgent {
         } else {
             build_sites.clear();
         }
-        let model = (!RECORD && weights.move_policy != 0.0)
+        let model = (!RECORD && weights.move_policy != 0.0 && !state.settings.fog)
             .then(|| (move_policy::model(), weights.move_policy));
         move_context.clear();
         let scorer = Scorer {

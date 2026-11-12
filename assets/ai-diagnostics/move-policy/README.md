@@ -84,7 +84,9 @@ lazy). For each unit of planner work it takes 1.2 times as long.
   has no data and its coefficient is zero. In play, the legal orders give
   the unload orders after the orders of all units, so the unloads of a
   transport are usually a separate choice group from its other orders.
-- The fit and the play tests use no fog.
+- The fit uses no fog. The model is off in fog games, where a run of 56
+  pairs measured no gain (-0.018 ± 0.195). In fog, `planner-v8-move` plays
+  the same games as `planner-v8`.
 
 ## Make the model again
 
