@@ -145,8 +145,6 @@ fn the_replay_score_keeps_terminal_scores() {
     let mut replay = ReplayReader::new(ReplayScore::CUP_3_4);
     let mut planner = TurnPlanner {
         rollout: None,
-        own: None,
-        old_line: false,
         config: &PlannerConfig::V6,
         seed: 7,
         seat,
@@ -208,8 +206,6 @@ fn the_replay_score_is_antisymmetric_and_fog_keeps_the_stock_score() {
     let expected = evaluator.value_in(&fog, seats[0]);
     let mut planner = TurnPlanner {
         rollout: None,
-        own: None,
-        old_line: false,
         config: &PlannerConfig::V6,
         seed: 7,
         seat: seats[0],
@@ -258,8 +254,6 @@ fn print_puzzle_candidates() {
         let mut evaluator = Evaluator::new(config.eval_weights);
         let mut planner = TurnPlanner {
             rollout: None,
-            own: None,
-            old_line: false,
             config: &config,
             seed: 1,
             seat,
@@ -400,8 +394,6 @@ fn stored_line_positions_and_replies_match_command_replay() {
             let mut evaluator = Evaluator::new(config.eval_weights);
             let mut planner = TurnPlanner {
                 rollout: None,
-                own: None,
-                old_line: false,
                 config: &config,
                 seed: 7,
                 seat,
@@ -492,8 +484,6 @@ fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
-        own: None,
-        old_line: false,
         config: &config,
         seed: 7,
         seat,
@@ -621,8 +611,6 @@ fn the_reply_estimate_lists_destroyed_units_as_exposed() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
-        own: None,
-        old_line: false,
         config: &config,
         seed: 1,
         seat,
@@ -653,8 +641,6 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
         let mut evaluator = Evaluator::new(config.eval_weights);
         let mut planner = TurnPlanner {
             rollout: None,
-            own: None,
-            old_line: false,
             config: &config,
             seed: 1,
             seat,
@@ -699,8 +685,6 @@ fn a_power_plan_uses_the_power_first() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
-        own: None,
-        old_line: false,
         config: &config,
         seed: 1,
         seat,
@@ -1512,8 +1496,6 @@ fn probe_planner<'a>(
 ) -> TurnPlanner<'a> {
     TurnPlanner {
         rollout: None,
-        own: None,
-        old_line: false,
         config,
         seed: 1,
         seat,

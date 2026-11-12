@@ -79,10 +79,6 @@ pub enum AgentSpec {
         hard_reply_top: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         power_first: Option<bool>,
-        /// The strength of the move model in the own lines
-        /// (`PlannerConfig::move_lines`).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        move_lines: Option<f64>,
         /// Greedy weights that replace those of the seed policy, by name.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         baseline_weights: Option<serde_json::Map<String, serde_json::Value>>,
@@ -525,7 +521,6 @@ impl AgentSpec {
                 seed_margin,
                 hard_reply_top,
                 power_first,
-                move_lines,
                 baseline_weights,
             } => {
                 if identifier.is_empty() {
@@ -585,14 +580,6 @@ impl AgentSpec {
                 }
                 if let Some(value) = power_first {
                     config.power_first = *value;
-                }
-                if let Some(value) = move_lines {
-                    if !value.is_finite() {
-                        return Err(PlanError::Configuration(
-                            "planner move_lines must be finite".into(),
-                        ));
-                    }
-                    config.move_lines = *value;
                 }
                 if let Some(overrides) = baseline_weights {
                     let mut weights = serde_json::to_value(config.baseline.weights)
