@@ -66,19 +66,28 @@ def group_of(row):
     return "other"
 
 
+# The fields of a row that the script reads. The other fields are dropped
+# when the rows load, to save memory.
+KEEP = ("game", "map", "day", "action", "kind", "group", "fog", "before_unload",
+        "offset", "count", "chosen")
+
+
 def load(prefixes, count):
-    """The rows of all prefixes, and one memory map of features for each
-    prefix. Each row names its prefix in `file`."""
+    """The rows of all prefixes, and the feature file of each prefix. Each row
+    names its prefix in `file`. The greedy scores of a row are a float32
+    array. The features stay on disk until a set of decisions reads them."""
     rows = []
-    blocks = []
+    files = []
     for index, prefix in enumerate(prefixes):
-        blocks.append(np.memmap(prefix + ".f32", dtype="<f4", mode="r").reshape(-1, count))
+        files.append((prefix + ".f32", count))
         with open(prefix + ".jsonl") as handle:
             for line in handle:
-                row = json.loads(line)
+                full = json.loads(line)
+                row = {key: full[key] for key in KEEP if key in full}
+                row["greedy"] = np.asarray(full["greedy"], dtype=np.float32)
                 row["file"] = index
                 rows.append(row)
-    return rows, blocks
+    return rows, files
 
 
 def holdout_maps(rows, share, label, forced):
@@ -105,31 +114,39 @@ def holdout_maps(rows, share, label, forced):
 
 
 class Decisions:
-    """The orders of a set of decisions, packed. `fog` is 1 for each order
-    of a game with fog."""
+    """The orders of a set of decisions, packed. The features are float32.
+    `fog` is 1 for each order of a game with fog."""
 
-    def __init__(self, rows, features, columns):
-        offsets = [0]
-        chosen = []
-        greedy = []
-        parts = []
-        fog = []
-        for row in rows:
-            fog.append(1.0 if row.get("fog") else 0.0)
-            start = row["offset"]
-            block = features[row["file"]][start : start + row["count"]]
-            parts.append(np.asarray(block[:, columns], dtype=np.float32))
-            chosen.append(offsets[-1] + row["chosen"])
-            greedy.append(np.asarray(row["greedy"], dtype=np.float64))
-            offsets.append(offsets[-1] + row["count"])
-        self.x = np.concatenate(parts).astype(np.float64) if parts else np.zeros((0, len(columns)))
-        del parts
-        self.starts = np.asarray(offsets[:-1], dtype=np.int64)
-        self.offsets = np.asarray(offsets, dtype=np.int64)
-        self.chosen = np.asarray(chosen, dtype=np.int64)
-        self.greedy = np.concatenate(greedy) if greedy else np.zeros(0)
-        self.decision = np.repeat(np.arange(len(rows)), np.diff(self.offsets))
-        self.fog = np.asarray(fog, dtype=np.float64)[self.decision] if rows else np.zeros(0)
+    def __init__(self, rows, files, columns):
+        total = sum(row["count"] for row in rows)
+        self.x = np.empty((total, len(columns)), dtype=np.float32)
+        offsets = np.zeros(len(rows) + 1, dtype=np.int64)
+        chosen = np.empty(len(rows), dtype=np.int64)
+        fog = np.empty(len(rows), dtype=np.float32)
+        self.greedy = np.empty(total, dtype=np.float64)
+        handles = {}
+        at = 0
+        for i, row in enumerate(rows):
+            path, count = files[row["file"]]
+            handle = handles.get(path)
+            if handle is None:
+                handle = handles[path] = open(path, "rb")
+            n = row["count"]
+            handle.seek(row["offset"] * count * 4)
+            block = np.fromfile(handle, dtype="<f4", count=n * count).reshape(n, count)
+            self.x[at : at + n] = block[:, columns]
+            self.greedy[at : at + n] = row["greedy"]
+            chosen[i] = at + row["chosen"]
+            fog[i] = 1.0 if row.get("fog") else 0.0
+            at += n
+            offsets[i + 1] = at
+        for handle in handles.values():
+            handle.close()
+        self.starts = offsets[:-1]
+        self.offsets = offsets
+        self.chosen = chosen
+        self.decision = np.repeat(np.arange(len(rows)), np.diff(offsets))
+        self.fog = fog[self.decision]
         self.n = len(rows)
 
 
@@ -142,6 +159,8 @@ def log_probabilities(d, utility):
 
 def fit(d, l2, scale, interact=False):
     """Fit a conditional logit. `scale` divides the columns for the solver.
+    The features are float32, so the products with the features are float32
+    and the sums of the loss are float64.
 
     With `interact`, the utility of an order of a game with fog adds a second
     coefficient vector. The result is then the vector of the games without
@@ -149,24 +168,24 @@ def fit(d, l2, scale, interact=False):
     # The columns are scaled in place to save memory. The caller does not
     # read `d.x` after the fit.
     x = d.x
-    x /= scale
+    x /= scale.astype(np.float32)
     k = x.shape[1]
     fog = d.fog
-    chosen_x = x[d.chosen].sum(axis=0)
-    chosen_fog = (x[d.chosen] * fog[d.chosen, None]).sum(axis=0)
+    chosen_x = x[d.chosen].astype(np.float64).sum(axis=0)
+    chosen_fog = (x[d.chosen].astype(np.float64) * fog[d.chosen, None]).sum(axis=0)
 
     def objective(theta):
         beta = theta[:k]
-        utility = x @ beta
+        product = x @ beta.astype(np.float32)
         if interact:
-            delta = theta[k:]
-            utility = utility + fog * (x @ delta)
+            product += fog * (x @ theta[k:].astype(np.float32))
+        utility = product.astype(np.float64)
         logp = log_probabilities(d, utility)
         loss = -logp[d.chosen].sum() / d.n + 0.5 * l2 * theta @ theta
-        p = np.exp(logp)
-        grad = x.T @ p - chosen_x
+        p = np.exp(logp).astype(np.float32)
+        grad = (x.T @ p).astype(np.float64) - chosen_x
         if interact:
-            grad = np.concatenate([grad, x.T @ (p * fog) - chosen_fog])
+            grad = np.concatenate([grad, (x.T @ (p * fog)).astype(np.float64) - chosen_fog])
         return loss, grad / d.n + l2 * theta
 
     size = 2 * k if interact else k
@@ -208,17 +227,18 @@ def summary(d, utility, mask=None):
     }
 
 
-def pooled_summary(parts):
-    """The summary of several (decisions, utility) parts together."""
-    n = sum(d.n for d, _ in parts)
-    acc = {"top1": 0.0, "top3": 0.0, "log_loss": 0.0}
-    for d, u in parts:
-        if d.n == 0:
-            continue
-        s = summary(d, u)
-        for m in acc:
-            acc[m] += s[m] * d.n
-    return {m: (v / n if n else 0.0) for m, v in acc.items()} | {"decisions": n}
+def add_summary(total, part):
+    """Add the summary `part` to the running total, weighted by decisions."""
+    n = part["decisions"]
+    for m in ("top1", "top3", "log_loss"):
+        total[m] = total.get(m, 0.0) + part[m] * n
+    total["decisions"] = total.get("decisions", 0) + n
+
+
+def mean_summary(total):
+    n = total.get("decisions", 0)
+    return {m: (total.get(m, 0.0) / n if n else 0.0)
+            for m in ("top1", "top3", "log_loss")} | {"decisions": n}
 
 
 def read_model(path, names):
@@ -244,6 +264,9 @@ def main():
     parser.add_argument("--max-train", type=int, default=200000,
                         help="The largest number of fit decisions for each group, "
                         "for the games with fog and for the games without fog")
+    parser.add_argument("--max-validation", type=int, default=40000,
+                        help="The largest number of validation decisions for each group, "
+                        "for the games with fog and for the games without fog")
     parser.add_argument("--l2", type=float, default=1e-4)
     parser.add_argument("--fog", choices=["no", "yes", "pooled", "interact"], default="no")
     parser.add_argument("--skip-actions", nargs="*", default=[],
@@ -265,7 +288,7 @@ def main():
             if r["game"] not in excluded
             and r["action"] not in args.skip_actions
             and not (args.skip_before_unload and r.get("before_unload"))]
-    print(f"{len(rows)} decisions, {sum(b.shape[0] for b in features)} orders", file=sys.stderr)
+    print(f"{len(rows)} decisions, {sum(r['count'] for r in rows)} orders", file=sys.stderr)
     fog_rows = [r for r in rows if r.get("fog")]
     clear_rows = [r for r in rows if not r.get("fog")]
     held = (holdout_maps(clear_rows, args.holdout_share, args.holdout_label, args.force_holdout)
@@ -296,17 +319,23 @@ def main():
     }
     model = {}
     keys = ["greedy", "greedy_logit", "blend", "uniform"] + [f"eval{i}" for i in range(len(evals))]
-    pooled = {side: {key: [] for key in keys} for side in valid}
+    totals = {side: {key: {} for key in keys} for side in valid}
+    by = {}
+
+    def sample(part, limit):
+        if len(part) > limit:
+            pick = rng.choice(len(part), limit, replace=False)
+            part = [part[i] for i in sorted(pick)]
+        return part
+
     for group in GROUPS:
         tr = []
         for flag in use:
-            part = [r for r in train_rows
-                    if group_of(r) == group and bool(r.get("fog")) == flag]
-            if len(part) > args.max_train:
-                pick = rng.choice(len(part), args.max_train, replace=False)
-                part = [part[i] for i in sorted(pick)]
-            tr.extend(part)
-        va = {side: [r for r in v if group_of(r) == group] for side, v in valid.items()}
+            tr.extend(sample([r for r in train_rows
+                              if group_of(r) == group and bool(r.get("fog")) == flag],
+                             args.max_train))
+        va = {side: sample([r for r in v if group_of(r) == group], args.max_validation)
+              for side, v in valid.items()}
         print(f"{group}: {len(tr)} fit, "
               + ", ".join(f"{len(v)} {side} validation" for side, v in va.items()),
               file=sys.stderr)
@@ -315,7 +344,7 @@ def main():
         betas = {}
         for name, columns in [("blend", blend_columns), ("greedy_logit", greedy_columns)]:
             dt = Decisions(tr, features, columns)
-            scale = np.maximum(dt.x.std(axis=0), 1e-6)
+            scale = np.maximum(dt.x.std(axis=0, dtype=np.float64), 1e-6)
             (clear_beta, fog_beta), solver = fit(dt, args.l2, scale, args.fog == "interact")
             del dt
             betas[name] = (clear_beta, fog_beta)
@@ -330,45 +359,49 @@ def main():
         for key in ["greedy", "uniform"] + [f"eval{i}" for i in range(len(evals))]:
             result[key] = {"validation": {}}
         for side, rows_side in va.items():
-            # One set of validation decisions for all rankers. The features are
-            # dropped after the utilities are calculated, to save memory.
+            if not rows_side:
+                continue
+            # One set of validation decisions for all rankers, freed before
+            # the next set.
             dv = Decisions(rows_side, features, blend_columns)
             pick = 1 if side == "fog" else 0
+
+            def utility_of(beta, columns=None):
+                x = dv.x if columns is None else dv.x[:, columns]
+                return (x @ beta.astype(np.float32)).astype(np.float64)
+
             utilities = {
-                "blend": dv.x @ betas["blend"][pick],
-                "greedy_logit": dv.x[:, greedy_columns] @ betas["greedy_logit"][pick],
-                "greedy": dv.greedy,
-                "uniform": np.zeros_like(dv.greedy),
+                "blend": lambda: utility_of(betas["blend"][pick]),
+                "greedy_logit": lambda: utility_of(betas["greedy_logit"][pick], greedy_columns),
+                "greedy": lambda: dv.greedy,
+                "uniform": lambda: np.zeros_like(dv.greedy),
             }
             for i, model_betas in enumerate(evals):
-                utilities[f"eval{i}"] = dv.x @ model_betas[group]
-            dv.x = None
-            for key, utility in utilities.items():
-                pooled[side][key].append((dv, utility))
-                if key in result and dv.n:
-                    result[key]["validation"][side] = summary(dv, utility)
+                utilities[f"eval{i}"] = lambda b=model_betas[group]: utility_of(b)
+            for key, make in utilities.items():
+                utility = make()
+                part = summary(dv, utility)
+                result[key]["validation"][side] = part
+                add_summary(totals[side][key], part)
+                if key in ("greedy", "blend") or key.startswith("eval"):
+                    top1, _ = ranks(dv, utility)
+                    for r, hit in zip(rows_side, top1):
+                        for slot in [("action", r["action"]), ("day", min(r["day"], 25) // 5 * 5)]:
+                            cell = (by.setdefault(side, {}).setdefault(f"{slot[0]}={slot[1]}", {})
+                                    .setdefault(key, [0.0, 0]))
+                            cell[0] += hit
+                            cell[1] += 1
+                del utility
+            del dv
         out["groups"][group] = result
         print(json.dumps({k: v["validation"] for k, v in result.items()
                           if isinstance(v, dict) and "validation" in v}), file=sys.stderr)
 
-    out["validation"] = {side: {key: pooled_summary(parts) for key, parts in by.items()}
-                         for side, by in pooled.items()}
+    out["validation"] = {side: {key: mean_summary(t) for key, t in by_key.items()}
+                         for side, by_key in totals.items()}
     out["eval_models"] = args.eval_model
-    # The agreement by action and by day, for the greedy policy and the blend.
-    by = {}
-    for side in valid:
-        for key in ["greedy", "blend"] + [f"eval{i}" for i in range(len(evals))]:
-            for (d, u), group in zip(pooled[side][key], GROUPS):
-                va = [r for r in valid[side] if group_of(r) == group]
-                if not va:
-                    continue
-                top1, _ = ranks(d, u)
-                for r, hit in zip(va, top1):
-                    for slot in [("action", r["action"]), ("day", min(r["day"], 25) // 5 * 5)]:
-                        cell = (by.setdefault(side, {}).setdefault(f"{slot[0]}={slot[1]}", {})
-                                .setdefault(key, [0.0, 0]))
-                        cell[0] += hit
-                        cell[1] += 1
+    out["max_train"] = args.max_train
+    out["max_validation"] = args.max_validation
     out["top1_by"] = {side: {k: {m: [v[0] / v[1], v[1]] for m, v in c.items()}
                              for k, c in sorted(cells.items())}
                       for side, cells in by.items()}
