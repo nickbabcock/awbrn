@@ -59,6 +59,11 @@ use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
 use crate::vision::{Needs, VisionMap};
 
+#[path = "move_policy.rs"]
+pub mod move_policy;
+
+use move_policy::{MoveCandidate, MoveContext, MoveModel, MoveModelKind};
+
 /// The minimum funds that make saving the final production opportunity useful.
 const LATE_SAVE_MIN_FUNDS: u64 = 10_000;
 /// The score of a useful save at the day limit.
@@ -387,6 +392,21 @@ pub struct Weights {
     /// field is left out of the serialized weights at zero.
     #[serde(skip_serializing_if = "is_zero")]
     pub firing_positions: f64,
+    /// The strength of the move model fitted to human unit orders
+    /// ([`move_policy`]). Zero turns the model off.
+    ///
+    /// When it is not zero, the model chooses the order of each unit, and
+    /// the greedy scores still decide which unit acts next. The utility of
+    /// an order is the greedy part of the model plus this value times the
+    /// other part. At one, the utility is the fitted model. The field is left
+    /// out of the serialized weights at zero.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub move_policy: f64,
+    /// Whether the move model is the model without the greedy score
+    /// features. Read only when [`Weights::move_policy`] is not zero. The
+    /// field is left out of the serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub move_policy_pure: bool,
 }
 
 impl Weights {
@@ -435,6 +455,8 @@ impl Weights {
         commander_effects: false,
         power_policy: false,
         firing_positions: 0.0,
+        move_policy: 0.0,
+        move_policy_pure: false,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -722,6 +744,9 @@ pub struct GreedyAgent {
     /// The legal production sites of the position and the kind that the
     /// build model chose at each. Empty when the build model is off.
     build_sites: Vec<BuildSite>,
+    /// The board values of the move features. Built only when the move
+    /// model is on or the features are collected.
+    move_context: MoveContext,
 }
 
 /// One production site with legal builds.
@@ -1019,6 +1044,7 @@ impl GreedyAgent {
             session: None,
             selection: Selection::new(),
             build_sites: Vec::new(),
+            move_context: MoveContext::new(),
         }
     }
 
@@ -1076,6 +1102,23 @@ impl GreedyAgent {
         .flatten()
     }
 
+    /// Score each legal unit order of the view and calculate its move
+    /// features ([`move_policy::MOVE_FEATURES`]). The orders of one unit are
+    /// together. The tie-break stream does not change.
+    pub fn move_candidates(&mut self, view: &Observation) -> Option<Vec<MoveCandidate>> {
+        self.with_observation(view, |agent, session| {
+            let mut candidates = Vec::new();
+            let mut moves = Vec::new();
+            agent.act_in_session_scoped::<true>(
+                session,
+                None,
+                Some(&mut candidates),
+                Some(&mut moves),
+            );
+            moves
+        })
+    }
+
     /// Score the visible legal orders without changing the tie-break stream.
     pub fn scored_orders(&mut self, view: &Observation) -> Option<ScoredOrders> {
         self.with_observation(view, |agent, session| agent.score_in_session(session))
@@ -1094,6 +1137,7 @@ impl GreedyAgent {
                     unitless: true,
                 }),
                 Some(&mut candidates),
+                None,
             );
             ScoredOrders { candidates }
         })
@@ -1605,7 +1649,7 @@ impl GreedyAgent {
 
     /// Select an order for the current session without constructing its command.
     pub(crate) fn order_in_session(&mut self, session: &Session) -> Option<Order> {
-        self.act_in_session_scoped::<false>(session, None, None)
+        self.act_in_session_scoped::<false>(session, None, None, None)
     }
 
     /// Select a play for part of a turn from an existing session.
@@ -1622,6 +1666,7 @@ impl GreedyAgent {
                 unitless: allow_unitless,
             }),
             None,
+            None,
         )
         .and_then(|order| Play::from_order(session, order))
     }
@@ -1629,7 +1674,7 @@ impl GreedyAgent {
     /// Score every legal order without consuming the tie-break stream.
     pub(crate) fn score_in_session(&mut self, session: &Session) -> ScoredOrders {
         let mut candidates = Vec::new();
-        self.act_in_session_scoped::<true>(session, None, Some(&mut candidates));
+        self.act_in_session_scoped::<true>(session, None, Some(&mut candidates), None);
         ScoredOrders { candidates }
     }
 
@@ -1668,6 +1713,7 @@ impl GreedyAgent {
         session: &Session,
         scope: Option<LegalScope<'_>>,
         scored: Option<&mut Vec<ScoredOrder>>,
+        moves: Option<&mut Vec<MoveCandidate>>,
     ) -> Option<Order> {
         if !session.is_commandable() {
             return None;
@@ -1732,6 +1778,7 @@ impl GreedyAgent {
             power_hold,
             selection,
             build_sites,
+            move_context,
             ..
         } = self;
         let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
@@ -1846,6 +1893,18 @@ impl GreedyAgent {
         } else {
             build_sites.clear();
         }
+        let model = (!RECORD && weights.move_policy != 0.0).then(|| {
+            let kind = if weights.move_policy_pure {
+                MoveModelKind::Pure
+            } else {
+                MoveModelKind::Blend
+            };
+            (move_policy::model(kind), weights.move_policy)
+        });
+        let features_needed = model.is_some() || moves.is_some();
+        if features_needed {
+            move_context.build(&board);
+        }
         let scorer = Scorer {
             board: &board,
             movement_bounds,
@@ -1867,6 +1926,7 @@ impl GreedyAgent {
             target_reductions,
             build_sites,
             power_hold: *power_hold,
+            move_context: features_needed.then_some(&*move_context),
         };
 
         let mut visitor = GreedyVisitor::<RECORD> {
@@ -1879,11 +1939,16 @@ impl GreedyAgent {
             preserve_denial_sacrifice: policy.preserve_denial_sacrifice,
             denial_sacrifice: None,
             selection,
+            model,
+            moves,
+            unit_orders: Vec::new(),
+            basis: None,
         };
         match scope {
             Some(scope) => session.legal().visit_scoped(scope, &mut visitor),
             None => session.legal().visit_orders(&mut visitor),
         }
+        visitor.flush();
         if !RECORD && visitor.selection.ready {
             visitor.selection.sacrifice = visitor.denial_sacrifice.map(|value| value.order);
         }
@@ -2485,6 +2550,16 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     preserve_denial_sacrifice: bool,
     denial_sacrifice: Option<DenialSacrifice>,
     selection: &'a mut Selection,
+    /// The move model and its strength, when the model chooses the order of
+    /// each unit.
+    model: Option<(&'static MoveModel, f64)>,
+    /// Where the move candidates go when they are collected.
+    moves: Option<&'a mut Vec<MoveCandidate>>,
+    /// The scored orders of the current unit, while the move features are
+    /// read.
+    unit_orders: Vec<(Order, GreedyScoreBreakdown, move_policy::MoveFeatures)>,
+    /// The values of the current unit that its move features read.
+    basis: Option<move_policy::UnitBasis>,
 }
 
 /// A losing attack that delays an enemy capture by enough to cover its unit
@@ -2499,6 +2574,93 @@ struct DenialSacrifice {
 impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
     fn consider(&mut self, order: Order, forecast: Option<&Forecast>) {
         let breakdown = self.scorer.score_breakdown(order, forecast);
+        if let Some(context) = self.scorer.move_context {
+            if self
+                .unit_orders
+                .first()
+                .is_some_and(|(first, _, _)| first.unit() != order.unit())
+            {
+                self.flush();
+            }
+            if self.unit_orders.is_empty() {
+                self.basis = self.scorer.unit_basis(order);
+            }
+            if let Some(basis) = self.basis
+                && let Some(features) =
+                    self.scorer
+                        .move_features(context, &basis, order, forecast, &breakdown)
+            {
+                self.unit_orders.push((order, breakdown, features));
+                return;
+            }
+        }
+        self.take(order, breakdown);
+    }
+
+    /// Give the scored orders of the current unit to the selection. With the
+    /// move model, the order that the model chooses gets the highest greedy
+    /// score of the unit, and the other orders get zero.
+    fn flush(&mut self) {
+        if self.unit_orders.is_empty() {
+            return;
+        }
+        let mut orders = std::mem::take(&mut self.unit_orders);
+        let best = orders
+            .iter()
+            .map(|(_, breakdown, _)| breakdown.total)
+            .fold(f64::NEG_INFINITY, f64::max);
+        for (_, breakdown, features) in &mut orders {
+            move_policy::set_greedy_features(best, breakdown.total, features);
+        }
+        if let Some(moves) = self.moves.as_deref_mut() {
+            for (order, breakdown, features) in &orders {
+                let unit = order
+                    .unit()
+                    .and_then(|index| self.scorer.unit(index))
+                    .map(|unit| unit.id);
+                if let Some(unit) = unit {
+                    moves.push(MoveCandidate {
+                        order: *order,
+                        unit,
+                        breakdown: *breakdown,
+                        features: *features,
+                    });
+                }
+            }
+        }
+        if let Some((model, strength)) = self.model {
+            let kind = orders[0]
+                .0
+                .unit()
+                .and_then(|index| self.scorer.unit(index))
+                .map(|unit| unit.kind);
+            if let Some(kind) = kind {
+                let mut chosen = 0;
+                let mut chosen_utility = f64::NEG_INFINITY;
+                for (index, (_, _, features)) in orders.iter().enumerate() {
+                    let utility = model.utility(kind, features, strength);
+                    if utility > chosen_utility {
+                        chosen = index;
+                        chosen_utility = utility;
+                    }
+                }
+                for (index, (_, breakdown, _)) in orders.iter_mut().enumerate() {
+                    if index == chosen {
+                        breakdown.total = best;
+                    } else {
+                        breakdown.total = 0.0;
+                        breakdown.attack = None;
+                    }
+                }
+            }
+        }
+        for (order, breakdown, _) in orders.drain(..) {
+            self.take(order, breakdown);
+        }
+        self.unit_orders = orders;
+    }
+
+    fn take(&mut self, order: Order, breakdown: GreedyScoreBreakdown) {
         if RECORD && let Some(scored) = self.scored.as_deref_mut() {
             scored.push(ScoredOrder {
                 candidate_id: GreedyAgent::order_candidate_id(order),
@@ -2566,6 +2728,7 @@ impl<const RECORD: bool> LegalVisitor for GreedyVisitor<'_, RECORD> {
     const DELETE: bool = RECORD;
 
     fn visit_unit(&mut self, unit: UnitIdx) -> bool {
+        self.flush();
         if RECORD || self.chosen.is_none() {
             return true;
         }
@@ -2612,6 +2775,7 @@ struct Scorer<'a> {
         &'a std::cell::RefCell<Vec<(awvm::semantic::UnitId, awvm::semantic::UnitId, f64)>>,
     build_sites: &'a [BuildSite],
     power_hold: Option<crate::power::PowerHold>,
+    move_context: Option<&'a MoveContext>,
 }
 
 impl Scorer<'_> {
