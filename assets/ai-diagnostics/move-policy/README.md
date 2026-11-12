@@ -10,7 +10,7 @@ at strength 0.5 in its greedy policy (`Weights::move_policy`).
 - One decision is one order of one unit, with the board immediately before
   the order. The choices are all the legal orders of that unit: each
   destination with each action there (wait, attack a target, capture, load,
-  join, supply). Games with fog are not read.
+  join, supply). Games with fog are not read for this model.
 - `GreedyAgent::move_candidates` calculates the 50 features of each order
   (`MOVE_FEATURES`). The extractor and the policy use the same function.
 - Three features come from the greedy score of the order: the score, its gap
@@ -78,15 +78,84 @@ lazy). For each unit of planner work it takes 1.2 times as long.
 
 ## Limits
 
-- The fit script puts `missile` in the direct group, but the policy gives it
-  the indirect coefficients. To correct this changes the play.
-- The extractor does not read the human unload decisions, so `act_unload`
-  has no data and its coefficient is zero. In play, the legal orders give
-  the unload orders after the orders of all units, so the unloads of a
-  transport are usually a separate choice group from its other orders.
+- The fit of this model put `missile` in the direct group, but the policy
+  gives it the indirect coefficients. To correct this changes the play. The
+  extractor now writes the group of the policy in each row, and the fit
+  script reads it, so a new fit agrees with the policy.
+- The extractor of this model did not read the human unload decisions, so
+  `act_unload` has no data and its coefficient is zero. In play, the legal
+  orders give the unload orders after the orders of all units, so the
+  unloads of a transport are a separate choice group from its other orders.
+  The extractor now writes an unload decision with the unload orders of the
+  transport as its choices, and the move of the transport before the unload
+  as a `wait` decision (`before_unload`).
 - The fit uses no fog. The model is off in fog games, where a run of 56
   pairs measured no gain (-0.018 ± 0.195). In fog, `planner-v8-move` plays
-  the same games as `planner-v8`.
+  the same games as `planner-v8`. The fog model below is for fog games.
+
+## The fog model
+
+`human-move-fog-v1.json` has the same features and groups. It is fitted to
+the Division 1 games of Smacky Cups 1 to 5 (fog games, corpus
+`fog-tournaments`). `planner-v8-move-fog` (`PlannerConfig::V8_MOVE_FOG`) is
+`planner-v8-move` with this model at strength 0.5 in fog games
+(`Weights::move_policy_fog`). In games without fog it plays the same games
+as `planner-v8-move`: two runs of 14 pairs gave the same games.
+
+- The features come from the observation of the acting player, which is
+  what the agent gets in play. The replay adapter keeps the true state. At
+  the start of each turn, the tool compares it with the snapshot of the
+  archive: about 0.2% of the unit rows are different, the same share as in
+  the games without fog. At a decision, the player sees about 30% of the
+  enemy units.
+- In the observation, a tile in fog has no owner. Thus the enemy
+  headquarters and the properties in fog are not in the distance features,
+  and the army lead counts only the enemy units in sight.
+- The fit did not read the unloads or the move of a transport before an
+  unload (`--skip-actions unload --skip-before-unload`). A fit with them
+  had the same top-1 but scored +0.277 ± 0.173 in play (56 pairs).
+- Fit: 258,224 of 329,770 decisions in 546 games on 28 maps, at most
+  120,000 for each group. Validation: 6 fog maps (79493, 128648, 151871,
+  151877, 174768 and 181746; 203 games), the lowest hashes of label
+  `awbrn-move-holdout-v1` until 25% of the fog decisions. At most 40,000
+  validation decisions for each group are read. The 29 games
+  that end on day 1 or 2 are not read. Cup 6 is not read: its archives have
+  a newer format that the parser does not read. The parser also does not
+  read 227 archives of Cups 1 and 2 that have no action data.
+
+Validation top-1 on the fog maps (87,148 decisions, without unloads):
+
+| Ranker | Top-1 | Log loss |
+| --- | --- | --- |
+| Greedy score | 0.282 | 2.74 (fit of the greedy features only) |
+| `human-move-v1-blend.json` | 0.391 | 2.19 |
+| Fog model | 0.410 | 2.08 |
+
+With unloads (93,641 decisions), a fog-only fit gave 0.413, a fit of fog
+and no-fog games together gave 0.412, and the same fit with a second
+coefficient vector for fog games gave 0.413.
+
+Play in fog against `planner-v8` (14 development maps, day limit 35, node
+budget 256). With the seeds of the earlier fog run, Andy mirror, 56 pairs:
+
+| Model in fog | Pair score |
+| --- | --- |
+| `human-move-v1-blend.json` at 0.5 | -0.018 ± 0.195 |
+| Fog model at 0.25 | +0.348 ± 0.164 |
+| Fog model at 0.5 | +0.509 ± 0.149 |
+| Fog model at 1 | +0.125 ± 0.195 |
+
+With fresh seeds at strength 0.5: the Sami mirror scored +0.241 ± 0.187
+over 56 pairs (run seed 202611121800), and the Andy mirror scored
++0.389 ± 0.073 over 280 pairs (run seed 202611121700; 387/4/169 games). In
+the 280 pairs, the turn time p95 of `planner-v8-move-fog` was 3.0 s, and of
+`planner-v8` 1.9 s.
+
+To fit the fog model, add `--fog yes --skip-actions unload
+--skip-before-unload --exclude-games <file>` to the fit command below, with
+the row prefixes of the Smacky Cups after those of the standard corpus. The
+script keeps the features as float32 and fits one group at a time. The fit
+used 3.5 GB at most, and two fits gave the same model file.
 
 ## Make the model again
 
