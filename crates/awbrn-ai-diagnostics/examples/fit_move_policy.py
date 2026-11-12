@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["numpy==2.5.4", "scipy==1.18.1"]
+# ///
 """Fit the move model to the unit orders of human players.
 
 The input is the files of the `move_policy` example: for each prefix,
@@ -15,7 +19,12 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import sys
+
+# The result of the fit changes with the number of BLAS threads. Set the
+# number before NumPy loads. A value in the environment has priority.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 from scipy.optimize import minimize

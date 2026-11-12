@@ -100,21 +100,31 @@ target/release/examples/move_policy extract <maps> <rows>/<division> <division-f
 ```
 
 Do the extract step for each of the seven folders. Each command writes
-`<rows>/<division>.jsonl` and `<rows>/<division>.f32`. Then fit with NumPy
-and SciPy, with the row prefixes in name order (Cups 1 to 6, then the Global
-League):
+`<rows>/<division>.jsonl` and `<rows>/<division>.f32`. Then fit, with the
+row prefixes in name order (Cups 1 to 6, then the Global League). uv
+installs Python 3.13.9 and the NumPy and SciPy versions that the script
+names:
 
 ```text
-python crates/awbrn-ai-diagnostics/examples/fit_move_policy.py \
+uv run --python 3.13.9 --script \
+  crates/awbrn-ai-diagnostics/examples/fit_move_policy.py \
   --names <rows>/names.json --rows <rows>/<division>... \
   --max-train 120000 --model <fit>/model.json --summary <fit>/summary.json
 ```
 
-With Python 3.13.9, NumPy 2.5.4 and SciPy 1.18.1, this gives the same split,
-the same decision counts and the same validation top-1 as the model file.
-The coefficients are not exactly the same: the solver path changes with the
-number of BLAS threads, and the foot and indirect coefficients move by up to
-0.025.
+The script uses one BLAS thread. To use a different number, set
+`OPENBLAS_NUM_THREADS`. The fit gives the same split and the same decision
+counts as the model file, but no thread count gives the same coefficients.
+The direct and other coefficients are always the same. The foot and indirect
+coefficients change:
+
+- With 1 thread, by up to 0.025. The validation top-1 is the same.
+- With 2, 3, 4 or 8 threads, by up to 0.008. All these counts give the same
+  result. The foot top-1 changes by one decision.
+
+The model file was fitted with 3 threads. The script of the model commit,
+in the same environment and with 3 threads, also gives the second result.
+Thus the remaining difference does not come from the BLAS threads.
 
 `move_policy score <strength> <rows>/<division>` gives the top-1 agreement
 of the built-in model as the policy reads it in play.
