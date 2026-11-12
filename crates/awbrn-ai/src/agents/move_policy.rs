@@ -191,12 +191,33 @@ impl MoveContext {
             let value = cost(unit.kind) * f64::from(unit.hp) / 100.0;
             if unit.owner == seat {
                 ours += value;
-                Self::count(&mut self.friends_adjacent, self.width, height, position, 1, true);
-                Self::count(&mut self.friends_near, self.width, height, position, 3, false);
+                Self::count(
+                    &mut self.friends_adjacent,
+                    self.width,
+                    height,
+                    position,
+                    1,
+                    true,
+                );
+                Self::count(
+                    &mut self.friends_near,
+                    self.width,
+                    height,
+                    position,
+                    3,
+                    false,
+                );
             } else if scorer_board.hostile(unit.owner) {
                 enemies.push(position);
                 theirs += value;
-                Self::count(&mut self.enemies_adjacent, self.width, height, position, 1, true);
+                Self::count(
+                    &mut self.enemies_adjacent,
+                    self.width,
+                    height,
+                    position,
+                    1,
+                    true,
+                );
                 if ruleset::profile(unit.kind).can_capture {
                     capturers.push(position);
                 }
@@ -466,10 +487,7 @@ impl Scorer<'_> {
             Feature::OtherProperty,
             flag(property && !own && !matches!(order.kind(), OrderKind::Capture)),
         );
-        if own
-            && ruleset::terrain_has(tile.terrain, profile.domain.repairs())
-            && on_board
-        {
+        if own && ruleset::terrain_has(tile.terrain, profile.domain.repairs()) && on_board {
             set(Feature::Heal, 1.0 - hp);
         }
         set(
@@ -508,7 +526,10 @@ impl Scorer<'_> {
         );
         let enemy_after = MoveContext::at(&context.enemy_distance, cell);
         let enemy_before = MoveContext::at(&context.enemy_distance, origin_cell);
-        set(Feature::EnemyDistanceChange, (enemy_after - enemy_before) / 10.0);
+        set(
+            Feature::EnemyDistanceChange,
+            (enemy_after - enemy_before) / 10.0,
+        );
         set(Feature::EnemyDistance, enemy_after.min(20.0) / 10.0);
         set(
             Feature::HqDistanceChange,
@@ -544,7 +565,11 @@ impl Scorer<'_> {
         );
         set(
             Feature::FootThreat,
-            if profile.can_capture { threat_share } else { 0.0 },
+            if profile.can_capture {
+                threat_share
+            } else {
+                0.0
+            },
         );
         set(Feature::LeadThreat, context.lead * threat_share);
         set(Feature::LeadDealt, context.lead * dealt_value);
@@ -747,12 +772,10 @@ pub enum MoveModelKind {
 
 /// The model of this kind.
 pub fn model(kind: MoveModelKind) -> &'static MoveModel {
-    static BLEND: LazyLock<MoveModel> = LazyLock::new(|| {
-        MoveModel::from_json(BLEND_JSON).expect("the blend move model is valid")
-    });
-    static PURE: LazyLock<MoveModel> = LazyLock::new(|| {
-        MoveModel::from_json(PURE_JSON).expect("the pure move model is valid")
-    });
+    static BLEND: LazyLock<MoveModel> =
+        LazyLock::new(|| MoveModel::from_json(BLEND_JSON).expect("the blend move model is valid"));
+    static PURE: LazyLock<MoveModel> =
+        LazyLock::new(|| MoveModel::from_json(PURE_JSON).expect("the pure move model is valid"));
     match kind {
         MoveModelKind::Blend => &BLEND,
         MoveModelKind::Pure => &PURE,
@@ -763,3 +786,9 @@ const BLEND_JSON: &str =
     include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-v1-blend.json");
 const PURE_JSON: &str =
     include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-v1-pure.json");
+
+// Each feature index agrees with its name in `MOVE_FEATURES`.
+const _: () = assert!(Feature::ActCapture as usize == OWN_START);
+const _: () = assert!(Feature::DealtValue as usize == 12);
+const _: () = assert!(Feature::PullGain as usize == 35);
+const _: () = assert!(Feature::UnitHp as usize == MOVE_FEATURE_COUNT - 1);

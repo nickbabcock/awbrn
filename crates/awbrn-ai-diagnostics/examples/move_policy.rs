@@ -91,7 +91,12 @@ const UNIT_FEATURES: [&str; 16] = [
 fn unit_summary(kind: awvm::ruleset::UnitKind, orders: &[&MoveCandidate]) -> Vec<f32> {
     use awbrn_ai::agents::greedy::move_policy::{MoveGroup, MoveModelKind, model};
     let model = model(MoveModelKind::Blend);
-    let index = |name: &str| MOVE_FEATURES.iter().position(|known| *known == name).expect("feature");
+    let index = |name: &str| {
+        MOVE_FEATURES
+            .iter()
+            .position(|known| *known == name)
+            .expect("feature")
+    };
     let utilities: Vec<f64> = orders
         .iter()
         .map(|order| model.utility(kind, &order.features, 1.0))
@@ -108,7 +113,10 @@ fn unit_summary(kind: awvm::ruleset::UnitKind, orders: &[&MoveCandidate]) -> Vec
         .fold(f64::NEG_INFINITY, f64::max);
     let max_of = |name: &str| {
         let slot = index(name);
-        orders.iter().map(|order| order.features[slot]).fold(0.0, f64::max)
+        orders
+            .iter()
+            .map(|order| order.features[slot])
+            .fold(0.0, f64::max)
     };
     let stay = orders
         .iter()
@@ -161,7 +169,10 @@ fn main() -> Result<()> {
         }
         ["score", model, strength, prefix] => score(model, strength.parse()?, prefix),
         ["names", output] => {
-            fs::write(output, serde_json::to_vec_pretty(&MOVE_FEATURES.as_slice())?)?;
+            fs::write(
+                output,
+                serde_json::to_vec_pretty(&MOVE_FEATURES.as_slice())?,
+            )?;
             fs::write(
                 format!("{output}.units"),
                 serde_json::to_vec_pretty(&UNIT_FEATURES.as_slice())?,
@@ -280,7 +291,10 @@ fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
     }
     rows.flush()?;
     features.flush()?;
-    fs::write(with(".coverage.json"), serde_json::to_vec_pretty(&coverage)?)?;
+    fs::write(
+        with(".coverage.json"),
+        serde_json::to_vec_pretty(&coverage)?,
+    )?;
     println!(
         "{} archives; {} fog; {} incomplete; {} decisions; {} unmatched; {} trapped; {} orders",
         coverage.archives,
@@ -427,8 +441,7 @@ fn replay_rows(
         coverage.fog += 1;
         return Ok(());
     }
-    let mut agent =
-        awbrn_ai::profile::V8_GREEDY_CONFIG.build_greedy(0x6d6f_7665_5f70_6f6c);
+    let mut agent = awbrn_ai::profile::V8_GREEDY_CONFIG.build_greedy(0x6d6f_7665_5f70_6f6c);
     let mut step = 0_u32;
     let mut turn_owner = None;
     for (index, action) in replay.turns.iter().enumerate() {
@@ -445,8 +458,9 @@ fn replay_rows(
         }
         // A move before an unload is half of the unload, which the tool
         // does not read.
-        let kind = order_kind(action)
-            .filter(|_| !matches!(next, Some(Action::Unload { .. })) || !matches!(action, Action::Move(_)));
+        let kind = order_kind(action).filter(|_| {
+            !matches!(next, Some(Action::Unload { .. })) || !matches!(action, Action::Move(_))
+        });
         let pending = match kind {
             Some(kind) if matches!(state.match_state, Match::Active { .. }) => {
                 let view = observe(&AwbwVisibility, state, &player)?;
@@ -533,8 +547,10 @@ fn replay_rows(
         let unit_rank = bests.iter().filter(|(_, best)| *best > own_best).count();
         let mut unit_features = Vec::with_capacity(bests.len());
         for (id, _) in &bests {
-            let orders: Vec<&MoveCandidate> =
-                candidates.iter().filter(|candidate| candidate.unit == *id).collect();
+            let orders: Vec<&MoveCandidate> = candidates
+                .iter()
+                .filter(|candidate| candidate.unit == *id)
+                .collect();
             let Some(kind) = before.units.get(*id).map(|unit| unit.kind) else {
                 continue;
             };

@@ -2586,9 +2586,9 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
                 self.basis = self.scorer.unit_basis(order);
             }
             if let Some(basis) = self.basis
-                && let Some(features) =
-                    self.scorer
-                        .move_features(context, &basis, order, forecast, &breakdown)
+                && let Some(features) = self
+                    .scorer
+                    .move_features(context, &basis, order, forecast, &breakdown)
             {
                 self.unit_orders.push((order, breakdown, features));
                 return;
@@ -4860,6 +4860,80 @@ mod tests {
 
     /// The floor keeps the order of build scores and puts each of them above
     /// zero.
+    #[test]
+    fn the_move_model_plays_legal_games_and_changes_them() {
+        use crate::harness::{Limits, play};
+        use awvm::session::Session;
+
+        fn game(weights: Weights) -> String {
+            let mut first = GreedyAgent::with_generic_tactical_policy(1, weights);
+            let mut second = GreedyAgent::with_generic_tactical_policy(2, weights);
+            let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+            let state = amber_valley(false, 1);
+            let mut session = Session::new(state.clone());
+            let record = play(
+                state,
+                &mut session,
+                &mut agents,
+                &mut Rng::from_seed(3),
+                Limits {
+                    days: 12,
+                    ..Limits::default()
+                },
+            )
+            .expect("test game executes");
+            let end = session.state();
+            format!(
+                "{:?} {} {:?}",
+                record.days,
+                end.units.iter().count(),
+                end.players
+                    .seats()
+                    .map(|(_, player)| player.funds)
+                    .collect::<Vec<_>>()
+            )
+        }
+
+        let plain = crate::profile::V8_GREEDY_CONFIG.weights;
+        let blend = Weights {
+            move_policy: 1.0,
+            ..plain
+        };
+        let pure = Weights {
+            move_policy: 1.0,
+            move_policy_pure: true,
+            ..plain
+        };
+        assert_ne!(game(plain), game(blend), "the move model changes the play");
+        assert_ne!(
+            game(plain),
+            game(pure),
+            "the pure move model changes the play"
+        );
+    }
+
+    #[test]
+    fn the_move_features_match_their_names_and_the_greedy_part_keeps_greedy() {
+        use move_policy::{MOVE_FEATURE_COUNT, MOVE_FEATURES, MoveModelKind, set_greedy_features};
+        assert_eq!(MOVE_FEATURES[MOVE_FEATURE_COUNT - 1], "unit_hp");
+        assert_eq!(MOVE_FEATURES.len(), MOVE_FEATURE_COUNT);
+        // At strength zero, the blend model ranks the orders of a unit as the
+        // greedy score does.
+        let model = move_policy::model(MoveModelKind::Blend);
+        let scores = [-40.0, 3.0, 119.0, 120.0, 800.0];
+        let best = 800.0;
+        let utilities: Vec<f64> = scores
+            .iter()
+            .map(|score| {
+                let mut features = [0.0; MOVE_FEATURE_COUNT];
+                features[12] = 5.0;
+                set_greedy_features(best, *score, &mut features);
+                model.utility(UnitKind::Tank, &features, 0.0)
+            })
+            .collect();
+        assert!(utilities.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
     #[test]
     fn the_build_floor_keeps_the_order_above_zero() {
         let scores = [-5_000.0, -900.0, -1.0, 0.0, 0.5, 1.0, 40.0, 320.0];
