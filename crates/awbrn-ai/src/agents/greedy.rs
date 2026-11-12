@@ -3905,8 +3905,8 @@ mod tests {
                     for _ in 0..3 {
                         let mut fresh = make(retained.tie_break_state());
                         assert_eq!(
-                            retained.act_in_session_scoped::<false>(&session, scope, None),
-                            fresh.act_in_session_scoped::<false>(&session, scope, None),
+                            retained.act_in_session_scoped::<false>(&session, scope, None, None),
+                            fresh.act_in_session_scoped::<false>(&session, scope, None, None),
                         );
                         assert_eq!(retained.tie_break_state(), fresh.tie_break_state());
                     }

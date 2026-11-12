@@ -193,6 +193,17 @@ pub struct PlannerConfig {
     /// plays as before.
     #[serde(skip_serializing_if = "is_false")]
     pub march: bool,
+    /// The strength of the move model in the own lines
+    /// ([`crate::agents::Weights::move_policy`]). Zero turns it off.
+    ///
+    /// When it is not zero, the greedy policy with the move model at this
+    /// strength plays the seed plan, completes each other own line and makes
+    /// the fallback. The simulated enemy replies keep the greedy policy of
+    /// [`PlannerConfig::baseline`]. The turn of that greedy policy is one more
+    /// plan ([`Generator::Greedy`]). The field is left out of the fingerprint
+    /// at zero.
+    #[serde(skip_serializing_if = "is_zero_funds")]
+    pub move_lines: f64,
 }
 
 // The fields that later configurations add are left out of the fingerprint
@@ -219,6 +230,16 @@ fn is_zero_funds(value: &f64) -> bool {
 }
 
 impl PlannerConfig {
+    /// The greedy policy of the own lines: the baseline with the move model
+    /// at [`PlannerConfig::move_lines`].
+    pub fn own_baseline(&self) -> BaselineConfig {
+        let mut baseline = self.baseline;
+        if self.move_lines != 0.0 {
+            baseline.weights.move_policy = self.move_lines;
+        }
+        baseline
+    }
+
     /// The first planner configuration.
     pub const V1: Self = Self {
         identifier: "planner-v1",
@@ -246,6 +267,7 @@ impl PlannerConfig {
         reuse_equivalent_positions: false,
         ferry: false,
         march: false,
+        move_lines: 0.0,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -395,6 +417,9 @@ pub enum Generator {
     Power,
     /// A capture that wins the game in this turn ([`march::win_now`]).
     March,
+    /// The turn of the greedy policy without the move model, when the own
+    /// lines use it ([`PlannerConfig::move_lines`]).
+    Greedy,
 }
 
 /// Counters for one agent over a match.
@@ -423,6 +448,9 @@ pub struct PlannerStats {
     /// Plans where a winning capture of [`march::win_now`] won.
     #[serde(default, skip_serializing_if = "is_zero_count")]
     pub chose_march: u64,
+    /// Plans where the turn of the greedy policy without the move model won.
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub chose_greedy: u64,
     /// Plans in which the march plan of [`march::prepare`] was live.
     #[serde(default, skip_serializing_if = "is_zero_count")]
     pub march_live: u64,
@@ -463,6 +491,7 @@ impl PlannerStats {
             chose_reroute,
             chose_power,
             chose_march,
+            chose_greedy,
             march_live,
             swing_live,
             swing_fired,
@@ -483,6 +512,7 @@ impl PlannerStats {
         self.chose_reroute += chose_reroute;
         self.chose_power += chose_power;
         self.chose_march += chose_march;
+        self.chose_greedy += chose_greedy;
         self.march_live += march_live;
         self.swing_live += swing_live;
         self.swing_fired += swing_fired;
@@ -541,6 +571,9 @@ pub struct PlannerAgent {
     seed: u64,
     fallback: GreedyAgent,
     rollout: Option<GreedyAgent>,
+    /// The greedy policy of the own lines when it is not the rollout policy
+    /// ([`PlannerConfig::move_lines`]).
+    own: Option<GreedyAgent>,
     observed: Option<Session>,
     evaluator: Evaluator,
     replay: Option<ReplayReader>,
@@ -630,8 +663,9 @@ impl PlannerAgent {
         Self {
             config,
             seed,
-            fallback: config.baseline.build_greedy(seed),
+            fallback: config.own_baseline().build_greedy(seed),
             rollout: None,
+            own: None,
             observed: None,
             evaluator: Evaluator::new(config.eval_weights),
             replay: config.replay_score.map(|score| {
@@ -729,6 +763,8 @@ impl PlannerAgent {
         let mut planner = TurnPlanner {
             config: &self.config,
             rollout: self.rollout.take(),
+            own: self.own.take(),
+            old_line: false,
             seed: Rng::mix(self.seed ^ u64::from(self.plans_this_turn)),
             seat,
             evaluator: &mut self.evaluator,
@@ -754,6 +790,7 @@ impl PlannerAgent {
         self.stats.swing_fired += u64::from(planner.march.swing_fired);
         self.stats.swing_expected += u64::from(planner.march.swing_expected);
         self.rollout = planner.rollout.take();
+        self.own = planner.own.take();
         self.stats.evaluations += u64::from(budget.get() - planner.nodes_left);
         self.stats.candidates += planner.candidates;
         self.stats.work += planner.work;
@@ -771,6 +808,7 @@ impl PlannerAgent {
             Generator::Reroute => self.stats.chose_reroute += 1,
             Generator::Power => self.stats.chose_power += 1,
             Generator::March => self.stats.chose_march += 1,
+            Generator::Greedy => self.stats.chose_greedy += 1,
         }
         self.plan = line.plays;
         self.positions = positions;
@@ -883,6 +921,10 @@ impl Agent for PlannerAgent {
 /// The work of one planning call.
 struct TurnPlanner<'a> {
     rollout: Option<GreedyAgent>,
+    /// The greedy policy of the own lines when it is not the rollout policy.
+    own: Option<GreedyAgent>,
+    /// Whether the current own line uses the rollout policy.
+    old_line: bool,
     config: &'a PlannerConfig,
     seed: u64,
     seat: PlayerIdx,
@@ -1011,6 +1053,11 @@ impl TurnPlanner<'_> {
         // whether it puts the power later than the seed plan does. A prefix
         // that copies the seed plan already has the opening plays.
         let mut alternatives: Vec<(Generator, Vec<Play>, bool, bool)> = Vec::new();
+        if self.config.move_lines != 0.0 {
+            // The turn of the greedy policy without the move model, with the
+            // opening plays.
+            alternatives.push((Generator::Greedy, Vec::new(), true, false));
+        }
         let placing = self.config.baseline.weights.power_policy;
         if placing && !self.out_of_work() {
             // The power plans come first: they are few, and a work limit must
@@ -1110,7 +1157,10 @@ impl TurnPlanner<'_> {
             } else {
                 prefix
             };
-            let Some(mut line) = self.line(&mut session, generator, &prefix) else {
+            self.old_line = generator == Generator::Greedy;
+            let line = self.line(&mut session, generator, &prefix);
+            self.old_line = false;
+            let Some(mut line) = line else {
                 continue;
             };
             if later {
@@ -1492,10 +1542,16 @@ impl TurnPlanner<'_> {
     ) -> Option<Line> {
         let friendly = session.state().turn.active_player.clone();
         let mut entropy = MeanLuck;
-        let mut hard = self
-            .rollout
-            .take()
-            .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
+        let own = self.config.move_lines != 0.0 && !self.old_line;
+        let mut hard = if own {
+            self.own
+                .take()
+                .unwrap_or_else(|| self.config.own_baseline().build_greedy(self.seed))
+        } else {
+            self.rollout
+                .take()
+                .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed))
+        };
         hard.restart(self.seed);
         hard.set_fog(self.fog.clone());
         hard.set_power_hold(self.march.hold);
@@ -1566,7 +1622,11 @@ impl TurnPlanner<'_> {
             }
             Some(())
         })();
-        self.rollout = Some(hard);
+        if own {
+            self.own = Some(hard);
+        } else {
+            self.rollout = Some(hard);
+        }
         self.work += work;
         let scored = result.map(|()| {
             self.nodes_left -= 1;
