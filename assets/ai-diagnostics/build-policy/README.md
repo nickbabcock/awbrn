@@ -63,4 +63,6 @@ mise run ai:fit:build -- \
 The script uses two BLAS threads. With two threads, the fit gives all 2,137
 values of `human-v2a-model.json` exactly. To use a different number, set
 `OPENBLAS_NUM_THREADS`. With one thread, 1,807 values change, by up to
-0.0021. Other versions of NumPy and SciPy can also give small differences.
+0.0021. BLAS uses no more threads than the process has CPUs, so the process
+must have two CPUs or more. The script prints a warning when it has fewer.
+Other versions of NumPy and SciPy can also give small differences.

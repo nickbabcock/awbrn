@@ -22,9 +22,8 @@ Fit the v6 score from the extracted Cup 3 and Cup 4 directories. The fit
 uses nonnegative position coefficients and an L2 penalty of 0.003. It writes
 `model.json` and `fit-summary.json`. The task installs uv, Python, and the
 NumPy and SciPy versions that the script names. `mise run test:fit` runs the
-tests of the script. The script uses one BLAS thread. The v6 model was fitted
-before this change and was not fitted again, so a new fit can give small
-differences.
+tests of the script. The script uses one BLAS thread. The thread count of
+the v6 fit is not known, so a new fit can give small differences.
 
 ```text
 mise run ai:fit:replay -- \

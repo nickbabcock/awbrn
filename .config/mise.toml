@@ -198,7 +198,7 @@ dir = "{{cwd}}"
 run = "uv run --python 3.13.9 --script {{config_root}}/crates/awbrn-ai-diagnostics/examples/fit_replay.py"
 
 [tasks."test:fit"]
-description = "Run the tests of the Python fit scripts"
+description = "Run the tests of fit_replay.py"
 tools.uv = "0.13.6"
 env.PYTHONDONTWRITEBYTECODE = "1"
 run = "uv run --python 3.13.9 --script crates/awbrn-ai-diagnostics/examples/test_fit_replay.py"

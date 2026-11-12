@@ -237,6 +237,25 @@ def metrics(logp, data):
     }
 
 
+def warn_if_fewer_cpus():
+    """Tell the user when the process cannot use all the BLAS threads.
+
+    OpenBLAS uses no more threads than the process has CPUs. A lower
+    thread count changes the result of the fit.
+    """
+    threads = int(os.environ["OPENBLAS_NUM_THREADS"])
+    if hasattr(os, "sched_getaffinity"):
+        cpus = len(os.sched_getaffinity(0))
+    else:
+        cpus = os.cpu_count() or 1
+    if cpus < threads:
+        print(
+            f"warning: the process can use {cpus} CPU, thus BLAS uses fewer "
+            f"than {threads} threads. The fit can give different values.",
+            file=sys.stderr,
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--names", required=True, help="the output of `build_policy names`")
@@ -249,6 +268,7 @@ def main():
     parser.add_argument("--model", required=True, help="the model file to write")
     parser.add_argument("--summary", required=True, help="the summary file to write")
     args = parser.parse_args()
+    warn_if_fewer_cpus()
     names = json.load(open(args.names))
     decision, kind_names = names["decision"], names["kind"]
 
