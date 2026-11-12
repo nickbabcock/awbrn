@@ -758,6 +758,13 @@ impl MoveGroup {
     }
 }
 
+/// The name of the unit group of `kind` that gives the coefficients of its
+/// orders: `foot`, `direct`, `indirect` or `other`. The extractor writes this
+/// name in each row, so that the fit uses the same groups as the policy.
+pub fn group_name(kind: UnitKind) -> &'static str {
+    MoveGroup::of(kind).name()
+}
+
 /// A fitted move model: one coefficient vector over [`MOVE_FEATURES`] for
 /// each unit group.
 #[derive(Clone, Debug, PartialEq)]

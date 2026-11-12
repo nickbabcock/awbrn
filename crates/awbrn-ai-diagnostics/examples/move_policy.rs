@@ -4,8 +4,17 @@
 //! the order. The choices are all the legal orders of that unit. The features
 //! come from [`awbrn_ai::agents::GreedyAgent::move_candidates`], the function
 //! that the greedy policy uses in play, with the greedy weights of
-//! `planner-v8`. The tool reads the board that the player sees. Games with
-//! fog are not read.
+//! `planner-v8`. The tool reads the board that the player sees: in a game
+//! with fog, the features come from the observation of the acting player
+//! (the same observation that the agent gets in play). The replay adapter
+//! keeps the true state, and the tool compares it with the state snapshot
+//! at the start of each turn of the archive.
+//!
+//! A transport that moves and then unloads gives two decisions: a `wait`
+//! order of the transport (`before_unload` is true) and an `unload` decision.
+//! The choices of the unload decision are the unload orders of the
+//! transport, because in play the unload orders of a transport are a
+//! separate choice group.
 //!
 //! The command writes two files:
 //!
@@ -21,8 +30,9 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use awbrn_ai::agents::move_policy::{MOVE_FEATURE_COUNT, MOVE_FEATURES, MoveCandidate};
+use awbrn_ai::agents::move_policy::{self, MOVE_FEATURE_COUNT, MOVE_FEATURES, MoveCandidate};
 use awbrn_map::AwbwMapData;
+use awbw_replay::game_models::AwbwGame;
 use awbw_replay::turn_models::{Action, MoveAction, TargetedPlayer};
 use awbw_replay::{AwbwReplay, ReplayParser};
 use awvm::semantic::{AwbwVisibility, Location, Match, Pos, State, UnitAction, UnitId, observe};
@@ -42,6 +52,17 @@ struct Row {
     action: &'static str,
     /// The unit kind.
     kind: &'static str,
+    /// The unit group of the coefficients in play
+    /// ([`awbrn_ai::agents::move_policy::group_name`]).
+    group: &'static str,
+    /// Whether the game has fog.
+    fog: bool,
+    /// Whether this is the move of a transport immediately before an unload.
+    before_unload: bool,
+    /// The enemy units on the board in the true state, and the number that
+    /// the acting player sees.
+    enemies: u32,
+    enemies_seen: u32,
     /// The index of the first order of this decision in the feature file.
     offset: u64,
     /// The number of legal orders of the unit.
@@ -56,6 +77,19 @@ struct Row {
 struct Coverage {
     archives: usize,
     fog: usize,
+    /// The unit rows of the turn snapshots that the tool compared with the
+    /// true state of the adapter.
+    snapshot_units: usize,
+    /// Snapshot units that the adapter does not have on the board.
+    snapshot_missing: usize,
+    /// Snapshot units that the adapter has on a different tile.
+    snapshot_moved: usize,
+    /// Snapshot units that the adapter has with different displayed health.
+    snapshot_hp: usize,
+    /// Units on the board of the adapter that the snapshot does not have.
+    snapshot_extra: usize,
+    /// Turn snapshots that the tool could not align with a turn.
+    snapshot_unaligned: usize,
     failed: usize,
     decisions: usize,
     unmatched: usize,
@@ -191,14 +225,21 @@ fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
         serde_json::to_vec_pretty(&coverage)?,
     )?;
     println!(
-        "{} archives; {} fog; {} incomplete; {} decisions; {} unmatched; {} trapped; {} orders",
+        "{} archives; {} fog; {} incomplete; {} decisions; {} unmatched; {} trapped; {} orders; \
+         snapshot units {} (missing {}, moved {}, hp {}, extra {}, unaligned turns {})",
         coverage.archives,
         coverage.fog,
         coverage.failed,
         coverage.decisions,
         coverage.unmatched,
         coverage.trapped,
-        offset
+        offset,
+        coverage.snapshot_units,
+        coverage.snapshot_missing,
+        coverage.snapshot_moved,
+        coverage.snapshot_hp,
+        coverage.snapshot_extra,
+        coverage.snapshot_unaligned,
     );
     Ok(())
 }
@@ -257,6 +298,7 @@ fn order_kind(action: &Action) -> Option<&'static str> {
         Action::Unhide { .. } => "reveal",
         Action::Repair { .. } => "repair",
         Action::Explode { .. } => "explode",
+        Action::Unload { .. } => "unload",
         _ => return None,
     })
 }
@@ -274,6 +316,7 @@ fn same_kind(name: &str, kind: OrderKind) -> bool {
             | ("reveal", OrderKind::Reveal)
             | ("repair", OrderKind::Repair(_))
             | ("explode", OrderKind::Explode)
+            | ("unload", OrderKind::Unload(_))
     )
 }
 
@@ -331,13 +374,14 @@ fn replay_rows(
     coverage: &mut Coverage,
 ) -> Result<()> {
     let mut adapter = RecordedAdapter::new(replay, map)?;
-    if adapter.state().settings.fog {
+    let fog = adapter.state().settings.fog;
+    if fog {
         coverage.fog += 1;
-        return Ok(());
     }
     let mut agent = awbrn_ai::profile::V8_GREEDY_CONFIG.build_greedy(0x6d6f_7665_5f70_6f6c);
     let mut step = 0_u32;
     let mut turn_owner = None;
+    let mut turn_index = 0_usize;
     for (index, action) in replay.turns.iter().enumerate() {
         let next = replay.turns.get(index + 1);
         if is_join_setup(action, next) {
@@ -347,26 +391,35 @@ fn replay_rows(
         let player = state.turn.active_player.clone();
         let key = (player.clone(), state.turn.day);
         if turn_owner.as_ref() != Some(&key) {
+            if turn_owner.is_some() {
+                turn_index += 1;
+            }
             turn_owner = Some(key);
             step = 0;
+            compare_snapshot(replay.games.get(turn_index), state, coverage);
         }
-        // A move before an unload is half of the unload, which the tool
-        // does not read.
-        let kind = order_kind(action).filter(|_| {
-            !matches!(next, Some(Action::Unload { .. })) || !matches!(action, Action::Move(_))
-        });
+        let before_unload =
+            matches!(action, Action::Move(_)) && matches!(next, Some(Action::Unload { .. }));
+        let kind = order_kind(action);
         let pending = match kind {
             Some(kind) if matches!(state.match_state, Match::Active { .. }) => {
                 let view = observe(&AwbwVisibility, state, &player)?;
                 let candidates = agent.move_candidates(&view).unwrap_or_default();
-                Some((kind, state.clone(), candidates))
+                let enemies_seen = view
+                    .units
+                    .iter()
+                    .filter(|unit| {
+                        unit.owner != player && matches!(unit.location, Location::Board { .. })
+                    })
+                    .count();
+                Some((kind, state.clone(), candidates, enemies_seen))
             }
             _ => None,
         };
         let transition = adapter
             .advance(action)
             .with_context(|| format!("action {index} ({})", action.kind_name()))?;
-        let Some((kind, before, candidates)) = pending else {
+        let Some((kind, before, candidates, enemies_seen)) = pending else {
             continue;
         };
         let seat = before
@@ -379,28 +432,63 @@ fn replay_rows(
             coverage.trapped += 1;
             continue;
         }
-        let payload = movement.and_then(moved_unit);
-        let actor = match payload {
-            Some((id, _)) => Some(id),
-            None => changed_unit(&before, after, seat),
-        };
-        let Some(actor) = actor else {
-            coverage.unmatched += 1;
-            continue;
+        let dimensions = before.board.dimensions();
+        // The actor, the destination and, for an unload, the cargo.
+        let (actor, destination, cargo) = if let Action::Unload {
+            unit, transport_id, ..
+        } = action
+        {
+            let Some(cargo) = unit.values().find_map(|unit| unit.get_value()) else {
+                coverage.unmatched += 1;
+                continue;
+            };
+            let cargo = UnitId::new(cargo.units_id.as_u32());
+            let Some(Location::Board { position }) =
+                after.units.get(cargo).map(|unit| unit.location)
+            else {
+                coverage.unmatched += 1;
+                continue;
+            };
+            (UnitId::new(transport_id.as_u32()), position, Some(cargo))
+        } else {
+            let payload = movement.and_then(moved_unit);
+            let actor = match payload {
+                Some((id, _)) => Some(id),
+                None => changed_unit(&before, after, seat),
+            };
+            let Some(actor) = actor else {
+                coverage.unmatched += 1;
+                continue;
+            };
+            let Some(Location::Board { position: origin }) =
+                before.units.get(actor).map(|unit| unit.location)
+            else {
+                if before.units.get(actor).is_some() {
+                    coverage.skipped += 1;
+                } else {
+                    coverage.unmatched += 1;
+                }
+                continue;
+            };
+            let destination = match after.units.get(actor).map(|unit| unit.location) {
+                Some(Location::Board { position }) if !matches!(kind, "load" | "join") => position,
+                _ => payload.and_then(|(_, position)| position).unwrap_or(origin),
+            };
+            (actor, destination, None)
         };
         let Some(unit) = before.units.get(actor) else {
             coverage.unmatched += 1;
             continue;
         };
-        let Location::Board { position: origin } = unit.location else {
+        if !matches!(unit.location, Location::Board { .. }) {
             coverage.skipped += 1;
             continue;
-        };
-        let destination = match after.units.get(actor).map(|unit| unit.location) {
-            Some(Location::Board { position }) if !matches!(kind, "load" | "join") => position,
-            _ => payload.and_then(|(_, position)| position).unwrap_or(origin),
-        };
-        let dimensions = before.board.dimensions();
+        }
+        // The slot of the cargo, for an unload.
+        let slot = cargo.and_then(|cargo| match before.units.get(cargo)?.location {
+            Location::Cargo { slot, .. } => u8::try_from(slot).ok(),
+            Location::Board { .. } => None,
+        });
         let target = match kind {
             "attack" => fire_target(action).and_then(|position| dimensions.cell_index(position)),
             _ => None,
@@ -409,9 +497,15 @@ fn replay_rows(
             coverage.unmatched += 1;
             continue;
         };
+        // An unload is a separate choice group in play: its choices are the
+        // unload orders of the transport. The other orders of a unit do not
+        // include its unload orders.
         let own: Vec<&MoveCandidate> = candidates
             .iter()
-            .filter(|candidate| candidate.unit == actor)
+            .filter(|candidate| {
+                candidate.unit == actor
+                    && matches!(candidate.order.kind(), OrderKind::Unload(_)) == (kind == "unload")
+            })
             .collect();
         let chosen = own.iter().position(|candidate| {
             candidate.order.destination() == destination
@@ -419,6 +513,7 @@ fn replay_rows(
                 && match (candidate.order.kind(), target) {
                     (OrderKind::Attack(cell), Some(target)) => cell == target,
                     (OrderKind::Attack(_), None) => false,
+                    (OrderKind::Unload(order_slot), _) => Some(order_slot) == slot,
                     _ => true,
                 }
         });
@@ -426,6 +521,11 @@ fn replay_rows(
             coverage.unmatched += 1;
             continue;
         };
+        let enemies = before
+            .units
+            .iter()
+            .filter(|enemy| enemy.owner != seat && matches!(enemy.location, Location::Board { .. }))
+            .count();
         game.rows.push((
             Row {
                 game: game_id,
@@ -435,6 +535,11 @@ fn replay_rows(
                 step,
                 action: kind,
                 kind: unit.kind.as_str(),
+                group: move_policy::group_name(unit.kind),
+                fog,
+                before_unload,
+                enemies: u32::try_from(enemies)?,
+                enemies_seen: u32::try_from(enemies_seen)?,
                 offset: 0,
                 count: u32::try_from(own.len())?,
                 chosen: u32::try_from(chosen)?,
@@ -450,6 +555,41 @@ fn replay_rows(
         step += 1;
     }
     Ok(())
+}
+
+/// Compare the true state of the adapter at the start of a turn with the
+/// state snapshot of the archive for that turn.
+fn compare_snapshot(snapshot: Option<&AwbwGame>, state: &State, coverage: &mut Coverage) {
+    let Some(snapshot) = snapshot.filter(|snapshot| u64::from(snapshot.day) == state.turn.day)
+    else {
+        coverage.snapshot_unaligned += 1;
+        return;
+    };
+    let mut ids = std::collections::HashSet::new();
+    for row in snapshot.units.iter().filter(|row| !row.carried) {
+        coverage.snapshot_units += 1;
+        let id = UnitId::new(row.id.as_u32());
+        ids.insert(id);
+        let Some(unit) = state.units.get(id) else {
+            coverage.snapshot_missing += 1;
+            continue;
+        };
+        let Location::Board { position } = unit.location else {
+            coverage.snapshot_missing += 1;
+            continue;
+        };
+        if (u32::from(position.x), u32::from(position.y)) != (row.x, row.y) {
+            coverage.snapshot_moved += 1;
+        }
+        if u32::from(unit.hp.div_ceil(10)) != row.hit_points.ceil() as u32 {
+            coverage.snapshot_hp += 1;
+        }
+    }
+    coverage.snapshot_extra += state
+        .units
+        .iter()
+        .filter(|unit| matches!(unit.location, Location::Board { .. }) && !ids.contains(&unit.id))
+        .count();
 }
 
 /// Whether `action` is the move half of a join, which the next action
