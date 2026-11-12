@@ -243,15 +243,18 @@ def warn_if_fewer_cpus():
     OpenBLAS uses no more threads than the process has CPUs. A lower
     thread count changes the result of the fit.
     """
-    threads = int(os.environ["OPENBLAS_NUM_THREADS"])
-    if hasattr(os, "sched_getaffinity"):
-        cpus = len(os.sched_getaffinity(0))
-    else:
-        cpus = os.cpu_count() or 1
+    try:
+        threads = int(os.environ["OPENBLAS_NUM_THREADS"])
+    except ValueError:
+        return
+    # process_cpu_count obeys the CPU limits of the process. Python 3.12
+    # does not have it.
+    cpus = getattr(os, "process_cpu_count", os.cpu_count)() or 1
     if cpus < threads:
         print(
-            f"warning: the process can use {cpus} CPU, thus BLAS uses fewer "
-            f"than {threads} threads. The fit can give different values.",
+            f"warning: the number of CPUs for the process is {cpus}, so "
+            f"BLAS uses fewer than {threads} threads. The fit can give "
+            "different values.",
             file=sys.stderr,
         )
 
