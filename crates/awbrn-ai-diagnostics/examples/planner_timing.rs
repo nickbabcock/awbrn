@@ -18,7 +18,7 @@
 //!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v8
 //! ```
 //!
-//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8> [map-id]`
+//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8|v8-move> [map-id]`
 
 use std::time::Instant;
 
@@ -41,7 +41,7 @@ fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let [_, manifest, pairs, mode, selected @ ..] = arguments.as_slice() else {
         eprintln!(
-            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8> [map-id]"
+            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8|v8-move> [map-id]"
         );
         std::process::exit(2);
     };
@@ -64,6 +64,7 @@ fn main() {
         "v6-canonical" => PlannerConfig::V6_CANONICAL,
         "v7" => PlannerConfig::V7,
         "v8" => PlannerConfig::V8,
+        "v8-move" => PlannerConfig::V8_MOVE,
         other => panic!("unknown mode {other}"),
     };
     let registry = MapRegistry::load(&MapManifest::read(manifest).expect("manifest reads"))
