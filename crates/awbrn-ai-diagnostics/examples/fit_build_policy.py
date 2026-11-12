@@ -31,7 +31,8 @@ from collections import Counter
 
 # The result of the fit changes with the number of BLAS threads. Set the
 # number before NumPy loads. A value in the environment has priority.
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+# Two threads give the values of human-v2a-model.json exactly.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
 
 import numpy as np
 from scipy.optimize import minimize
