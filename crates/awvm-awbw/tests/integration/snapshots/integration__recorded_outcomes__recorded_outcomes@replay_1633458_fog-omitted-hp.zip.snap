@@ -1,0 +1,43 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1633458_fog-omitted-hp.zip
+---
+00005 d=1 p=4138344 End        s=b631e56e84a8a286 o=cc1f0a8c4928e7a8
+00009 d=2 p=4130498 End        s=810855272d86b6cc o=75ee7dab201d05db
+00017 d=2 p=4138344 End        s=b7f76a3f594ed812 o=4cc18e198b8eccdb
+00024 d=3 p=4130498 End        s=373be38012f683ff o=17b5ee8beb65b506
+00034 d=3 p=4138344 End        s=dbb87f80141e321d o=cd7e57505804418c
+00046 d=4 p=4130498 End        s=23ebdff037b200cd o=5fa8cde03087cd93
+00059 d=4 p=4138344 End        s=46c6bff1de742e11 o=7e294889867eee07
+00073 d=5 p=4130498 End        s=8a0ec8bab691b67f o=7ff572a674fe09f8
+00088 d=5 p=4138344 End        s=0dfdcaa0668df372 o=addda418610039ce
+00105 d=6 p=4130498 End        s=45da6a618eda614f o=68c58934c3befc4f
+00123 d=6 p=4138344 End        s=1a95ac6fc7d81a25 o=59f2d101e862f6cb
+00140 d=7 p=4130498 End        s=a94af40011ad28da o=25f2f2637f07bcc4
+00160 d=7 p=4138344 End        s=167be776f7c72460 o=deac27795878d0f8
+00180 d=8 p=4130498 End        s=083254473b24cdbe o=c3e99b04425861c4
+00202 d=8 p=4138344 End        s=a42cb387bc9bd1c0 o=d7d9a09977ad350b
+00227 d=9 p=4130498 End        s=168944fabbf1ec04 o=89d31e1329b43c86
+00250 d=9 p=4138344 End        s=c82be0ce0c613a48 o=6cf9b1cb7b421a55
+00277 d=10 p=4130498 End        s=e8fabbb9a59aae8e o=fc8519142915d0ee
+00305 d=10 p=4138344 End        s=6f0b560e0e4e4d5e o=e797841ec38b4d3f
+00333 d=11 p=4130498 End        s=598eedc96e82c378 o=0318342f2911a405
+00365 d=11 p=4138344 End        s=68a45f7da4ea200b o=c1e356a382b1f255
+00394 d=12 p=4130498 End        s=1b45e71c551fb203 o=663fa3c56005455f
+00429 d=12 p=4138344 End        s=a5b245bbc9b151ce o=0b05c57aa135c05c
+00460 d=13 p=4130498 End        s=1e2f622516dcb990 o=1822cbb54538098b
+00493 d=13 p=4138344 End        s=7baa77105626ce87 o=35ff9ea936c4cfdc
+00525 d=14 p=4130498 End        s=d278fff3131bfa0c o=69dd036bb99f3c90
+00562 d=14 p=4138344 End        s=a2cb342a4b1ee3bf o=5f89a15fb2445f96
+00598 d=15 p=4130498 End        s=bd9fe5ecc1369136 o=23a976ee0cf76fec
+00638 d=15 p=4138344 End        s=af23e25b43d0445f o=e7bf74e4953f6eed
+00677 d=16 p=4130498 End        s=4a328e7c64cb0a74 o=1c35834c8ed6c85f
+00719 d=16 p=4138344 End        s=e5ff325a125ce9c5 o=5db673fbdf56c912
+00759 d=17 p=4130498 End        s=ec6b3482913db0c7 o=5c09ed6b052b9d78
+00798 d=17 p=4138344 End        s=313222d38aab1567 o=248e20bd5c132488
+00837 d=18 p=4130498 End        s=0598416b64800c40 o=470afc134f9a6c98
+00872 d=18 p=4138344 End        s=9901d488d5b19411 o=cdff54cf9c71c017
+00910 d=19 p=4130498 End        s=ec4bb41633f5c278 o=a41a8d167a07273a
+00911 d=19 p=4130498 Resign     s=f805632c4939d312 o=c37d7b9398eeca58
+final {"day":19,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["player:4138344"]},"status":"finished"},"phase":"finished","players":[["4130498","resigned",26],["4138344","active",30]]}

@@ -1,0 +1,6 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+expression: snapshot
+input_file: assets/replays/replay_1633458_fog-omitted-hp.zip
+---
+map=146461 size=26x22 players=2 units=7 state=5b184e69d2877868 observations=b3d64754f16be424
