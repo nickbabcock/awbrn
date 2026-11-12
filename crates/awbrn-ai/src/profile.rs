@@ -91,6 +91,19 @@ pub const V8_MOVE_FOG_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     ..V8_MOVE_GREEDY_CONFIG
 };
 
+/// The [`V8_MOVE_FOG_GREEDY_CONFIG`] scoring with the known map in the fog
+/// move features ([`crate::agents::Weights::move_fog_map`]) and the second
+/// fog move model. In games without fog, the play is the same as
+/// [`V8_MOVE_GREEDY_CONFIG`].
+pub const V8_MOVE_FOG_MAP_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move-fog-map",
+    weights: Weights {
+        move_fog_map: true,
+        ..V8_MOVE_FOG_GREEDY_CONFIG.weights
+    },
+    ..V8_MOVE_FOG_GREEDY_CONFIG
+};
+
 /// How hard an opponent is meant to be, as a player reads it.
 ///
 /// One tier holds one profile at a time. The tier is for selection. A match
@@ -472,6 +485,25 @@ mod tests {
             PlannerConfig::V8_MOVE_FOG.fingerprint(),
             PlannerConfig::V8_MOVE.fingerprint()
         );
+    }
+
+    /// `planner-v8-move-fog-map` is `planner-v8-move-fog` with the known map
+    /// in the fog move features, and nothing else.
+    #[test]
+    fn the_v8_move_fog_map_planner_adds_only_the_known_map() {
+        let expected = PlannerConfig {
+            identifier: "planner-v8-move-fog-map",
+            baseline: BaselineConfig {
+                identifier: V8_MOVE_FOG_MAP_GREEDY_CONFIG.identifier,
+                weights: Weights {
+                    move_fog_map: true,
+                    ..V8_MOVE_FOG_GREEDY_CONFIG.weights
+                },
+                ..V8_MOVE_FOG_GREEDY_CONFIG
+            },
+            ..PlannerConfig::V8_MOVE_FOG
+        };
+        assert_eq!(PlannerConfig::V8_MOVE_FOG_MAP, expected);
     }
 
     #[test]

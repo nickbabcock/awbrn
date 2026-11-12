@@ -540,6 +540,7 @@ impl AgentSpec {
                     "v8" => PlannerConfig::V8,
                     "v8-move" => PlannerConfig::V8_MOVE,
                     "v8-move-fog" => PlannerConfig::V8_MOVE_FOG,
+                    "v8-move-fog-map" => PlannerConfig::V8_MOVE_FOG_MAP,
                     "v6-fog" => PlannerConfig::V6_FOG,
                     other => {
                         return Err(PlanError::Configuration(format!(

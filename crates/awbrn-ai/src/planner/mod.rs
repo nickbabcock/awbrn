@@ -371,6 +371,16 @@ impl PlannerConfig {
         ..Self::V8_MOVE
     };
 
+    /// planner-v8-move-fog with the known map in the fog move features and
+    /// the second fog move model
+    /// ([`crate::profile::V8_MOVE_FOG_MAP_GREEDY_CONFIG`]). In games without
+    /// fog it plays the same as planner-v8-move.
+    pub const V8_MOVE_FOG_MAP: Self = Self {
+        identifier: "planner-v8-move-fog-map",
+        baseline: crate::profile::V8_MOVE_FOG_MAP_GREEDY_CONFIG,
+        ..Self::V8_MOVE_FOG
+    };
+
     /// planner-v6 with the fog memory.
     pub const V6_FOG: Self = Self {
         identifier: "planner-v6-fog",
