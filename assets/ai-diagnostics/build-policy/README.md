@@ -47,10 +47,11 @@ Do the same for Cups 2 to 6 and for the Global League games
 the replay importer cannot play to the end keeps the rows before the error.
 A missing map file stops the command.
 
-Install NumPy and SciPy in a Python environment and fit:
+Fit. The task installs uv, Python 3.13.9, and the NumPy and SciPy versions
+that the script names:
 
 ```text
-python crates/awbrn-ai-diagnostics/examples/fit_build_policy.py \
+mise run ai:fit:build -- \
   --names <rows>/names.json \
   --train <rows>/cup-01.jsonl <rows>/cup-02.jsonl <rows>/cup-03.jsonl \
           <rows>/cup-04.jsonl <rows>/global.jsonl \
@@ -59,6 +60,8 @@ python crates/awbrn-ai-diagnostics/examples/fit_build_policy.py \
   --model <fit>/model.json --summary <fit>/fit-summary.json
 ```
 
-With Python 3.13.9, NumPy 2.5.4 and SciPy 1.18.1, these commands give all
-2,137 values of `human-v2a-model.json` exactly. Other versions can give
-small differences.
+The script uses one BLAS thread. To use a different number, set
+`OPENBLAS_NUM_THREADS`. With one thread, the fit does not give
+`human-v2a-model.json` exactly: 1,807 of its 2,138 numbers change, by up to
+0.0021. Other versions of NumPy and SciPy can also give small
+differences.

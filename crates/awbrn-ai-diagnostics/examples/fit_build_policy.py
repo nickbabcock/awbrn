@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["numpy==2.5.4", "scipy==1.18.1"]
+# ///
 """Fit the build model to human build decisions.
 
 The inputs are the row files of `build_policy extract`. The model is a
@@ -21,8 +25,13 @@ metrics (`--summary`). See `assets/ai-diagnostics/build-policy/README.md`.
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
+
+# The result of the fit changes with the number of BLAS threads. Set the
+# number before NumPy loads. A value in the environment has priority.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 from scipy.optimize import minimize

@@ -182,3 +182,23 @@ run = 'cargo run --profile diag -p awbrn-ai-diagnostics --bin ai-diagnostics -- 
 [tasks."ai:timing"]
 description = "Report AI turn times on one thread"
 run = "cargo run --release -p awbrn-ai-diagnostics --example planner_timing -- assets/ai-diagnostics/global-league-pool/manifest.json 1 v8"
+
+# The fit tasks use uv, which installs Python and the versions that each
+# script names. Other tasks do not install these tools.
+[tasks."ai:fit:build"]
+description = "Fit the build model. Give the arguments of fit_build_policy.py"
+tools.uv = "0.13.6"
+dir = "{{cwd}}"
+run = "uv run --python 3.13.9 --script {{config_root}}/crates/awbrn-ai-diagnostics/examples/fit_build_policy.py"
+
+[tasks."ai:fit:replay"]
+description = "Fit the replay score. Give the arguments of fit_replay.py"
+tools.uv = "0.13.6"
+dir = "{{cwd}}"
+run = "uv run --python 3.13.9 --script {{config_root}}/crates/awbrn-ai-diagnostics/examples/fit_replay.py"
+
+[tasks."test:fit"]
+description = "Run the tests of the Python fit scripts"
+tools.uv = "0.13.6"
+env.PYTHONDONTWRITEBYTECODE = "1"
+run = "uv run --python 3.13.9 --script crates/awbrn-ai-diagnostics/examples/test_fit_replay.py"

@@ -18,21 +18,23 @@ cargo run --release -p awbrn-ai-diagnostics --example awbw_evaluator -- \
   extract <division-directory> <map-directory> <output-directory>
 ```
 
-Install NumPy and SciPy in a Python environment. Fit the v6 score from the
-extracted Cup 3 and Cup 4 directories. The fit uses nonnegative position
-coefficients and an L2 penalty of 0.003. It writes `model.json` and
-`fit-summary.json`:
+Fit the v6 score from the extracted Cup 3 and Cup 4 directories. The fit
+uses nonnegative position coefficients and an L2 penalty of 0.003. It writes
+`model.json` and `fit-summary.json`. The task installs uv, Python, and the
+NumPy and SciPy versions that the script names. `mise run test:fit` runs the
+tests of the script. The script uses one BLAS thread. The v6 model was fitted
+before this change and was not fitted again, so a new fit can give small
+differences.
 
 ```text
-python crates/awbrn-ai-diagnostics/examples/fit_replay.py \
+mise run ai:fit:replay -- \
   --train <cup-03-directory> <cup-04-directory> --output <model-directory>
-python crates/awbrn-ai-diagnostics/examples/test_fit_replay.py
 ```
 
 Check the model on Cup 5 and Cup 6:
 
 ```text
-python crates/awbrn-ai-diagnostics/examples/fit_replay.py \
+mise run ai:fit:replay -- \
   --train <cup-03-directory> <cup-04-directory> \
   --validate <cup-05-directory> <cup-06-directory> \
   --model <model-file> --output <check-directory>

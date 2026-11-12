@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["numpy==2.5.4", "scipy==1.18.1"]
+# ///
 """Fit the v6 replay score. Requires NumPy and SciPy.
 
 Keep all rows of a game in one fold. Give each game the same weight.
@@ -8,7 +12,12 @@ import argparse
 import collections
 import hashlib
 import json
+import os
 from pathlib import Path
+
+# The result of the fit changes with the number of BLAS threads. Set the
+# number before NumPy loads. A value in the environment has priority.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 from scipy.optimize import minimize, minimize_scalar
