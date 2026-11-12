@@ -17,6 +17,8 @@
 //! The tool that extracts the human orders for the fit (`awbrn-ai-diagnostics`,
 //! example `move_policy`) calls [`GreedyAgent::move_candidates`], so the fit
 //! and the play read the same values.
+//!
+//! [`GreedyAgent::move_candidates`]: super::GreedyAgent::move_candidates
 
 use std::sync::LazyLock;
 
@@ -25,7 +27,8 @@ use awvm::ruleset::{self, Domain, FireMode, TerrainTrait, UnitKind};
 use awvm::semantic::{Location, Pos, TileOwner, UnitId};
 use awvm::session::{Order, OrderKind};
 
-use super::{GreedyScoreBreakdown, Scorer, cost};
+use super::GreedyScoreBreakdown;
+use super::greedy::{Board, CaptureTurn, Scorer, WHOLE_PROPERTY, capture_strength, cost};
 
 /// The names of the features of one unit order, in order.
 pub const MOVE_FEATURES: [&str; 50] = [
@@ -120,8 +123,34 @@ pub struct MoveCandidate {
     pub features: MoveFeatures,
 }
 
+/// The values of a combat forecast that the features read. A forecast holds
+/// a vector, so the policy keeps these values and not the forecast.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ForecastValues {
+    attack_low: u16,
+    attack_high: u16,
+    counter: Option<(u16, u16)>,
+    attacker_hp: u8,
+    target_hp: u8,
+}
+
+impl From<&Forecast> for ForecastValues {
+    fn from(forecast: &Forecast) -> Self {
+        Self {
+            attack_low: forecast.attack.low,
+            attack_high: forecast.attack.high,
+            counter: forecast.counter.map(|counter| (counter.low, counter.high)),
+            attacker_hp: forecast.attacker_hp,
+            target_hp: forecast.target_hp,
+        }
+    }
+}
+
 /// The board values that the features read, calculated once for each
 /// position.
+///
+/// The vectors stay in place from one position to the next, so that a new
+/// position does not allocate.
 #[derive(Debug)]
 pub(super) struct MoveContext {
     width: usize,
@@ -145,6 +174,12 @@ pub(super) struct MoveContext {
     lead: f64,
     /// Whether the day is 15 or later.
     late: bool,
+    /// The positions that a distance field starts from.
+    enemies: Vec<Pos>,
+    capturers: Vec<Pos>,
+    headquarters: Vec<Pos>,
+    factories: Vec<Pos>,
+    properties: Vec<Pos>,
 }
 
 /// The cap of the distance fields.
@@ -163,16 +198,21 @@ impl MoveContext {
             enemies_adjacent: Vec::new(),
             lead: 0.0,
             late: false,
+            enemies: Vec::new(),
+            capturers: Vec::new(),
+            headquarters: Vec::new(),
+            factories: Vec::new(),
+            properties: Vec::new(),
         }
     }
 
-    pub(super) fn build(&mut self, scorer_board: &super::Board<'_>) {
-        let state = scorer_board.state;
-        let seat = scorer_board.seat;
-        let dimensions = state.board.dimensions();
-        let cells = dimensions.len();
-        self.width = usize::from(state.board.width());
+    pub(super) fn build(&mut self, board: &Board<'_>) {
+        let state = board.state;
+        let seat = board.seat;
+        let cells = state.board.dimensions().len();
+        let width = usize::from(state.board.width());
         let height = usize::from(state.board.height());
+        self.width = width;
         for field in [
             &mut self.friends_adjacent,
             &mut self.friends_near,
@@ -181,8 +221,8 @@ impl MoveContext {
             field.clear();
             field.resize(cells, 0);
         }
-        let mut enemies = Vec::new();
-        let mut capturers = Vec::new();
+        self.enemies.clear();
+        self.capturers.clear();
         let (mut ours, mut theirs) = (0.0, 0.0);
         for unit in state.units.iter() {
             let Location::Board { position } = unit.location else {
@@ -191,35 +231,14 @@ impl MoveContext {
             let value = cost(unit.kind) * f64::from(unit.hp) / 100.0;
             if unit.owner == seat {
                 ours += value;
-                Self::count(
-                    &mut self.friends_adjacent,
-                    self.width,
-                    height,
-                    position,
-                    1,
-                    true,
-                );
-                Self::count(
-                    &mut self.friends_near,
-                    self.width,
-                    height,
-                    position,
-                    3,
-                    false,
-                );
-            } else if scorer_board.hostile(unit.owner) {
-                enemies.push(position);
+                count(&mut self.friends_adjacent, width, height, position, 1, true);
+                count(&mut self.friends_near, width, height, position, 3, false);
+            } else if board.hostile(unit.owner) {
+                self.enemies.push(position);
                 theirs += value;
-                Self::count(
-                    &mut self.enemies_adjacent,
-                    self.width,
-                    height,
-                    position,
-                    1,
-                    true,
-                );
+                count(&mut self.enemies_adjacent, width, height, position, 1, true);
                 if ruleset::profile(unit.kind).can_capture {
-                    capturers.push(position);
+                    self.capturers.push(position);
                 }
             }
         }
@@ -229,59 +248,57 @@ impl MoveContext {
             0.0
         };
         self.late = state.turn.day >= 15;
-        let mut headquarters = Vec::new();
-        let mut factories = Vec::new();
-        let mut properties = Vec::new();
+        self.headquarters.clear();
+        self.factories.clear();
+        self.properties.clear();
         for (position, tile) in state.board.iter() {
             if !ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
                 continue;
             }
-            let enemy =
-                matches!(tile.owner, TileOwner::Owned(holder) if scorer_board.hostile(holder));
+            let enemy = matches!(tile.owner, TileOwner::Owned(holder) if board.hostile(holder));
             if enemy && ruleset::terrain_has(tile.terrain, TerrainTrait::CaptureDefeatsOwner) {
-                headquarters.push(position);
+                self.headquarters.push(position);
             }
             if enemy && ruleset::terrain_has(tile.terrain, TerrainTrait::ProducesGround) {
-                factories.push(position);
+                self.factories.push(position);
             }
-            if scorer_board.capturable(tile) {
-                properties.push(position);
+            if board.capturable(tile) {
+                self.properties.push(position);
             }
         }
-        let goals = if headquarters.is_empty() {
-            &factories
+        let goals = if self.headquarters.is_empty() {
+            &self.factories
         } else {
-            &headquarters
+            &self.headquarters
         };
-        let width = self.width;
-        distance_field(&enemies, width, height, &mut self.enemy_distance);
+        distance_field(&self.enemies, width, height, &mut self.enemy_distance);
         distance_field(goals, width, height, &mut self.hq_distance);
-        distance_field(&properties, width, height, &mut self.property_distance);
-        distance_field(&capturers, width, height, &mut self.capturer_distance);
-    }
-
-    /// Add one to each tile at most `radius` tiles from `center`. With
-    /// `ring`, add only to the tiles at exactly `radius` tiles.
-    fn count(field: &mut [u8], width: usize, height: usize, center: Pos, radius: i32, ring: bool) {
-        let (cx, cy) = (i32::from(center.x), i32::from(center.y));
-        for dy in -radius..=radius {
-            let rest = radius - dy.abs();
-            for dx in -rest..=rest {
-                if ring && dx.abs() + dy.abs() != radius {
-                    continue;
-                }
-                let (x, y) = (cx + dx, cy + dy);
-                if x < 0 || y < 0 || x as usize >= width || y as usize >= height {
-                    continue;
-                }
-                let cell = y as usize * width + x as usize;
-                field[cell] = field[cell].saturating_add(1);
-            }
-        }
+        distance_field(&self.properties, width, height, &mut self.property_distance);
+        distance_field(&self.capturers, width, height, &mut self.capturer_distance);
     }
 
     fn at(field: &[u8], cell: usize) -> f64 {
         f64::from(field.get(cell).copied().unwrap_or(FAR))
+    }
+}
+
+/// Add one to each tile at most `radius` tiles from `center`. With `ring`,
+/// add only to the tiles at exactly `radius` tiles.
+fn count(field: &mut [u8], width: usize, height: usize, center: Pos, radius: i32, ring: bool) {
+    let (cx, cy) = (i32::from(center.x), i32::from(center.y));
+    for dy in -radius..=radius {
+        let rest = radius - dy.abs();
+        for dx in -rest..=rest {
+            if ring && dx.abs() + dy.abs() != radius {
+                continue;
+            }
+            let (x, y) = (cx + dx, cy + dy);
+            if x < 0 || y < 0 || x as usize >= width || y as usize >= height {
+                continue;
+            }
+            let cell = y as usize * width + x as usize;
+            field[cell] = field[cell].saturating_add(1);
+        }
     }
 }
 
@@ -334,7 +351,22 @@ pub(super) struct UnitBasis {
 }
 
 impl Scorer<'_> {
-    /// The values of the unit of `order` that all its orders read.
+    /// Whether the move features of `order` are defined: the order has a
+    /// unit on the board, and its destination is a tile.
+    pub(super) fn has_move_features(&self, order: Order) -> bool {
+        let Some(unit) = order.unit().and_then(|index| self.unit(index)) else {
+            return false;
+        };
+        let dimensions = self.board.state.board.dimensions();
+        matches!(unit.location, Location::Board { position } if dimensions.cell_index(position).is_some())
+            && dimensions
+                .position_of(order.destination())
+                .and_then(|position| self.board.state.board.get(position))
+                .is_some()
+    }
+
+    /// The values of the unit of `order` that all its orders read. Call it
+    /// only when [`Scorer::has_move_features`] is true for the order.
     pub(super) fn unit_basis(&self, order: Order) -> Option<UnitBasis> {
         let index = order.unit()?;
         let unit = self.unit(index)?;
@@ -360,13 +392,13 @@ impl Scorer<'_> {
     }
 
     /// The features of one unit order, without the greedy score features.
-    /// `None` for an order of no unit.
+    /// `None` only when [`Scorer::has_move_features`] is false.
     pub(super) fn move_features(
         &self,
         context: &MoveContext,
         basis: &UnitBasis,
         order: Order,
-        forecast: Option<&Forecast>,
+        forecast: Option<&ForecastValues>,
         breakdown: &GreedyScoreBreakdown,
     ) -> Option<MoveFeatures> {
         let unit = self.unit(order.unit()?)?;
@@ -413,20 +445,20 @@ impl Scorer<'_> {
             if let Some(forecast) = forecast {
                 let mean = |low: u16, high: u16| f64::from(low + high) / 2.0;
                 let target_hp = f64::from(forecast.target_hp);
-                let dealt = mean(forecast.attack.low, forecast.attack.high).min(target_hp) / 100.0;
-                let taken = forecast.counter.map_or(0.0, |counter| {
-                    mean(counter.low, counter.high).min(f64::from(forecast.attacker_hp)) / 100.0
+                let dealt = mean(forecast.attack_low, forecast.attack_high).min(target_hp) / 100.0;
+                let taken = forecast.counter.map_or(0.0, |(low, high)| {
+                    mean(low, high).min(f64::from(forecast.attacker_hp)) / 100.0
                 });
                 dealt_value = dealt * cost(defender.kind) / 1000.0;
                 set(Feature::DealtValue, dealt_value);
                 set(Feature::TakenValue, taken * unit_cost / 1000.0);
                 set(
                     Feature::KillCertain,
-                    flag(f64::from(forecast.attack.low) >= target_hp),
+                    flag(f64::from(forecast.attack_low) >= target_hp),
                 );
                 set(
                     Feature::KillPossible,
-                    flag(f64::from(forecast.attack.high) >= target_hp),
+                    flag(f64::from(forecast.attack_high) >= target_hp),
                 );
                 set(
                     Feature::AttackerLost,
@@ -497,12 +529,12 @@ impl Scorer<'_> {
 
         // The capture.
         if matches!(order.kind(), OrderKind::Capture) {
-            let points = tile.capture_points.unwrap_or(super::WHOLE_PROPERTY);
-            let strength = super::capture_strength(
+            let points = tile.capture_points.unwrap_or(WHOLE_PROPERTY);
+            let strength = capture_strength(
                 self.board.state,
                 unit,
                 unit.hp.div_ceil(10),
-                super::CaptureTurn::Now,
+                CaptureTurn::Now,
             );
             set(Feature::CaptureCompletes, flag(strength >= points));
             let has = |value| ruleset::terrain_has(tile.terrain, value);
@@ -515,7 +547,7 @@ impl Scorer<'_> {
             }
             set(
                 Feature::CaptureContinue,
-                flag(!moved && points < super::WHOLE_PROPERTY),
+                flag(!moved && points < WHOLE_PROPERTY),
             );
         }
 
@@ -645,7 +677,7 @@ pub fn set_greedy_features(best: f64, score: f64, features: &mut MoveFeatures) {
 
 /// Which unit group a coefficient vector of the model is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MoveGroup {
+enum MoveGroup {
     /// Infantry and mech.
     Foot,
     /// Direct ground units that cannot capture.
@@ -657,9 +689,9 @@ pub enum MoveGroup {
 }
 
 impl MoveGroup {
-    pub const ALL: [Self; 4] = [Self::Foot, Self::Direct, Self::Indirect, Self::Other];
+    const ALL: [Self; 4] = [Self::Foot, Self::Direct, Self::Indirect, Self::Other];
 
-    pub const fn name(self) -> &'static str {
+    const fn name(self) -> &'static str {
         match self {
             Self::Foot => "foot",
             Self::Direct => "direct",
@@ -668,7 +700,7 @@ impl MoveGroup {
         }
     }
 
-    pub fn of(kind: UnitKind) -> Self {
+    fn of(kind: UnitKind) -> Self {
         let profile = ruleset::profile(kind);
         if profile.can_capture {
             Self::Foot
@@ -705,7 +737,7 @@ struct MoveModelFile {
 impl MoveModel {
     /// Read a model file. A feature that the file does not name has a
     /// coefficient of zero.
-    pub fn from_json(text: &str) -> Result<Self, String> {
+    fn from_json(text: &str) -> Result<Self, String> {
         let file: MoveModelFile = serde_json::from_str(text).map_err(|error| error.to_string())?;
         if file.schema_version != 1 {
             return Err(format!("unknown schema version {}", file.schema_version));
@@ -760,32 +792,15 @@ impl MoveModel {
     }
 }
 
-/// The move models in this crate.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum MoveModelKind {
-    /// The model with the greedy score features.
-    Blend,
-    /// The model without the greedy score features.
-    Pure,
+/// The move model of this crate (`human-move-v1-blend.json`).
+pub fn model() -> &'static MoveModel {
+    static MODEL: LazyLock<MoveModel> =
+        LazyLock::new(|| MoveModel::from_json(MODEL_JSON).expect("the move model is valid"));
+    &MODEL
 }
 
-/// The model of this kind.
-pub fn model(kind: MoveModelKind) -> &'static MoveModel {
-    static BLEND: LazyLock<MoveModel> =
-        LazyLock::new(|| MoveModel::from_json(BLEND_JSON).expect("the blend move model is valid"));
-    static PURE: LazyLock<MoveModel> =
-        LazyLock::new(|| MoveModel::from_json(PURE_JSON).expect("the pure move model is valid"));
-    match kind {
-        MoveModelKind::Blend => &BLEND,
-        MoveModelKind::Pure => &PURE,
-    }
-}
-
-const BLEND_JSON: &str =
+const MODEL_JSON: &str =
     include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-v1-blend.json");
-const PURE_JSON: &str =
-    include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-v1-pure.json");
 
 // Each feature index agrees with its name in `MOVE_FEATURES`.
 const _: () = assert!(Feature::ActCapture as usize == OWN_START);

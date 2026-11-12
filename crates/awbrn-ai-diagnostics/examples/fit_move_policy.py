@@ -6,14 +6,9 @@ of each legal order of the unit). One decision is one order of one unit. The
 model is a conditional logit over the legal orders of the unit, with one
 coefficient vector for each unit group.
 
-The split is by map: the validation maps are not in the fit. The script
-writes two models:
-
-- blend: all features, with the greedy score features.
-- pure: all features except the greedy score features.
-
-It also reports the agreement of the greedy policy with the human orders on
-the same decisions.
+The split is by map: the validation maps are not in the fit. The model reads
+all features, with the greedy score features. The script also reports the
+agreement of the greedy policy with the human orders on the same decisions.
 """
 
 import argparse
@@ -170,9 +165,7 @@ def main():
     parser.add_argument("--max-train", type=int, default=200000,
                         help="The largest number of fit decisions for each group")
     parser.add_argument("--l2", type=float, default=1e-4)
-    parser.add_argument("--winners-only", action="store_true")
-    parser.add_argument("--blend", required=True)
-    parser.add_argument("--pure", required=True)
+    parser.add_argument("--model", required=True)
     parser.add_argument("--summary", required=True)
     args = parser.parse_args()
 
@@ -182,12 +175,9 @@ def main():
     held = holdout_maps(rows, args.holdout_share, args.holdout_label, args.force_holdout)
     train_rows = [r for r in rows if r["map"] not in held]
     valid_rows = [r for r in rows if r["map"] in held]
-    if args.winners_only:
-        train_rows = [r for r in train_rows if r["won"]]
     rng = np.random.default_rng(20261112)
 
     blend_columns = list(range(len(names)))
-    pure_columns = [i for i, n in enumerate(names) if n not in GREEDY]
     greedy_columns = [names.index(n) for n in GREEDY]
     out = {
         "holdout_maps": sorted(held),
@@ -198,8 +188,8 @@ def main():
         "validation_games": len({r["game"] for r in valid_rows}),
         "groups": {},
     }
-    models = {"blend": {}, "pure": {}}
-    pooled = {key: [] for key in ["greedy", "greedy_logit", "blend", "pure", "uniform"]}
+    model = {}
+    pooled = {key: [] for key in ["greedy", "greedy_logit", "blend", "uniform"]}
     for group in GROUPS:
         tr = [r for r in train_rows if group_of(r["kind"]) == group]
         va = [r for r in valid_rows if group_of(r["kind"]) == group]
@@ -208,8 +198,7 @@ def main():
             tr = [tr[i] for i in sorted(pick)]
         print(f"{group}: {len(tr)} fit, {len(va)} validation", file=sys.stderr)
         result = {"fit_decisions": len(tr), "validation_decisions": len(va)}
-        for name, columns in [("blend", blend_columns), ("pure", pure_columns),
-                              ("greedy_logit", greedy_columns)]:
+        for name, columns in [("blend", blend_columns), ("greedy_logit", greedy_columns)]:
             dt = Decisions(tr, features, columns)
             scale = np.maximum(dt.x.std(axis=0), 1e-6)
             beta, solver = fit(dt, args.l2, scale)
@@ -222,11 +211,8 @@ def main():
                 "standardized": dict(zip([names[c] for c in columns],
                                          map(float, beta * scale))),
             }
-            if name in models:
-                full = [0.0] * len(names)
-                for c, b in zip(columns, beta):
-                    full[c] = float(b)
-                models[name][group] = full
+            if name == "blend":
+                model[group] = [float(b) for b in beta]
             pooled[name].append((dv, dv.x @ beta))
         dv = Decisions(va, features, [0])
         result["greedy"] = {"validation": summary(dv, dv.greedy)}
@@ -249,7 +235,7 @@ def main():
     out["validation"] = totals
     # The agreement by action and by day, for the greedy policy and the blend.
     by = {}
-    for key in ["greedy", "blend", "pure"]:
+    for key in ["greedy", "blend"]:
         for (d, u), group in zip(pooled[key], GROUPS):
             va = [r for r in valid_rows if group_of(r["kind"]) == group]
             top1, _ = ranks(d, u)
@@ -259,25 +245,20 @@ def main():
                     cell[0] += hit
                     cell[1] += 1
     out["top1_by"] = {k: {m: [v[0] / v[1], v[1]] for m, v in c.items()} for k, c in sorted(by.items())}
-    out["unit_order"] = {
-        "validation_greedy_unit_rank0": float(np.mean([r["unit_rank"] == 0 for r in valid_rows])),
-        "validation_mean_units": float(np.mean([r["units"] for r in valid_rows])),
-    }
     print(json.dumps(totals, indent=1), file=sys.stderr)
 
-    for name, path in [("blend", args.blend), ("pure", args.pure)]:
-        model = {
+    with open(args.model, "w") as handle:
+        json.dump({
             "schema_version": 1,
             "features": names,
-            "groups": models[name],
+            "groups": model,
             "notes": {
                 "fit": "fit_move_policy.py",
-                "holdout_maps": sorted(held),
-                "validation": {g: out["groups"][g][name]["validation"] for g in GROUPS},
+                "holdout_maps": out["holdout_maps"],
+                "train_maps": out["train_maps"],
+                "validation": {g: out["groups"][g]["blend"]["validation"] for g in GROUPS},
             },
-        }
-        with open(path, "w") as handle:
-            json.dump(model, handle, indent=1)
+        }, handle, indent=1)
     with open(args.summary, "w") as handle:
         json.dump(out, handle, indent=1)
 

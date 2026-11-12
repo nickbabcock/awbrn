@@ -21,13 +21,11 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use awbrn_ai::agents::greedy::move_policy::{MOVE_FEATURE_COUNT, MOVE_FEATURES, MoveCandidate};
+use awbrn_ai::agents::move_policy::{MOVE_FEATURE_COUNT, MOVE_FEATURES, MoveCandidate};
 use awbrn_map::AwbwMapData;
 use awbw_replay::turn_models::{Action, MoveAction, TargetedPlayer};
 use awbw_replay::{AwbwReplay, ReplayParser};
-use awvm::semantic::{
-    AwbwVisibility, Location, Match, Outcome, Pos, State, UnitAction, UnitId, observe,
-};
+use awvm::semantic::{AwbwVisibility, Location, Match, Pos, State, UnitAction, UnitId, observe};
 use awvm::session::OrderKind;
 use awvm_awbw::RecordedAdapter;
 use serde::Serialize;
@@ -44,8 +42,6 @@ struct Row {
     action: &'static str,
     /// The unit kind.
     kind: &'static str,
-    /// Whether the player won the game.
-    won: bool,
     /// The index of the first order of this decision in the feature file.
     offset: u64,
     /// The number of legal orders of the unit.
@@ -54,95 +50,6 @@ struct Row {
     chosen: u32,
     /// The greedy score of each order.
     greedy: Vec<f32>,
-    /// The number of ready units with legal orders.
-    units: u32,
-    /// The rank of the unit by its best greedy score among the ready units,
-    /// from zero. The greedy policy moves the unit of rank zero next.
-    unit_rank: u32,
-    /// The summary features of each ready unit with orders
-    /// ([`UNIT_FEATURES`]), in the order of the legal orders.
-    unit_features: Vec<Vec<f32>>,
-    /// The unit that the player moved, as an index into `unit_features`.
-    unit_chosen: u32,
-}
-
-/// The names of the summary features of a unit, for a fit of the unit
-/// order. The model values come from the built-in blend model.
-const UNIT_FEATURES: [&str; 16] = [
-    "inclusive",
-    "best_utility",
-    "greedy_best",
-    "foot",
-    "direct",
-    "indirect",
-    "best_attack",
-    "best_capture",
-    "best_stay",
-    "attack_value",
-    "kill",
-    "origin_threat",
-    "origin_enemy_distance",
-    "unit_hp",
-    "capture_continue",
-    "on_factory",
-];
-
-/// The summary features of one unit from its orders.
-fn unit_summary(kind: awvm::ruleset::UnitKind, orders: &[&MoveCandidate]) -> Vec<f32> {
-    use awbrn_ai::agents::greedy::move_policy::{MoveGroup, MoveModelKind, model};
-    let model = model(MoveModelKind::Blend);
-    let index = |name: &str| {
-        MOVE_FEATURES
-            .iter()
-            .position(|known| *known == name)
-            .expect("feature")
-    };
-    let utilities: Vec<f64> = orders
-        .iter()
-        .map(|order| model.utility(kind, &order.features, 1.0))
-        .collect();
-    let top = utilities.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let inclusive = top + utilities.iter().map(|u| (u - top).exp()).sum::<f64>().ln();
-    let best = utilities
-        .iter()
-        .position(|u| *u == top)
-        .map_or(orders[0], |position| orders[position]);
-    let greedy = orders
-        .iter()
-        .map(|order| order.breakdown.total)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let max_of = |name: &str| {
-        let slot = index(name);
-        orders
-            .iter()
-            .map(|order| order.features[slot])
-            .fold(0.0, f64::max)
-    };
-    let stay = orders
-        .iter()
-        .find(|order| order.features[index("stay")] == 1.0);
-    let group = MoveGroup::of(kind);
-    let flag = |value: bool| if value { 1.0 } else { 0.0 };
-    [
-        inclusive,
-        top,
-        (greedy / 50.0).asinh(),
-        flag(group == MoveGroup::Foot),
-        flag(group == MoveGroup::Direct),
-        flag(group == MoveGroup::Indirect),
-        best.features[index("act_attack")],
-        best.features[index("act_capture")],
-        best.features[index("stay")],
-        max_of("dealt_value"),
-        max_of("kill_certain"),
-        stay.map_or(0.0, |order| order.features[index("threat_share")]),
-        stay.map_or(2.0, |order| order.features[index("enemy_distance")]),
-        orders[0].features[index("unit_hp")],
-        max_of("capture_continue"),
-        stay.map_or(0.0, |order| order.features[index("own_factory")]),
-    ]
-    .map(|value| value as f32)
-    .to_vec()
 }
 
 #[derive(Default, Serialize)]
@@ -167,36 +74,23 @@ fn main() -> Result<()> {
         ["extract", maps, output, divisions @ ..] if !divisions.is_empty() => {
             extract(divisions, Path::new(maps), Path::new(output))
         }
-        ["score", model, strength, prefix] => score(model, strength.parse()?, prefix),
-        ["names", output] => {
-            fs::write(
-                output,
-                serde_json::to_vec_pretty(&MOVE_FEATURES.as_slice())?,
-            )?;
-            fs::write(
-                format!("{output}.units"),
-                serde_json::to_vec_pretty(&UNIT_FEATURES.as_slice())?,
-            )?;
-            Ok(())
-        }
+        ["score", strength, prefix] => score(strength.parse()?, prefix),
+        ["names", output] => Ok(fs::write(
+            output,
+            serde_json::to_vec_pretty(&MOVE_FEATURES.as_slice())?,
+        )?),
         _ => bail!(
             "usage: move_policy extract <maps> <output> <division>... | names <output> \
-             | score <blend|pure> <strength> <prefix>"
+             | score <strength> <prefix>"
         ),
     }
 }
 
-/// Report the top-1 agreement of a built-in move model with the decisions
+/// Report the top-1 agreement of the built-in move model with the decisions
 /// of one row file, as the policy reads the model in play.
-fn score(model: &str, strength: f64, prefix: &str) -> Result<()> {
-    use awbrn_ai::agents::greedy::move_policy::{MoveModelKind, model as move_model};
+fn score(strength: f64, prefix: &str) -> Result<()> {
     use std::io::BufRead;
-    let kind = match model {
-        "blend" => MoveModelKind::Blend,
-        "pure" => MoveModelKind::Pure,
-        other => bail!("unknown model {other}"),
-    };
-    let model = move_model(kind);
+    let model = awbrn_ai::agents::move_policy::model();
     let bytes = fs::read(format!("{prefix}.f32"))?;
     let values: Vec<f32> = bytes
         .as_chunks::<4>()
@@ -278,7 +172,6 @@ fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
             eprintln!("{}: {error:#}", path.display());
         }
         for (mut row, candidates) in game.rows {
-            row.won = game.winner == Some(row.seat);
             row.offset = offset;
             offset += candidates.len() as u64;
             for candidate in &candidates {
@@ -313,7 +206,6 @@ fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
 #[derive(Default)]
 struct Game {
     rows: Vec<(Row, Vec<[f32; MOVE_FEATURE_COUNT]>)>,
-    winner: Option<usize>,
 }
 
 /// Append the decisions of one archive to `game`.
@@ -534,34 +426,6 @@ fn replay_rows(
             coverage.unmatched += 1;
             continue;
         };
-        // The best greedy score of each unit with orders, to rank the unit.
-        let mut bests: Vec<(UnitId, f64)> = Vec::new();
-        for candidate in &candidates {
-            match bests.iter_mut().find(|(id, _)| *id == candidate.unit) {
-                Some((_, best)) => *best = best.max(candidate.breakdown.total),
-                None => bests.push((candidate.unit, candidate.breakdown.total)),
-            }
-        }
-        let own_best = bests
-            .iter()
-            .find(|(id, _)| *id == actor)
-            .map_or(f64::NEG_INFINITY, |(_, best)| *best);
-        let unit_rank = bests.iter().filter(|(_, best)| *best > own_best).count();
-        let mut unit_features = Vec::with_capacity(bests.len());
-        for (id, _) in &bests {
-            let orders: Vec<&MoveCandidate> = candidates
-                .iter()
-                .filter(|candidate| candidate.unit == *id)
-                .collect();
-            let Some(kind) = before.units.get(*id).map(|unit| unit.kind) else {
-                continue;
-            };
-            unit_features.push(unit_summary(kind, &orders));
-        }
-        let unit_chosen = bests
-            .iter()
-            .position(|(id, _)| *id == actor)
-            .context("the actor has orders")?;
         game.rows.push((
             Row {
                 game: game_id,
@@ -571,7 +435,6 @@ fn replay_rows(
                 step,
                 action: kind,
                 kind: unit.kind.as_str(),
-                won: false,
                 offset: 0,
                 count: u32::try_from(own.len())?,
                 chosen: u32::try_from(chosen)?,
@@ -579,26 +442,12 @@ fn replay_rows(
                     .iter()
                     .map(|candidate| candidate.breakdown.total as f32)
                     .collect(),
-                units: u32::try_from(bests.len())?,
-                unit_rank: u32::try_from(unit_rank)?,
-                unit_features,
-                unit_chosen: u32::try_from(unit_chosen)?,
             },
             own.iter()
                 .map(|candidate| candidate.features.map(|value| value as f32))
                 .collect(),
         ));
         step += 1;
-    }
-    if let Match::Finished {
-        outcome: Outcome::Victory { winners, .. },
-    } = &adapter.state().match_state
-    {
-        game.winner = adapter
-            .state()
-            .players
-            .iter()
-            .position(|player| winners.contains(&player.team));
     }
     Ok(())
 }
