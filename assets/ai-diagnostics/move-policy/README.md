@@ -49,6 +49,37 @@ and it is in the validation set.
 Ties count as a share of a hit. The calibrated log loss of the greedy score
 is a fit of the three greedy features only.
 
+## Play results
+
+`planner-v8` with the move model in its greedy policy, against `planner-v8`.
+Andy mirror unless the row tells otherwise, 14 development maps, day limit
+35, node budget 256. One pair is two games with the seats swapped. The value
+is the mean pair differential with the descriptive 95% half width.
+
+| Strength | Pairs | Score | Without 172238 | W/D/L (games) | Median days | Day limit |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.25 | 56 | +0.384 ± 0.154 | +0.375 | 76/3/33 | 29 | 36% |
+| 0.5 | 56 | +0.688 ± 0.121 | +0.683 | 94/1/17 | 27 | 24% |
+| 1 | 56 | +0.321 ± 0.176 | +0.288 | 73/2/37 | 28 | 28% |
+| 2 | 56 | −0.589 ± 0.177 | −0.692 | 22/2/88 | 24 | 26% |
+| Pure model, 1 | 56 | +0.018 ± 0.195 | −0.038 | 56/2/54 | 29 | 31% |
+| Move lines, 0.5 | 56 | +0.652 ± 0.143 | +0.644 | 92/1/19 | 25.5 | 20% |
+| **0.5, new seeds** | 280 | **+0.661 ± 0.060** | +0.677 | 462/6/92 | 27.5 | 25% |
+| 0.5, Grit mirror | 56 | +0.652 ± 0.137 | +0.663 | 90/5/17 | 31 | 37% |
+| 0.5, Sami mirror | 56 | +0.518 ± 0.150 | +0.558 | 85/0/27 | 26 | 20% |
+| 0.5 against `planner-v7` | 56 | +0.857 ± 0.092 | +0.885 | 104/0/8 | 22 | 12% |
+
+The 56-pair rows of the Andy mirror use the same seeds. The 280-pair run
+used new seeds and was chosen after the probes; it is
+`assets/ai-diagnostics/sprt/planner-v8-move-vs-v8-fixed280.json`, which
+names the configuration `planner-v8-move` (`PlannerConfig::V8_MOVE`). The run
+itself set the same weight with `baseline_weights`. There were no invalid
+commands. The median turn time was about two times that of `planner-v8`
+(492 ms against 251 ms) and the 95th percentile about 1.9 times.
+
+The offline agreement is highest at strength 1, but the play is best at 0.5.
+The model without the greedy score features is neutral in play.
+
 ## Make the model again
 
 The inputs are the replay archives and map files that the build model
