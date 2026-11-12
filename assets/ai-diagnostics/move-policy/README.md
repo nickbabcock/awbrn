@@ -1,89 +1,95 @@
 # Move model fitted to human unit orders
 
-`human-move-v1-blend.json` and `human-move-v1-pure.json` are conditional
-logit models fitted to the unit orders of human players in Amarriner Cups 1
-to 6, Division 1, and the Global League games. `awbrn_ai::agents::greedy::move_policy`
-loads them.
+`human-move-v1-blend.json` is a conditional logit model fitted to the unit
+orders of human players. `awbrn_ai::agents::move_policy` loads it.
+`planner-v8-move` (`PlannerConfig::V8_MOVE`) is `planner-v8` with this model
+at strength 0.5 in its greedy policy (`Weights::move_policy`).
+
+## The model
 
 - One decision is one order of one unit, with the board immediately before
   the order. The choices are all the legal orders of that unit: each
   destination with each action there (wait, attack a target, capture, load,
-  join, supply). The tool reads only games without fog.
+  join, supply). Games with fog are not read.
 - `GreedyAgent::move_candidates` calculates the 50 features of each order
-  (`MOVE_FEATURES`). The extractor and the policy call the same function.
-- Each model has one coefficient vector for each unit group: foot, direct,
-  indirect and other (air, naval and transports).
-- The blend model also reads three greedy score features: the greedy score of
-  the order, its gap to the best order of the unit, and whether it is the
-  best order. The pure model does not read them.
+  (`MOVE_FEATURES`). The extractor and the policy use the same function.
+- Three features come from the greedy score of the order: the score, its gap
+  to the best order of the unit, and whether it is the best order.
+- There is one coefficient vector for each unit group: foot, direct, indirect
+  and other (air, naval and transports).
 
-## How the policy uses the model
+In play, the greedy scores still decide which unit acts next and when the
+turn ends. The model chooses the order of the unit: the chosen order gets
+the highest greedy score of the unit, and the other orders of the unit get
+zero. This is the same method as the build model. The utility of an order is
+the greedy part of the model plus the strength times the other part, so at
+strength zero the choice is the greedy choice. The policy calculates the
+features of a unit only when its chosen order can change the selection.
 
-Set `Weights::move_policy` to a strength above zero. The greedy scores still
-decide which unit acts next and when the turn ends. The model chooses the
-order of each unit: the chosen order gets the highest greedy score of the
-orders of that unit, and the other orders of the unit get zero. This is the
-same method as the build model. The utility of an order is the greedy part
-of the model plus the strength times the other part, so at strength zero the
-choice is the greedy choice.
+## Data and split
 
-`PlannerConfig::move_lines` is a second use: the model plays the own lines
-of the planner, and the simulated enemy replies keep the plain greedy
-policy. The turn of the plain greedy policy is one more plan.
+The replays are the Division 1 games of Amarriner Cups 1 to 6 and the
+Global League games that the build model README names
+(`assets/ai-diagnostics/build-policy/README.md`). The split is by map, with
+the label `awbrn-move-holdout-v1`. The model file lists the maps in
+`notes.train_maps` and `notes.holdout_maps`.
 
-## Fit and validation
+- Fit: 33 maps, 250,080 decisions in 646 games, at most 120,000 decisions
+  for each group.
+- Validation: 77060, 90948, 107495, 118575, 133605, 140000, 163134 and
+  163726. 98,970 decisions in 255 games.
 
-The split is by map. The validation maps are 77060, 90948, 107495, 118575,
-133605, 140000, 163134 and 163726 (98,970 decisions, 255 games). The fit
-uses 33 other maps (250,080 decisions, 646 games), with at most 120,000
-decisions for each group. 77060 is the only development map in the corpus,
-and it is in the validation set.
+In the Global League pool (`assets/ai-diagnostics/global-league-pool/`),
+development map 77060 is in validation (1,101 decisions); it is the only one
+of the 14 development maps of the play tests with human decisions. Holdout
+map 140000 is in validation (7,718 decisions), and holdout maps 146797 and
+173170 are in the fit (355 decisions). These four holdout maps were used on
+2026-11-01, before this fit. Most other maps are Amarriner Cup maps: as for
+the build model, the reserved tournament maps are not a clean holdout for
+this model.
 
-| Ranker on validation maps | Top-1 | Top-3 | Log loss |
+## Results
+
+Validation maps, all groups:
+
+| Ranker | Top-1 | Top-3 | Log loss |
 | --- | --- | --- | --- |
 | Uniform | 0.053 | 0.155 | 3.09 |
-| Greedy score | 0.346 | 0.524 | (2.42 calibrated) |
-| Pure model | 0.431 | 0.663 | 1.93 |
-| Blend model | 0.436 | 0.672 | 1.90 |
+| Greedy score | 0.346 | 0.524 | 2.42 (fit of the greedy features only) |
+| Model | 0.436 | 0.672 | 1.90 |
 
-Ties count as a share of a hit. The calibrated log loss of the greedy score
-is a fit of the three greedy features only.
+Play, against `planner-v8` on the 14 development maps (Andy mirror, day
+limit 35, node budget 256, mean pair differential with the descriptive 95%
+half width): strength 0.5 scored +0.661 ± 0.060 over 280 pairs (462/6/92
+games). On 56-pair probes, strength 0.25, 1 and 2 scored +0.384, +0.321 and
+−0.589, and strength 0.5 scored +0.652 in the Grit mirror, +0.518 in the
+Sami mirror and +0.857 against `planner-v7`. Two variants were neutral and
+were removed: the model without the greedy features, and the model in the
+own lines of the planner only.
 
-## Play results
+The plan of the 280-pair run is
+`assets/ai-diagnostics/sprt/planner-v8-move-vs-v8-fixed280.json`. The run
+used configuration `v8` with `baseline_weights: {"move_policy": 0.5}`, which
+is the same play as `v8-move`: the first 14 pairs give the same games.
 
-`planner-v8` with the move model in its greedy policy, against `planner-v8`.
-Andy mirror unless the row tells otherwise, 14 development maps, day limit
-35, node budget 256. One pair is two games with the seats swapped. The value
-is the mean pair differential with the descriptive 95% half width.
+Turn time: in the same 14 pairs, the mean turn of `planner-v8-move` takes
+1.5 times that of `planner-v8` (1.9 times before the features were made
+lazy). For each unit of planner work it takes 1.2 times as long.
 
-| Strength | Pairs | Score | Without 172238 | W/D/L (games) | Median days | Day limit |
-| --- | --- | --- | --- | --- | --- | --- |
-| 0.25 | 56 | +0.384 ± 0.154 | +0.375 | 76/3/33 | 29 | 36% |
-| 0.5 | 56 | +0.688 ± 0.121 | +0.683 | 94/1/17 | 27 | 24% |
-| 1 | 56 | +0.321 ± 0.176 | +0.288 | 73/2/37 | 28 | 28% |
-| 2 | 56 | −0.589 ± 0.177 | −0.692 | 22/2/88 | 24 | 26% |
-| Pure model, 1 | 56 | +0.018 ± 0.195 | −0.038 | 56/2/54 | 29 | 31% |
-| Move lines, 0.5 | 56 | +0.652 ± 0.143 | +0.644 | 92/1/19 | 25.5 | 20% |
-| **0.5, new seeds** | 280 | **+0.661 ± 0.060** | +0.677 | 462/6/92 | 27.5 | 25% |
-| 0.5, Grit mirror | 56 | +0.652 ± 0.137 | +0.663 | 90/5/17 | 31 | 37% |
-| 0.5, Sami mirror | 56 | +0.518 ± 0.150 | +0.558 | 85/0/27 | 26 | 20% |
-| 0.5 against `planner-v7` | 56 | +0.857 ± 0.092 | +0.885 | 104/0/8 | 22 | 12% |
+## Limits
 
-The 56-pair rows of the Andy mirror use the same seeds. The 280-pair run
-used new seeds and was chosen after the probes; it is
-`assets/ai-diagnostics/sprt/planner-v8-move-vs-v8-fixed280.json`, which
-names the configuration `planner-v8-move` (`PlannerConfig::V8_MOVE`). The run
-itself set the same weight with `baseline_weights`. There were no invalid
-commands. The median turn time was about two times that of `planner-v8`
-(492 ms against 251 ms) and the 95th percentile about 1.9 times.
-
-The offline agreement is highest at strength 1, but the play is best at 0.5.
-The model without the greedy score features is neutral in play.
+- The fit script puts `missile` in the direct group, but the policy gives it
+  the indirect coefficients. To correct this changes the play.
+- The extractor does not read the human unload decisions, so `act_unload`
+  has no data and its coefficient is zero. In play, the legal orders give
+  the unload orders after the orders of all units, so the unloads of a
+  transport are usually a separate choice group from its other orders.
+- The fit and the play tests use no fog.
 
 ## Make the model again
 
 The inputs are the replay archives and map files that the build model
-README names (`assets/ai-diagnostics/build-policy/README.md`).
+README names.
 
 ```text
 cargo build --release -p awbrn-ai-diagnostics --example move_policy
@@ -91,16 +97,22 @@ target/release/examples/move_policy names <rows>/names.json
 target/release/examples/move_policy extract <maps> <rows>/<division> <division-folder>
 ```
 
-Do this for each of the seven folders. Each command writes
-`<rows>/<division>.jsonl` and `<rows>/<division>.f32`. Then fit, with
-NumPy and SciPy:
+Do the extract step for each of the seven folders. Each command writes
+`<rows>/<division>.jsonl` and `<rows>/<division>.f32`. Then fit with NumPy
+and SciPy, with the row prefixes in name order (Cups 1 to 6, then the Global
+League):
 
 ```text
 python crates/awbrn-ai-diagnostics/examples/fit_move_policy.py \
   --names <rows>/names.json --rows <rows>/<division>... \
-  --max-train 120000 \
-  --blend <fit>/blend.json --pure <fit>/pure.json --summary <fit>/summary.json
+  --max-train 120000 --model <fit>/model.json --summary <fit>/summary.json
 ```
 
-`move_policy score <blend|pure> <strength> <rows>/<division>` gives the top-1
-agreement of the built-in model as the policy reads it in play.
+With Python 3.13.9, NumPy 2.5.4 and SciPy 1.18.1, this gives the same split,
+the same decision counts and the same validation top-1 as the model file.
+The coefficients are not exactly the same: the solver path changes with the
+number of BLAS threads, and the foot and indirect coefficients move by up to
+0.025.
+
+`move_policy score <strength> <rows>/<division>` gives the top-1 agreement
+of the built-in model as the policy reads it in play.
