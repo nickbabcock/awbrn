@@ -61,6 +61,20 @@ pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     ..HARD_V3_CONFIG
 };
 
+/// The [`V8_GREEDY_CONFIG`] scoring with the move model fitted to human unit
+/// orders at strength 0.5 ([`crate::agents::Weights::move_policy`]).
+///
+/// [`PlannerConfig::V8_MOVE`] uses it for its seed plan, its fallback and its
+/// simulated replies.
+pub const V8_MOVE_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move",
+    weights: Weights {
+        move_policy: 0.5,
+        ..V8_GREEDY_CONFIG.weights
+    },
+    ..V8_GREEDY_CONFIG
+};
+
 /// How hard an opponent is meant to be, as a player reads it.
 ///
 /// One tier holds one profile at a time. The tier is for selection. A match
@@ -396,6 +410,29 @@ mod tests {
         assert_eq!(HARD.config, V8_GREEDY_CONFIG);
         assert_eq!(HARD.planner(), PlannerConfig::V8);
         assert_eq!(HARD.node_budget(), NodeBudget::TWO_HUNDRED_FIFTY_SIX);
+    }
+
+    /// `planner-v8-move` is `planner-v8` with the move model in its greedy
+    /// policy, and nothing else.
+    #[test]
+    fn the_v8_move_planner_adds_only_the_move_model() {
+        let expected = PlannerConfig {
+            identifier: "planner-v8-move",
+            baseline: BaselineConfig {
+                identifier: V8_MOVE_GREEDY_CONFIG.identifier,
+                weights: Weights {
+                    move_policy: 0.5,
+                    ..V8_GREEDY_CONFIG.weights
+                },
+                ..V8_GREEDY_CONFIG
+            },
+            ..PlannerConfig::V8
+        };
+        assert_eq!(PlannerConfig::V8_MOVE, expected);
+        assert_ne!(
+            PlannerConfig::V8_MOVE.fingerprint(),
+            PlannerConfig::V8.fingerprint()
+        );
     }
 
     #[test]

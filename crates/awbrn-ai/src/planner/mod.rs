@@ -373,6 +373,17 @@ impl PlannerConfig {
         ..Self::V7_WIDE
     };
 
+    /// planner-v8 with the move model fitted to human unit orders at
+    /// strength 0.5 in its greedy policy
+    /// ([`crate::profile::V8_MOVE_GREEDY_CONFIG`]). The greedy policy with
+    /// the model plays the seed plan, completes the other own lines, makes
+    /// the fallback and plays the simulated replies.
+    pub const V8_MOVE: Self = Self {
+        identifier: "planner-v8-move",
+        baseline: crate::profile::V8_MOVE_GREEDY_CONFIG,
+        ..Self::V8
+    };
+
     /// planner-v6 with the fog memory.
     pub const V6_FOG: Self = Self {
         identifier: "planner-v6-fog",
