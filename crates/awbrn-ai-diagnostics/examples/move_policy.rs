@@ -199,8 +199,10 @@ fn score(model: &str, strength: f64, prefix: &str) -> Result<()> {
     let model = move_model(kind);
     let bytes = fs::read(format!("{prefix}.f32"))?;
     let values: Vec<f32> = bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("four bytes")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|chunk| f32::from_le_bytes(*chunk))
         .collect();
     let (mut hits, mut greedy_hits, mut decisions) = (0.0, 0.0, 0_usize);
     for line in std::io::BufReader::new(File::open(format!("{prefix}.jsonl"))?).lines() {
