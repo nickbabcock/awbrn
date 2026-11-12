@@ -8,6 +8,8 @@ The manifest records each map's source URL, map page, mode, rank, size, factions
 
 The manifest splits the maps into 21 development maps and 21 untouched holdout maps. The split was assigned without using match outcomes from these maps. Do not use holdout results to choose or tune an agent. Map 67945 stays in development because earlier research used it. The other researched maps do not appear in this pool.
 
+The 14 Standard and High Funds holdout maps were used once, on 2026-11-01 (`selection.holdout_uses` and `holdout_used` in the manifest). Do not use them as a sealed holdout again. They keep the split `untouched_holdout`, so the selection does not change. The seven Fog holdout maps were used for the Hard v2 Fog evaluation (`crates/awbrn-ai/diagnostics/hard-v2-fog-fold-in.md`).
+
 `fog-holdout-manifest.json` lists the seven Fog holdout maps with fog enabled. It supports the recorded fog evaluation plan. It does not change the Global League split.
 
 The split uses the fixed label `awbrn-global-league-holdout-v1`. The selector hashes `awbrn-global-league-holdout-v1:<AWBW ID>`, then takes the lowest hashes within fixed mode, rank, and size groups. A map is small when it has 420 tiles or less. The manifest records the bucket counts and prior map IDs.

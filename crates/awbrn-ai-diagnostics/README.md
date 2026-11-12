@@ -98,6 +98,19 @@ plan remains available for historical runs.
 Use sequential runs for development. Keep the frozen gate and the sealed
 holdout for a release decision.
 
+### Examine some games of a run again
+
+Copy the plan of a run and add `"pair_indices": [17, 203]` to play pairs 17
+and 203 again with their maps and seeds. Such a run does not stop early, and
+it does not measure strength.
+
+Add `--trace <folder>` to the `sprt` command to write one JSON Lines file
+for each game: a snapshot at the start of each turn and the changes of each
+command (`src/sprt_trace.rs`). Use a new folder outside the worktree for each
+run. The trace does not change the games, but do not compare the turn times
+of a traced run. A game of 35 days on a development map writes about
+0.4 MB.
+
 ## Score the fog memory
 
 The fog memory (`awbrn_ai::fog`) remembers enemy units that go out of sight
@@ -212,7 +225,9 @@ Wall-clock limits are excluded from CI; tests check deterministic work limits.
 
 ## Measure planner-v8
 
-`planner-v8` is the planner of the Hard profile. It is `planner-v7` with:
+`planner-v8` is the planner of the Hard profile. The experiments that were
+not kept are in `crates/awbrn-ai/diagnostics/experiments-not-kept.md`. It is
+`planner-v7` with:
 
 - the wider search of `planner-v7-wide`: no work threshold, and about four
   times the plans and reply checks. One plan uses at most 215 nodes, so its
