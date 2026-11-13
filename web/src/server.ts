@@ -16,11 +16,6 @@ export {
   RatingsDurableObject,
 };
 
-const crossOriginIsolationHeaders = {
-  "Cross-Origin-Embedder-Policy": "require-corp",
-  "Cross-Origin-Opener-Policy": "same-origin",
-} as const;
-
 const MATCH_WEBSOCKET_PATTERN = new URLPattern({
   pathname: "/api/matches/:matchId/ws",
 });
@@ -55,10 +50,7 @@ export default createServerEntry({
     ) {
       const session = await getRequestSession(request);
       if (!session) {
-        return new Response("Unauthorized", {
-          status: 401,
-          headers: crossOriginIsolationHeaders,
-        });
+        return new Response("Unauthorized", { status: 401 });
       }
       return getPlayerStub(session.user.id).fetch(request);
     }
@@ -69,10 +61,7 @@ export default createServerEntry({
       if (matchId) {
         return getMatchStub(matchId).fetch(request);
       }
-      return new Response("Invalid match ID", {
-        status: 400,
-        headers: crossOriginIsolationHeaders,
-      });
+      return new Response("Invalid match ID", { status: 400 });
     }
 
     return handler.fetch(request);
