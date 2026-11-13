@@ -181,7 +181,8 @@ pub struct UnitProperty {
     pub units_movement_type: String,
     pub units_x: Option<u32>,
     pub units_y: Option<u32>,
-    pub units_moved: Option<u32>,
+    /// -1 = stunned (Von Bolt), as in [`UnitChange::units_moved`]
+    pub units_moved: Option<i32>,
     pub units_capture: Option<u32>,
     pub units_fired: Option<u32>,
     /// Masked with `"?"`, or, in archives recorded since early 2026, omitted
@@ -1546,6 +1547,29 @@ mod tests {
             unit(3887582).units_hit_points.get_value().unwrap().value(),
             10
         );
+    }
+
+    #[test]
+    fn test_discovered_unit_keeps_the_von_bolt_stun() {
+        let json = r#"{
+            "units": [
+                {"units_id": 179372159, "units_games_id": 1371871,
+                 "units_players_id": 3249947, "units_name": "Anti-Air",
+                 "units_movement_points": 6, "units_vision": 2, "units_fuel": 35,
+                 "units_fuel_per_turn": 0, "units_sub_dive": "N", "units_ammo": 7,
+                 "units_short_range": 0, "units_long_range": 0,
+                 "units_second_weapon": "N", "units_symbol": "G", "units_cost": 8000,
+                 "units_movement_type": "T", "units_x": 6, "units_y": 6,
+                 "units_moved": -1, "units_capture": 0, "units_fired": 1,
+                 "units_hit_points": 7, "units_cargo1_units_id": 0,
+                 "units_cargo2_units_id": 0, "units_carried": "N",
+                 "countries_code": "ge"}
+            ]
+        }"#;
+        let discovery: Discovery = serde_json::from_str(json).unwrap();
+        assert_eq!(discovery.units[0].units_moved, Some(-1));
+        let serialized = serde_json::to_value(&discovery).unwrap();
+        assert_eq!(serialized["units"][0]["units_moved"], -1);
     }
 
     #[test]
