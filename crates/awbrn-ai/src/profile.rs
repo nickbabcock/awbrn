@@ -68,7 +68,7 @@ pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
 /// [`PlannerConfig::V8_MOVE`] uses it for its seed plan, its fallback and its
 /// simulated replies.
 pub const V8_MOVE_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
-    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move-fog-map",
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move-v2",
     weights: Weights {
         move_policy: 0.5,
         ..V8_GREEDY_CONFIG.weights
@@ -414,26 +414,25 @@ mod tests {
     }
 
     /// `planner-v8-move` is `planner-v8` with the move model in its greedy
-    /// policy, and nothing else.
+    /// policy, and nothing else: the two configurations are the same except
+    /// for the identifiers and the move model strength.
     #[test]
     fn the_v8_move_planner_adds_only_the_move_model() {
-        let expected = PlannerConfig {
-            identifier: "planner-v8-move",
-            baseline: BaselineConfig {
-                identifier: V8_MOVE_GREEDY_CONFIG.identifier,
-                weights: Weights {
-                    move_policy: 0.5,
-                    ..V8_GREEDY_CONFIG.weights
-                },
-                ..V8_GREEDY_CONFIG
-            },
-            ..PlannerConfig::V8
+        let strip = |config: PlannerConfig| {
+            let mut value = serde_json::to_value(config).unwrap();
+            let fields = value.as_object_mut().unwrap();
+            fields.remove("identifier");
+            let baseline = fields["baseline"].as_object_mut().unwrap();
+            baseline.remove("identifier");
+            baseline["weights"]
+                .as_object_mut()
+                .unwrap()
+                .remove("move_policy");
+            value
         };
-        assert_eq!(PlannerConfig::V8_MOVE, expected);
-        assert_ne!(
-            PlannerConfig::V8_MOVE.fingerprint(),
-            PlannerConfig::V8.fingerprint()
-        );
+        assert_eq!(strip(PlannerConfig::V8_MOVE), strip(PlannerConfig::V8));
+        assert_eq!(PlannerConfig::V8.baseline.weights.move_policy, 0.0);
+        assert_eq!(PlannerConfig::V8_MOVE.baseline.weights.move_policy, 0.5);
     }
 
     #[test]

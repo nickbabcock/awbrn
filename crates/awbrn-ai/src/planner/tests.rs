@@ -871,6 +871,9 @@ fn the_earlier_fingerprints_do_not_change() {
         (PlannerConfig::V7, "2b71493852d42c91"),
         (PlannerConfig::V7_WIDE, "c7634e08efd41e91"),
         (PlannerConfig::V6_FOG, "3aac2b950e552bab"),
+        // The value of origin/master before the move model.
+        (PlannerConfig::V8, "6534db27e716693b"),
+        (PlannerConfig::V8_MOVE, "879c2d92802bcffb"),
     ] {
         assert_eq!(config.fingerprint(), expected, "{}", config.identifier);
     }
@@ -879,6 +882,9 @@ fn the_earlier_fingerprints_do_not_change() {
         (BaselineConfig::PRODUCTION, "af672904643d966c"),
         (crate::profile::HARD_V2_CONFIG, "1be508294d967fa6"),
         (crate::profile::HARD_V3_CONFIG, "12bfc85325aa3cdc"),
+        // The value of origin/master before the move model.
+        (crate::profile::V8_GREEDY_CONFIG, "16c3ec8e4b5cca64"),
+        (crate::profile::V8_MOVE_GREEDY_CONFIG, "c11e04679320dc84"),
     ] {
         assert_eq!(config.fingerprint(), expected, "{}", config.identifier);
     }

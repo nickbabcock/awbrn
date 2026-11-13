@@ -748,6 +748,11 @@ pub struct GreedyAgent {
     /// reads only the tiles in sight. `None` (the default) is no seat: no
     /// decision reads the known map.
     viewer: Option<PlayerIdx>,
+    /// Calculate the move features of every unit, also when the choice of
+    /// the model cannot change the selection. A test compares this with the
+    /// lazy calculation.
+    #[cfg(test)]
+    eager_move_features: bool,
 }
 
 /// One production site with legal builds.
@@ -1047,6 +1052,8 @@ impl GreedyAgent {
             build_sites: Vec::new(),
             move_context: MoveContext::new(),
             viewer: None,
+            #[cfg(test)]
+            eager_move_features: false,
         }
     }
 
@@ -1773,6 +1780,8 @@ impl GreedyAgent {
             }
         }
         let unit_fields_needed = capture_needed || advance_needed;
+        #[cfg(test)]
+        let eager = self.eager_move_features;
 
         let Self {
             rng,
@@ -1961,6 +1970,8 @@ impl GreedyAgent {
             moves,
             context: move_context,
             unit_orders: Vec::new(),
+            #[cfg(test)]
+            eager,
         };
         match scope {
             Some(scope) => session.legal().visit_scoped(scope, &mut visitor),
@@ -2582,6 +2593,9 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     /// The scored orders of the current unit, until all its orders are
     /// scored.
     unit_orders: Vec<UnitOrder>,
+    /// [`GreedyAgent::eager_move_features`].
+    #[cfg(test)]
+    eager: bool,
 }
 
 /// One scored order of the unit that [`GreedyVisitor`] holds back for the
@@ -2647,7 +2661,11 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
             .iter()
             .map(|entry| entry.breakdown.total)
             .fold(f64::NEG_INFINITY, f64::max);
-        if self.moves.is_none() && !self.model_can_change_selection(best, &orders) {
+        #[cfg(test)]
+        let lazy = !self.eager;
+        #[cfg(not(test))]
+        let lazy = true;
+        if lazy && self.moves.is_none() && !self.model_can_change_selection(best, &orders) {
             // The model choice cannot change the selection, so the features
             // are not calculated. The orders of the unit change nothing.
             orders.clear();
@@ -3971,12 +3989,17 @@ mod tests {
                     .id
             })
             .collect();
-        for generic in [false, true] {
+        let move_weights = crate::profile::V8_MOVE_GREEDY_CONFIG.weights;
+        for (generic, weights) in [
+            (false, Weights::THREAT),
+            (true, Weights::THREAT),
+            (true, move_weights),
+        ] {
             let make = |seed| {
                 if generic {
-                    GreedyAgent::with_generic_tactical_policy(seed, Weights::THREAT)
+                    GreedyAgent::with_generic_tactical_policy(seed, weights)
                 } else {
-                    GreedyAgent::with_weights(seed, Weights::THREAT)
+                    GreedyAgent::with_weights(seed, weights)
                 }
             };
             let mut retained = make(19);
@@ -5083,6 +5106,39 @@ mod tests {
                 .unwrap();
         }
         assert!(unloaded, "the transport unloads");
+    }
+
+    /// The move features are calculated only when the choice of the model
+    /// can change the selection. The games are the same as with the
+    /// features of every unit, without fog and in fog.
+    #[test]
+    fn the_lazy_move_features_choose_as_the_eager_ones() {
+        use crate::harness::{Limits, play};
+        fn game(eager: bool, fog: bool) -> String {
+            let weights = crate::profile::V8_MOVE_GREEDY_CONFIG.weights;
+            let mut first = GreedyAgent::with_generic_tactical_policy(1, weights);
+            let mut second = GreedyAgent::with_generic_tactical_policy(2, weights);
+            first.eager_move_features = eager;
+            second.eager_move_features = eager;
+            let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+            let state = amber_valley(fog, 1);
+            let mut session = Session::new(state.clone());
+            let record = play(
+                state,
+                &mut session,
+                &mut agents,
+                &mut Rng::from_seed(3),
+                Limits {
+                    days: 12,
+                    ..Limits::default()
+                },
+            )
+            .expect("test game executes");
+            format!("{:?} {:?}", record.days, session.state())
+        }
+        for fog in [false, true] {
+            assert_eq!(game(true, fog), game(false, fog), "fog {fog}");
+        }
     }
 
     #[test]
