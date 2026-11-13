@@ -90,11 +90,8 @@ Use `256` to match the Medium and Hard profiles, which use `planner-v8` and
 `planner-v8-move`.
 `planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
 it. A budget of `1` scores only the seed turn. Use a new run directory after a
-policy or budget change. The plan
-`assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json` recorded
-the promotion of `planner-v3` with 16 evaluations. Its profile `ai-hard-v3`
-was retired, so the plan no longer runs. The earlier four-evaluation
-plan remains available for historical runs.
+policy or budget change. The earlier four-evaluation plan remains available
+for historical runs.
 
 Use sequential runs for development. Keep the frozen gate and the sealed
 holdout for a release decision.
