@@ -1,0 +1,6 @@
+# Static assets are served without running the Worker, so they miss the
+# headers src/start.ts gives pages. Of these files only a worker script needs
+# one: under the page's COEP, the browser refuses to start a dedicated worker
+# whose script has no COEP of its own, and the game engine runs in one.
+/*
+  Cross-Origin-Embedder-Policy: require-corp
