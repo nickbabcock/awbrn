@@ -1,10 +1,9 @@
-import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Card } from "@astryxdesign/core/Card";
 import { Center } from "@astryxdesign/core/Center";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { FileInput } from "@astryxdesign/core/FileInput";
 import { Grid } from "@astryxdesign/core/Grid";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useAnnounce, useMediaQuery } from "@astryxdesign/core/hooks";
 import { InfoTip } from "@astryxdesign/core/InfoTip";
 import { List, ListItem } from "@astryxdesign/core/List";
@@ -16,7 +15,13 @@ import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { compactDefinition } from "@astryxdesign/core/theme";
-import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
+import {
+  borderVars,
+  colorVars,
+  radiusVars,
+  spacingVars,
+  typeScaleVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAwbwGameFn } from "#/awbw/awbw.functions.ts";
@@ -25,7 +30,11 @@ import { parseAwbwGameId } from "#/awbw/parsers.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { coRoster } from "#/co_roster.ts";
 import { loadCoPortraitCatalog } from "#/components/co_portraits.ts";
-import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
+import {
+  GameFullscreenButton,
+  ImmersiveNoticeLine,
+  useImmersiveNotice,
+} from "#/components/GameFullscreen.tsx";
 import { TileInfoBar } from "#/components/TileInfoBar.tsx";
 import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameStore } from "#/engine/store.ts";
@@ -39,9 +48,12 @@ import {
   type ActivatablePowerLevel,
 } from "#/replay/power_meter.ts";
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
+import { Figure } from "#/ui/Figure.tsx";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
+import { missileVars } from "./missileColors.stylex.ts";
 import {
   DEFAULT_SEAT,
   NO_CO_ID,
@@ -498,20 +510,120 @@ export function PlannerPage() {
     setProductionOptions(null);
   }
 
+  // The strip under the board holds the day, the army to move and the
+  // planner's keys; with no board it holds nothing, so the frame stays ink.
+  const hasBoardHud = isBoardRequested || playerRoster != null || areaStrikes != null;
+  const isImmersiveNotice = useImmersiveNotice(fullscreenMode);
+
+  // The strip goes into full screen with the board, so its keys, the way out
+  // and the notice of it stay beside the board rather than over a tile.
+  const boardHud = hasBoardHud ? (
+    <HStack
+      align="center"
+      gap={3}
+      justify="between"
+      paddingBlock={2}
+      paddingInline={3}
+      wrap="wrap"
+      xstyle={styles.boardHud}
+    >
+      <HStack align="center" gap={2} wrap="wrap">
+        {playerRoster ? <Figure size="md">Day {playerRoster.day}</Figure> : null}
+        {/* The notice holds the line for a moment, then gives it back. */}
+        {isImmersiveNotice ? (
+          <ImmersiveNoticeLine xstyle={styles.noticeLine} />
+        ) : (
+          <>
+            {planner && isBoardRequested ? (
+              <Text type="supporting">
+                {`${planner.summary.name || "Planner"} · Map ${parsedMapId}`}
+              </Text>
+            ) : null}
+            {activeArmy ? (
+              <Text type="supporting">{activeArmy.displayFactionName} to move</Text>
+            ) : null}
+          </>
+        )}
+      </HStack>
+      <HStack align="center" gap={2} wrap="wrap">
+        {areaStrikes ? (
+          <>
+            {hasStrikes ? (
+              <Switch
+                label="After strikes"
+                labelTooltip="Each unit shows the HP it keeps after all the missiles."
+                onChange={(on) => void showAfterStrikes(on)}
+                size="sm"
+                value={isAfterStrikes}
+              />
+            ) : null}
+            <Selector
+              label="Attack luck"
+              labelTooltip="Each luck roll of an attack and its counter lands here in its range."
+              onChange={(value) => {
+                const option = LUCK_OPTIONS.find((item) => item.label === value);
+                if (option) void changeLuck(option.value);
+              }}
+              options={LUCK_OPTIONS.map((item) => item.label)}
+              size="sm"
+              value={LUCK_OPTIONS.find((item) => item.value === luck)?.label ?? ""}
+            />
+            <Button
+              clickAction={() => editPlanner({ type: "undo" })}
+              isDisabled={!canUndo}
+              label="Undo"
+              size="sm"
+              variant="secondary"
+            />
+            <Button
+              clickAction={() => editPlanner({ type: "redo" })}
+              isDisabled={!canRedo}
+              label="Redo"
+              size="sm"
+              variant="secondary"
+            />
+            <Button
+              clickAction={() => editPlanner({ type: "reset" })}
+              isDisabled={!canUndo && !canRedo}
+              label="Reset"
+              size="sm"
+              variant="secondary"
+            />
+            <Button
+              clickAction={() => order({ type: "endTurn" })}
+              isDisabled={activeArmy === undefined}
+              label="End turn"
+              size="sm"
+              tooltip="Give the turn to the next army (Ctrl+Enter)."
+              variant={isTurnSpent ? "primary" : "secondary"}
+            />
+          </>
+        ) : null}
+        {isFullscreen ? (
+          <Button
+            clickAction={exitFullscreen}
+            label="Exit full screen"
+            size="sm"
+            variant="secondary"
+          />
+        ) : isBoardRequested ? (
+          <GameFullscreenButton onEnter={enterFullscreen} />
+        ) : null}
+      </HStack>
+    </HStack>
+  ) : null;
+
   return (
-    <Page width="full">
+    <Page>
       <VStack gap={6}>
-        <PageHeader
-          description="Load an AWBW move planner file and play the turn out with the actions of the game: move, attack, capture, build, and activate CO powers. Every edit can be undone. The file stays on your device."
-          title="Move planner"
-        />
+        <PageHeader title="Plan a turn" />
 
         {error ? (
           <Banner description={error} role="alert" status="error" title="Planner error" />
         ) : null}
 
         <Grid align="start" gap={4} xstyle={styles.layout}>
-          <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
+          <Card padding={0} variant="ink" xstyle={styles.boardPanel}>
             <VStack
               gap={0}
               ref={surfaceRef}
@@ -521,18 +633,20 @@ export function PlannerPage() {
                 fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
               ]}
             >
-              <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
-              {isFullscreen ? (
-                <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
-              ) : null}
+              {/* The board's own box, which its readout sits in; in full screen
+                  the strip takes a row below it. */}
+              <VStack gap={0} xstyle={styles.boardArea}>
+                <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
+                {playerRoster ? <TileInfoBar /> : null}
+              </VStack>
               {!isBoardRequested ? (
                 <Center height="100%" width="100%" xstyle={styles.placeholder}>
-                  <EmptyState
-                    description="Choose a planner file, its map, each army's CO, and the army that plays first."
-                    headingLevel={3}
-                    isCompact
-                    title="No board yet"
-                  />
+                  {/* The Replays empty state's ink well; the setup beside it loads a board. */}
+                  <Center height="100%" width="100%" xstyle={styles.emptyWell}>
+                    <Heading level={2} xstyle={styles.emptyTitle}>
+                      No board yet
+                    </Heading>
+                  </Center>
                 </Center>
               ) : null}
               {productionOptions === null || productionSite === undefined ? null : (
@@ -572,87 +686,9 @@ export function PlannerPage() {
                 />
               )}
               <AttackPreview surfaceRef={surfaceRef} />
-              {playerRoster ? <TileInfoBar /> : null}
+              {isFullscreen ? boardHud : null}
             </VStack>
-            <HStack
-              align="center"
-              gap={3}
-              justify="between"
-              paddingBlock={2}
-              paddingInline={3}
-              wrap="wrap"
-              xstyle={styles.boardHud}
-            >
-              <HStack align="center" gap={2} wrap="wrap">
-                {playerRoster ? <Badge label={`Day ${playerRoster.day}`} variant="info" /> : null}
-                <Text type="supporting">
-                  {planner && isBoardRequested
-                    ? `${planner.summary.name || "Planner"} · Map ${parsedMapId}`
-                    : "No planner loaded"}
-                </Text>
-                {activeArmy ? (
-                  <Text type="supporting">{activeArmy.displayFactionName} to move</Text>
-                ) : null}
-              </HStack>
-              <HStack align="center" gap={2} wrap="wrap">
-                {areaStrikes ? (
-                  <>
-                    {hasStrikes ? (
-                      <Switch
-                        label="After strikes"
-                        labelTooltip="Each unit shows the HP it keeps after all the missiles."
-                        onChange={(on) => void showAfterStrikes(on)}
-                        size="sm"
-                        value={isAfterStrikes}
-                      />
-                    ) : null}
-                    <Selector
-                      label="Attack luck"
-                      labelTooltip="Each luck roll of an attack and its counter lands here in its range."
-                      onChange={(value) => {
-                        const option = LUCK_OPTIONS.find((item) => item.label === value);
-                        if (option) void changeLuck(option.value);
-                      }}
-                      options={LUCK_OPTIONS.map((item) => item.label)}
-                      size="sm"
-                      value={LUCK_OPTIONS.find((item) => item.value === luck)?.label ?? ""}
-                    />
-                    <Button
-                      clickAction={() => editPlanner({ type: "undo" })}
-                      isDisabled={!canUndo}
-                      label="Undo"
-                      size="sm"
-                      variant="secondary"
-                    />
-                    <Button
-                      clickAction={() => editPlanner({ type: "redo" })}
-                      isDisabled={!canRedo}
-                      label="Redo"
-                      size="sm"
-                      variant="secondary"
-                    />
-                    <Button
-                      clickAction={() => editPlanner({ type: "reset" })}
-                      isDisabled={!canUndo && !canRedo}
-                      label="Reset"
-                      size="sm"
-                      variant="secondary"
-                    />
-                    <Button
-                      clickAction={() => order({ type: "endTurn" })}
-                      isDisabled={activeArmy === undefined}
-                      label="End turn"
-                      size="sm"
-                      tooltip="Give the turn to the next army (Ctrl+Enter)."
-                      variant={isTurnSpent ? "primary" : "secondary"}
-                    />
-                  </>
-                ) : null}
-                {isBoardRequested && !isFullscreen ? (
-                  <GameFullscreenButton onEnter={enterFullscreen} />
-                ) : null}
-              </HStack>
-            </HStack>
+            {isFullscreen ? null : boardHud}
           </Card>
 
           <VStack as="section" aria-label="Planner setup" gap={4}>
@@ -754,7 +790,6 @@ export function PlannerPage() {
                 <VStack gap={2}>
                   <TextInput
                     autoCapitalize="none"
-                    description="Fills the map, each army's CO, power meter and team, and the army to move. The planner file does not record them."
                     enterKeyHint="go"
                     hasAutoCorrect={false}
                     inputMode="url"
@@ -766,7 +801,7 @@ export function PlannerPage() {
                       pendingGame.current = null;
                     }}
                     onEnter={() => void fillFromAwbwGame()}
-                    placeholder="https://awbw.amarriner.com/game.php?games_id=…"
+                    placeholder="Game link or ID"
                     status={
                       gameLink.trim() !== "" && gameId === null
                         ? { type: "error", message: "Enter an AWBW game link or game ID." }
@@ -779,7 +814,6 @@ export function PlannerPage() {
                     isDisabled={gameId === null}
                     isLoading={isFillingFromGame}
                     label="Fill from AWBW game"
-                    size="sm"
                     variant="secondary"
                   />
                   {filledFrom ? <Text type="supporting">{filledFrom}</Text> : null}
@@ -787,8 +821,7 @@ export function PlannerPage() {
                 <FileInput
                   accept=".json"
                   changeAction={handlePlannerFileChange}
-                  description="The JSON file that the AWBW move planner saves"
-                  label="Move planner file"
+                  label="Planner file"
                   onChange={(files) =>
                     setPlannerFile(Array.isArray(files) ? (files[0] ?? null) : files)
                   }
@@ -799,7 +832,6 @@ export function PlannerPage() {
                   <>
                     <VStack gap={1}>
                       <TextInput
-                        description="The planner does not record its map."
                         enterKeyHint="go"
                         inputMode="numeric"
                         isRequired
@@ -815,7 +847,6 @@ export function PlannerPage() {
                       />
                     </VStack>
                     <RadioList
-                      description="This army plays first. The others follow in turn order."
                       isRequired
                       label="Army to plan"
                       onChange={setFirstPlayerId}
@@ -830,12 +861,7 @@ export function PlannerPage() {
                         />
                       ))}
                     </RadioList>
-                    <VStack gap={1}>
-                      <Text type="label">Armies</Text>
-                      <Text type="supporting">
-                        The planner does not record COs, funds, or power meters.
-                      </Text>
-                    </VStack>
+                    <Heading level={5}>Armies</Heading>
                     {planner.summary.players.map((player) => {
                       const seat = seatFor(player.playerId);
                       const coName =
@@ -982,7 +1008,6 @@ function SelectedUnitCard({
             ({unit.x}, {unit.y})
           </MetadataListItem>
         </MetadataList>
-        <Text type="supporting">These edits change the board outside the rules, for any army.</Text>
         <Selector
           label="HP"
           onChange={(value) => onHpChange(Number(value))}
@@ -1072,7 +1097,7 @@ const styles = stylex.create({
   gameSurface: {
     position: "relative",
     aspectRatio: "3 / 2",
-    backgroundColor: colorVars["--color-background-inverted"],
+    backgroundColor: awbrnVars.ink950,
   },
   gameSurfaceFullscreen: {
     alignItems: "center",
@@ -1090,6 +1115,14 @@ const styles = stylex.create({
     paddingBlock: "env(safe-area-inset-top) env(safe-area-inset-bottom)",
     paddingInline: "env(safe-area-inset-left) env(safe-area-inset-right)",
   },
+  // The board takes the surface, less the strip's row in full screen.
+  boardArea: {
+    position: "relative",
+    alignSelf: "stretch",
+    flexBasis: 0,
+    flexGrow: 1,
+    minBlockSize: 0,
+  },
   gameCanvas: {
     display: "block",
     width: "100%",
@@ -1104,7 +1137,22 @@ const styles = stylex.create({
     position: "absolute",
     inset: 0,
     padding: spacingVars["--spacing-4"],
-    backgroundColor: colorVars["--color-background-muted"],
+    backgroundColor: awbrnVars.ink950,
+  },
+  // The Replays empty state on the board's ink: a dashed well and a title.
+  emptyWell: {
+    borderColor: awbrnVars.ink600,
+    borderRadius: radiusVars["--radius-container"],
+    borderStyle: "dashed",
+    borderWidth: "1.5px",
+  },
+  emptyTitle: {
+    color: awbrnVars.textOnInkStrong,
+    fontSize: awbrnVars.text26,
+    fontStretch: "68%",
+    fontWeight: 800,
+    lineHeight: 1.05,
+    wordSpacing: "0.1em",
   },
   rosterPanel: {
     overflow: "hidden",
@@ -1115,26 +1163,35 @@ const styles = stylex.create({
     flexShrink: 0,
     borderWidth: 2,
     borderStyle: "solid",
-    backgroundColor: "#16181d",
-    color: "#ffffff",
+    backgroundColor: awbrnVars.ink950,
+    color: awbrnVars.textOnInkStrong,
     lineHeight: 1,
   },
   infantry: {
-    borderColor: "#ffe14d",
+    borderColor: missileVars.infantry,
   },
   funds: {
-    borderColor: "#ff2fd1",
+    borderColor: missileVars.funds,
   },
   hp: {
-    borderColor: "#ffffff",
+    borderColor: awbrnVars.textOnInkStrong,
     outlineWidth: 1,
     outlineStyle: "solid",
-    outlineColor: "#16181d",
+    outlineColor: awbrnVars.ink950,
   },
   boardHud: {
+    alignSelf: "stretch",
+    flexShrink: 0,
     borderTopWidth: borderVars["--border-width"],
     borderTopStyle: "solid",
-    borderTopColor: colorVars["--color-border-emphasized"],
+    borderTopColor: awbrnVars.rule,
     backgroundColor: colorVars["--color-background-surface"],
+  },
+  // The notice takes the strip's ground and the line it stands in for, so the
+  // strip keeps its height when the notice cuts.
+  noticeLine: {
+    color: colorVars["--color-text-primary"],
+    fontSize: typeScaleVars["--text-supporting-size"],
+    lineHeight: typeScaleVars["--text-supporting-leading"],
   },
 });

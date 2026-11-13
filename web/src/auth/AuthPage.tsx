@@ -1,21 +1,39 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useRouter } from "@tanstack/react-router";
+/*
+ * AUTH.
+ *
+ * No headline: the form (Sign in | Create account) centers against a board on
+ * the ink table on desktop, and leads on a phone. An error is a title naming
+ * the problem, with the key that recovers when there is one.
+ */
+
 import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "#/ui/Button.tsx";
-import { Card } from "@astryxdesign/core/Card";
-import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Heading } from "@astryxdesign/core/Heading";
-import { VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { Stack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import * as stylex from "@stylexjs/stylex";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+import { MapPicture } from "#/maps/components/MapPicture.tsx";
+import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
+import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
+import { matchKeys } from "#/matches/matches.keys.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { Button } from "#/ui/Button.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { Sheet, SheetBody } from "#/ui/Sheet.tsx";
+import { authKeys } from "./auth.keys";
 import { authClient } from "./client";
 import { authSignInSchema, authSignUpSchema } from "./schemas";
-import { authKeys } from "./auth.keys";
-import { matchKeys } from "#/matches/matches.keys.ts";
-import { RouterTextLink } from "#/ui/astryx-links.tsx";
-import { Page } from "#/ui/Page.tsx";
-import * as stylex from "@stylexjs/stylex";
+
+type Mode = "sign-in" | "register";
+
+/** A failed attempt: the problem, and whether switching to sign in fixes it. */
+interface AuthProblem {
+  title: string;
+  isSignInFix: boolean;
+}
 
 export function AuthPage({ isRegister }: { isRegister: boolean }) {
   const navigate = useNavigate();
@@ -24,20 +42,25 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [problem, setProblem] = useState<AuthProblem | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const mode: Mode = isRegister ? "register" : "sign-in";
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
+  function changeMode(next: Mode): void {
+    setProblem(null);
+    void navigate({ search: { mode: next === "register" ? "register" : undefined }, to: "/auth" });
+  }
 
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setProblem(null);
     setIsPending(true);
 
     try {
       const result = await submitAuthRequest(isRegister, { email, password, name });
-
       if (result.error) {
-        throw new Error(result.error.message ?? "Authentication failed");
+        setProblem(describeFailure(result.error, isRegister));
+        return;
       }
 
       queryClient.removeQueries({ queryKey: matchKeys.mine() });
@@ -49,96 +72,153 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
       await router.invalidate();
       await navigate({ to: "/" });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Authentication failed");
+      setProblem({
+        isSignInFix: false,
+        title: nextError instanceof Error ? nextError.message : "Something went wrong",
+      });
     } finally {
       setIsPending(false);
     }
   }
 
+  const action = isRegister ? "Create account" : "Sign in";
+
   return (
-    <Page width="narrow">
-      <VStack gap={6} xstyle={styles.column}>
-        <VStack gap={2}>
-          <Heading level={1}>{isRegister ? "Create an account" : "Sign in"}</Heading>
-          <Text color="secondary" type="large">
-            {isRegister
-              ? "An account lets you take seats, play ranked, and keep the record of every battle you finish."
-              : "Welcome back. Your turns are waiting where you left them."}
-          </Text>
-        </VStack>
-        <Card padding={6} width="100%">
-          <form onSubmit={handleSubmit}>
-            <VStack gap={4}>
-              <FormLayout>
-                {isRegister ? (
-                  <TextInput
-                    autoComplete="name"
-                    id="name"
-                    isRequired
-                    label="Name"
-                    onChange={setName}
-                    type="text"
-                    value={name}
-                  />
-                ) : null}
-                <TextInput
-                  autoComplete="email"
-                  id="email"
-                  isRequired
-                  label="Email"
-                  onChange={setEmail}
-                  type="email"
-                  value={email}
-                />
-                <TextInput
-                  autoComplete={isRegister ? "new-password" : "current-password"}
-                  id="password"
-                  isRequired
-                  label="Password"
-                  onChange={setPassword}
-                  type="password"
-                  value={password}
-                />
-              </FormLayout>
-              {error ? (
+    <Stack xstyle={styles.auth}>
+      <BoardArt />
+      <Stack aria-labelledby="auth-title" as="section" xstyle={styles.panel}>
+        <Heading id="auth-title" level={1} xstyle={styles.srOnly}>
+          {action}
+        </Heading>
+        <Sheet xstyle={styles.form}>
+          <SheetBody xstyle={styles.formBody}>
+            {/* <form> has no Astryx component (FormLayout says to wrap it in a native one).
+                It posts, so a submit before hydration keeps the password out of the URL. */}
+            <form method="post" noValidate onSubmit={handleSubmit} {...stylex.props(styles.fields)}>
+              <SegmentedControl
+                label="Account"
+                layout="fill"
+                onChange={(next) => changeMode(next as Mode)}
+                value={mode}
+                xstyle={styles.fill}
+              >
+                <SegmentedControlItem label="Sign in" value="sign-in" />
+                <SegmentedControlItem label="Create account" value="register" />
+              </SegmentedControl>
+              {problem ? (
                 <Banner
+                  endContent={
+                    problem.isSignInFix ? (
+                      <Button
+                        label="Sign in instead"
+                        onClick={() => changeMode("sign-in")}
+                        size="sm"
+                        variant="secondary"
+                      />
+                    ) : undefined
+                  }
                   role="alert"
                   status="error"
-                  title="Authentication failed"
-                  description={error}
+                  title={problem.title}
                 />
               ) : null}
+              {isRegister ? (
+                <TextInput
+                  autoComplete="name"
+                  enterKeyHint="next"
+                  htmlName="name"
+                  id="name"
+                  label="Name"
+                  onChange={setName}
+                  type="text"
+                  value={name}
+                  containerXstyle={styles.field}
+                />
+              ) : null}
+              <TextInput
+                autoComplete="username"
+                enterKeyHint="next"
+                hasSpellCheck={false}
+                htmlName="email"
+                id="email"
+                label="Email"
+                onChange={setEmail}
+                type="email"
+                value={email}
+                containerXstyle={styles.field}
+              />
+              <TextInput
+                autoComplete={isRegister ? "new-password" : "current-password"}
+                enterKeyHint="done"
+                htmlName="password"
+                id="password"
+                label="Password"
+                onChange={setPassword}
+                type="password"
+                value={password}
+                containerXstyle={styles.field}
+              />
               <Button
-                isDisabled={isPending}
                 isLoading={isPending}
-                label={isRegister ? "Create account" : "Sign in"}
+                label={action}
+                size="lg"
                 type="submit"
                 variant="primary"
                 width="100%"
               />
-              <Text color="secondary">
-                {isRegister ? (
-                  <>
-                    Already have an account?{" "}
-                    <RouterTextLink to="/auth" search={{ mode: undefined }}>
-                      Sign in →
-                    </RouterTextLink>
-                  </>
-                ) : (
-                  <>
-                    New here?{" "}
-                    <RouterTextLink to="/auth" search={{ mode: "register" }}>
-                      Create an account →
-                    </RouterTextLink>
-                  </>
-                )}
-              </Text>
-            </VStack>
-          </form>
-        </Card>
-      </VStack>
-    </Page>
+            </form>
+          </SheetBody>
+        </Sheet>
+      </Stack>
+    </Stack>
   );
+}
+
+/**
+ * A board on the ink table beside the form: the first S-ranked map, whole,
+ * at 2x where it fits. Decoration only, and only on desktop.
+ */
+function BoardArt() {
+  const { data } = useInfiniteQuery(mapCatalogQueryOptions("", { ranks: ["S"] }));
+  const map = data?.pages[0]?.maps[0];
+  const picture = map ? mapScreenshotSize("full", map.width, map.height) : null;
+
+  return (
+    <Stack aria-hidden="true" as="section" xstyle={styles.art}>
+      {map && picture ? (
+        <Stack xstyle={styles.board}>
+          <MapPicture
+            alt=""
+            maxScale={2}
+            sourceHeight={picture.height}
+            sourceWidth={picture.width}
+            src={map.screenshot.full}
+            tone="bare"
+          />
+        </Stack>
+      ) : null}
+    </Stack>
+  );
+}
+
+function describeFailure(
+  error: { code?: string; message?: string; status?: number },
+  isRegister: boolean,
+): AuthProblem {
+  const said = `${error.code ?? ""} ${error.message ?? ""}`;
+  if (isRegister && /already|exists/i.test(said)) {
+    return { isSignInFix: true, title: "That email already has an account" };
+  }
+  if (/invalid.*(email|password)|credential/i.test(said)) {
+    return { isSignInFix: false, title: "Wrong email or password" };
+  }
+  if (/password.*short|too short/i.test(said)) {
+    return { isSignInFix: false, title: "That password is too short" };
+  }
+  if (error.status === 429 || /too many/i.test(said)) {
+    return { isSignInFix: false, title: "Too many tries, wait a minute" };
+  }
+  return { isSignInFix: false, title: error.message || "Something went wrong" };
 }
 
 async function submitAuthRequest(
@@ -147,11 +227,7 @@ async function submitAuthRequest(
 ) {
   if (isRegister) {
     const parsed = authSignUpSchema.safeParse(payload);
-
-    if (!parsed.success) {
-      throw new Error(parsed.error.issues[0]?.message ?? "Authentication failed");
-    }
-
+    if (!parsed.success) throw new Error(fieldProblem(parsed.error.issues[0]?.path[0]));
     return authClient.signUp.email(parsed.data);
   }
 
@@ -159,19 +235,98 @@ async function submitAuthRequest(
     email: payload.email,
     password: payload.password,
   });
-
-  if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Authentication failed");
-  }
-
+  if (!parsed.success) throw new Error(fieldProblem(parsed.error.issues[0]?.path[0]));
   return authClient.signIn.email(parsed.data);
 }
 
+/** The field a submitted form is missing, said as the problem. */
+function fieldProblem(field: PropertyKey | undefined): string {
+  if (field === "name") return "Enter your name";
+  if (field === "email") return "Enter your email";
+  if (field === "password") return "Enter your password";
+  return "Something went wrong";
+}
+
 const styles = stylex.create({
-  // A form of three fields reads as one column, the width of a field.
-  column: {
+  auth: {
+    display: "grid",
+    gridTemplateColumns: {
+      default: "minmax(0, 1.1fr) minmax(0, 1fr)",
+      [pageLayout.phoneMedia]: "minmax(0, 1fr)",
+    },
+    minBlockSize: {
+      default: `calc(100dvh - ${pageLayout.topBarHeight})`,
+      [pageLayout.phoneMedia]: 0,
+    },
+  },
+  art: {
+    display: {
+      default: "grid",
+      [pageLayout.phoneMedia]: "none",
+    },
+    placeItems: "center",
+    padding: "40px",
+    overflow: "hidden",
+    backgroundColor: awbrnVars.ink950,
+  },
+  board: {
     inlineSize: "100%",
-    maxInlineSize: "28rem",
-    marginInline: "auto",
+    filter: awbrnVars.shadowBoardPicture,
+  },
+  panel: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    maxInlineSize: "620px",
+    paddingBlock: {
+      default: "56px",
+      [pageLayout.phoneMedia]: "20px 32px",
+    },
+    paddingInline: {
+      default: "64px",
+      [pageLayout.phoneMedia]: pageLayout.gutterPhone,
+    },
+  },
+  form: {
+    maxInlineSize: "440px",
+  },
+  formBody: {
+    paddingBlockStart: "20px",
+  },
+  fields: {
+    display: "grid",
+    gap: {
+      default: "16px",
+      [pageLayout.phoneMedia]: "12px",
+    },
+    // On a phone the account segment (the form's only md control; a text
+    // input sets its own) takes 44px items, and the submit key (its only lg
+    // control) the 44px target rather than the dock's 52px.
+    "--size-element-md": {
+      default: null,
+      [pageLayout.phoneMedia]: "52px",
+    },
+    "--size-element-lg": {
+      default: null,
+      [pageLayout.phoneMedia]: "44px",
+    },
+  },
+  fill: {
+    inlineSize: "100%",
+  },
+  // On a phone a label sits 6px over its field.
+  field: {
+    gap: {
+      default: null,
+      [pageLayout.phoneMedia]: "6px",
+    },
+  },
+  srOnly: {
+    position: "absolute",
+    inlineSize: "1px",
+    blockSize: "1px",
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
   },
 });

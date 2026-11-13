@@ -31,7 +31,7 @@ export function mapTagGrant(map: MapOwnership, actor: Actor | null): MapGrant {
 /**
  * Who may rank a map revision: a moderator, and never its author.
  *
- * A rank is this site's judgement of a map and feeds the board a player
+ * A rank is this site's judgment of a map and feeds the board a player
  * picks from, so an author ranking their own work is the one case the rule
  * exists to stop. Ownership is read before the role, and the role cannot
  * reach past it: a moderator who wrote the map is refused the same as

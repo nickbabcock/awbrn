@@ -2,9 +2,10 @@
  * How the map catalog is paged and searched.
  *
  * The catalog is the list of maps AWBRN holds. A map enters it by import and
- * stays, so the catalog only grows and a page can be addressed by the position
- * of its last row. Newest first, because the map a player just imported is the
- * map they came to play.
+ * stays, so a page can be addressed by the position of its last row. The best
+ * rank leads (S, A, B, C, then unranked), and within a rank the newest map
+ * leads. The cursor holds the last row's rank place as well as its age, so a
+ * page reads on from where the last one stopped.
  */
 
 import { z } from "zod";
@@ -17,6 +18,8 @@ export const MAP_CATALOG_PAGE_SIZE = 24;
 export const MAP_SEARCH_MAX_LENGTH = 80;
 
 const mapCatalogCursorSchema = z.object({
+  /** The last row's rank place: 0 for S through 4 for unranked. */
+  rankPlace: z.number().int().min(0).max(4),
   createdAt: z.iso.datetime(),
   mapId: z
     .string()

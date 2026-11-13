@@ -1,207 +1,350 @@
 /*
- * THE FIELD RECORD
+ * MAP DETAIL.
  *
- * THESIS: a map is a thing the site holds an opinion about, not a row in a
- *   picker. Its page is the record: the whole battlefield at native pixels,
- *   what it seats, how it plays, the grade this site gave it, and the one
- *   command that turns it into a match. It is also where the grade and the
- *   tags are written, so the judgement and the evidence for it are on the
- *   same screen.
- * OWN-WORLD: cream panels on the open sky. The grade is the game's own
- *   end-of-battle plate, the letter in the signage voice under a bar of its
- *   color, and an ungraded map wears the dashed empty slot this system gives
- *   a place waiting to be filled.
- * STORY: a player opens a map from the board, reads it, and starts a match on
- *   it. A moderator opens the same page and grades it.
- * FIRST VIEWPORT: the map's name and its grade, then the battlefield itself.
+ * Desktop: the board on its ink table at the left; at the right the title
+ * and medal, the postage line (`2P · 20×20 · Bamboozle · AWBW 61748`), the
+ * tags, the red New match key, Curation and Record. Below 1180px it is one
+ * column: the title block, the key, the board (full-bleed on a phone),
+ * Curation, Record.
  */
 
-import { useQuery } from "@tanstack/react-query";
-import { Banner } from "@astryxdesign/core/Banner";
-import { Card } from "@astryxdesign/core/Card";
-import { Divider } from "@astryxdesign/core/Divider";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Stack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
-import { ArrowLeft as ArrowLeftIcon } from "pixelarticons/react/ArrowLeft";
+import { colorVars, typeScaleVars } from "@astryxdesign/core/theme/tokens.stylex";
+import * as stylex from "@stylexjs/stylex";
+import { useQuery } from "@tanstack/react-query";
 import { useActor } from "#/auth/useActor.ts";
-import { MapCurationPanel } from "#/maps/components/MapCurationPanel.tsx";
-import { MapJudgementRecord } from "#/maps/components/MapJudgementRecord.tsx";
-import { MapPicture } from "#/maps/components/MapPicture.tsx";
+import { MapCurationPanel, MapTagsKey } from "#/maps/components/MapCurationPanel.tsx";
+import { MapJudgmentRecord } from "#/maps/components/MapJudgmentRecord.tsx";
+import { MapPicture, wholeScaleWidth } from "#/maps/components/MapPicture.tsx";
+import { mapPostage } from "#/maps/components/MapPlate.tsx";
 import { MapRankMedal } from "#/maps/components/MapRankMedal.tsx";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { mapQueryOptions } from "#/maps/maps.queries.ts";
 import { MAP_TAG_LABELS, type MapCatalogEntry } from "#/maps/schemas.ts";
-import { RouterButton, RouterTextLink } from "#/ui/astryx-links.tsx";
-import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { RouterButton } from "#/ui/astryx-links.tsx";
+import { BackLink } from "#/ui/BackKey.tsx";
+import { Button } from "#/ui/Button.tsx";
+import { EmptySheet, ProblemBanner } from "#/ui/EmptySheet.tsx";
+import { figureStyles } from "#/ui/Figure.tsx";
+import { IconRefresh } from "#/ui/icons.tsx";
 import { Page } from "#/ui/Page.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+
+/** Ink between the board and the sides of its table. */
+const BOARD_INSET = 22;
+/** Between the board's column and the rail. */
+const COLUMN_GAP = 32;
+/** The rail's own width, and the narrowest it gives way to for a 2x board. */
+const RAIL_WIDTH = 460;
+const RAIL_MIN_WIDTH = 392;
+/** Between a phone and the rail breakpoint: one column, wider than a phone. */
+const TABLET_MEDIA = "@media (min-width: 721px) and (max-width: 1180px)";
 
 export function MapPage({ mapId }: { mapId: string }) {
   const actor = useActor();
   const mapQuery = useQuery(mapQueryOptions(mapId));
+  const map = mapQuery.data;
 
   return (
     <Page>
-      <VStack gap={6}>
-        <HStack align="center" gap={1}>
-          <ArrowLeftIcon aria-hidden height={14} width={14} />
-          <RouterTextLink to="/maps">All maps</RouterTextLink>
-        </HStack>
+      {/* The back link sits on the content at its own 8px, not the page's 24px. */}
+      <Stack xstyle={styles.flow}>
+        <BackLink label="Maps" to="/maps" />
 
-        {mapQuery.isPending ? <RecordSkeleton /> : null}
+        {mapQuery.isPending ? <DetailSkeleton /> : null}
 
         {mapQuery.isError ? (
-          <Banner
-            description="The catalog could not be read. Try again in a moment."
-            role="alert"
-            status="error"
-            title="Map unavailable"
+          <ProblemBanner
+            action={
+              <Button
+                clickAction={async () => {
+                  await mapQuery.refetch();
+                }}
+                icon={<Icon icon={IconRefresh} />}
+                label="Retry"
+                size="sm"
+              />
+            }
+            title="Map failed to load"
           />
         ) : null}
 
-        {!mapQuery.isPending && !mapQuery.isError && mapQuery.data === null ? (
-          <EmptyState
-            actions={<RouterButton label="Back to the board" to="/maps" variant="secondary" />}
-            description="No map in the catalog holds that id. It may never have been imported, or the address may be wrong."
-            headingLevel={1}
-            title="No such map"
-          />
-        ) : null}
+        {map === null ? <EmptySheet headingLevel={2} title="No such map" /> : null}
 
-        {mapQuery.data ? (
-          <>
-            <MapRecord map={mapQuery.data} />
-            <MapCurationPanel actor={actor} map={mapQuery.data} />
-            <MapJudgementRecord actor={actor} map={mapQuery.data} />
-          </>
-        ) : null}
-      </VStack>
-    </Page>
-  );
-}
-
-function MapRecord({ map }: { map: MapCatalogEntry }) {
-  const picture = mapScreenshotSize("full", map.width, map.height);
-
-  return (
-    <VStack gap={6}>
-      <HStack align="center" gap={6} justify="between" wrap="wrap">
-        <VStack gap={1}>
-          <Heading level={1}>{map.name}</Heading>
-          <Text type="label">By {map.author}</Text>
-        </VStack>
-        <VStack align="center" gap={1.5}>
-          <MapRankMedal rank={map.rank} size="lg" />
-          {/*
-           * A grade names the revision it was given to and not the map, so
-           * the plate says which one. An edited map comes back here with a
-           * new number and no grade, and this line is where a reader learns
-           * why the medal emptied.
-           */}
-          <Text type="label">
-            {map.rank ? `Rank ${map.rank}` : "Unranked"} · revision {map.revision}
-          </Text>
-        </VStack>
-      </HStack>
-
-      <Grid
-        align="start"
-        columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-        gap={6}
-      >
-        <Card padding={4}>
-          <MapPicture
-            alt={`The battlefield of ${map.name}`}
-            sourceHeight={picture.height}
-            sourceWidth={picture.width}
-            src={map.screenshot.full}
-          />
-        </Card>
-
-        <Card padding={6}>
-          <VStack gap={6}>
-            <MetadataList columns={2} label={{ position: "top" }}>
-              <MetadataListItem label="Armies">{map.playerCount}</MetadataListItem>
-              <MetadataListItem label="Size">
-                {map.width} × {map.height}
-              </MetadataListItem>
-              <MetadataListItem label="Revision">{map.revision}, the current one</MetadataListItem>
-              <MetadataListItem label="Source">
-                {map.origin ? `AWBW ${map.origin.sourceMapId}` : "AWBRN"}
-              </MetadataListItem>
-              <MetadataListItem label="Held since">{heldSince(map.addedAt)}</MetadataListItem>
-            </MetadataList>
-
-            <VStack gap={2}>
-              <Text color="secondary" type="label">
-                Plays as
-              </Text>
-              {map.tags.length > 0 ? (
-                <HStack gap={1.5} wrap="wrap">
+        {map ? (
+          <Stack xstyle={[styles.grid, styles.columns(columnsFor(map))]}>
+            <Stack direction="horizontal" xstyle={styles.head}>
+              <Stack gap={2} xstyle={styles.titleBlock}>
+                <Heading level={1} maxLines={1} xstyle={styles.title}>
+                  {map.name}
+                </Heading>
+                <Text
+                  as="p"
+                  color="inherit"
+                  display="block"
+                  type="inherit"
+                  xstyle={[figureStyles.figure, styles.postage]}
+                >
+                  {postage(map)}
+                </Text>
+                <Stack direction="horizontal" wrap="wrap" xstyle={styles.tags}>
                   {map.tags.map((tag) => (
                     <Token key={tag} label={MAP_TAG_LABELS[tag]} size="sm" />
                   ))}
-                </HStack>
-              ) : (
-                <Text color="secondary">
-                  Untagged. Nobody has said yet what kind of game this map makes.
-                </Text>
-              )}
-            </VStack>
+                  <MapTagsKey actor={actor} map={map} />
+                </Stack>
+              </Stack>
+              <MapRankMedal rank={map.rank} size="lg" xstyle={styles.medal} />
+            </Stack>
 
-            <Divider />
-
-            <VStack gap={2}>
+            <Stack xstyle={styles.cta}>
               <RouterButton
-                label="Create match on this map"
+                label="New match"
                 search={{ map: map.mapId }}
+                size="lg"
                 to="/matches/new"
                 variant="primary"
                 width="100%"
               />
-              <Text color="secondary" type="supporting">
-                Opens the create screen with this battlefield already chosen.
-              </Text>
-            </VStack>
-          </VStack>
-        </Card>
-      </Grid>
-    </VStack>
+            </Stack>
+
+            <MapBoard map={map} />
+
+            <Stack xstyle={styles.curation}>
+              <MapCurationPanel actor={actor} map={map} />
+            </Stack>
+            <Stack xstyle={styles.record}>
+              <MapJudgmentRecord actor={actor} map={map} />
+            </Stack>
+          </Stack>
+        ) : null}
+      </Stack>
+    </Page>
   );
 }
 
-function RecordSkeleton() {
+/**
+ * The postage line, ending with the source and, once a map has been edited,
+ * the revision its rank names.
+ */
+function postage(map: MapCatalogEntry): string {
+  const parts = [mapPostage(map)];
+  if (map.origin) parts.push(`AWBW ${map.origin.sourceMapId}`);
+  if (map.revision > 1) parts.push(`Rev ${map.revision}`);
+  return parts.join(" · ");
+}
+
+/**
+ * The board's width, as CSS, in a space `space` wide: the map at the largest
+ * whole scale up to 2x that fits inside the table's ink, and the ink around it.
+ * The table hugs its map; it never pads a small map with spare ink.
+ */
+function boardWidth(map: MapCatalogEntry, space: string): string {
+  const picture = mapScreenshotSize("full", map.width, map.height);
+  const room = `${space} - ${2 * BOARD_INSET}px`;
+  return `calc(${wholeScaleWidth(room, picture.width, 2)} + ${2 * BOARD_INSET}px)`;
+}
+
+/**
+ * The desktop columns: the board, and the rail beside it.
+ *
+ * The board asks for its map at 2x with the rail at its narrowest (392px), so
+ * a map a little wider than the usual column, a 22×18 say, still draws at 2x.
+ * The rail then takes what is left up to 460px, and any width beyond that
+ * opens between the board and the rail, so the rail ends at the page's edge
+ * and the medal and the key stand in the same place on every map. A map
+ * whose 2x needs more than the rail can give falls to the largest whole
+ * scale that fits, and the board shrinks to it.
+ */
+function columnsFor(map: MapCatalogEntry): string {
+  const board = boardWidth(map, `100% - ${COLUMN_GAP + RAIL_MIN_WIDTH}px`);
+  return `${board} clamp(${RAIL_MIN_WIDTH}px, 100% - ${COLUMN_GAP}px - ${board}, ${RAIL_WIDTH}px)`;
+}
+
+/** The whole battlefield on the ink table, at 2x where it fits. */
+function MapBoard({ map }: { map: MapCatalogEntry }) {
+  const picture = mapScreenshotSize("full", map.width, map.height);
   return (
-    <VStack gap={6}>
-      <Skeleton height={44} radius={0} width="45%" />
-      <Grid
-        align="start"
-        columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-        gap={6}
-      >
-        <Card padding={4}>
-          <Skeleton height={320} radius="none" />
-        </Card>
-        <Card padding={6}>
-          <VStack gap={4}>
-            <Skeleton height={20} index={1} radius={0} />
-            <Skeleton height={20} index={2} radius={0} />
-            <Skeleton height={20} index={3} radius={0} width="70%" />
-          </VStack>
-        </Card>
-      </Grid>
-    </VStack>
+    <Stack
+      aria-label={`The battlefield of ${map.name}`}
+      as="section"
+      xstyle={[styles.board, styles.boardWidth(boardWidth(map, "100%"))]}
+    >
+      <Stack xstyle={styles.boardPicture}>
+        <MapPicture
+          alt={`The battlefield of ${map.name}`}
+          maxScale={2}
+          sourceHeight={picture.height}
+          sourceWidth={picture.width}
+          src={map.screenshot.full}
+          tone="bare"
+        />
+      </Stack>
+    </Stack>
   );
 }
 
-/** The day the catalog took the map, written the way a log line is. */
-function heldSince(addedAt: string): string {
-  const held = new Date(addedAt);
-  if (Number.isNaN(held.getTime())) return "Unknown";
-  return held.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+function DetailSkeleton() {
+  return (
+    <Stack xstyle={[styles.grid, styles.columns(`minmax(0, 1fr) ${RAIL_WIDTH}px`)]}>
+      <Stack xstyle={styles.head}>
+        <Stack gap={2} xstyle={styles.titleBlock}>
+          <Skeleton height={48} width="70%" />
+          <Skeleton height={14} width="55%" />
+        </Stack>
+      </Stack>
+      <Stack xstyle={[styles.board, styles.boardLoading]} />
+    </Stack>
+  );
 }
+
+const styles = stylex.create({
+  // The back link and the content below it, in block flow.
+  flow: {
+    display: "block",
+  },
+  // Desktop: the board spans the right column's rows, and a last 1fr row
+  // takes whatever height the board has beyond them, so the right column's
+  // sheets keep their 24px gaps.
+  grid: {
+    display: {
+      default: "grid",
+      [pageLayout.belowRailMedia]: "flex",
+    },
+    flexDirection: "column",
+    // Below 1180px the children stack in source order (title block, key,
+    // board, Curation, Record) and an empty sheet slot leaves no gap.
+    gridTemplateAreas: '"board head" "board cta" "board curation" "board record" "board ."',
+    gridTemplateRows: "auto auto auto auto 1fr",
+    columnGap: `${COLUMN_GAP}px`,
+    // Width the two columns leave goes between them (see `columnsFor`).
+    justifyContent: {
+      default: "space-between",
+      [pageLayout.belowRailMedia]: "normal",
+    },
+    rowGap: {
+      default: "24px",
+      [pageLayout.phoneMedia]: "16px",
+    },
+    alignItems: {
+      default: "start",
+      [pageLayout.belowRailMedia]: "stretch",
+    },
+  },
+  columns: (columns: string) => ({
+    gridTemplateColumns: columns,
+  }),
+  // The title block takes the row and the pennant is pinned to its end, so
+  // a short title leaves the space before the pennant and a long one ends in
+  // an ellipsis instead of pushing the pennant along. An unranked map's title
+  // keeps the whole row.
+  head: {
+    gridArea: "head",
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "16px",
+    minInlineSize: 0,
+  },
+  titleBlock: {
+    display: "grid",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minInlineSize: 0,
+  },
+  // The theme balances headings (`text-wrap: balance`), which wraps them
+  // again; the title holds one line and ends in an ellipsis.
+  title: {
+    whiteSpace: "nowrap",
+  },
+  medal: {
+    marginInlineStart: "auto",
+  },
+  postage: {
+    margin: 0,
+    color: colorVars["--color-text-secondary"],
+    fontSize: typeScaleVars["--text-supporting-size"],
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
+  tags: {
+    // A map with no tags and no Edit tags key leaves no gap behind.
+    display: {
+      default: "flex",
+      ":empty": "none",
+    },
+    alignItems: "center",
+    gap: "6px",
+  },
+  cta: {
+    gridArea: "cta",
+  },
+  curation: {
+    gridArea: "curation",
+    minInlineSize: 0,
+    ":empty": {
+      display: "none",
+    },
+  },
+  record: {
+    gridArea: "record",
+    minInlineSize: 0,
+    ":empty": {
+      display: "none",
+    },
+  },
+  board: {
+    gridArea: "board",
+    display: "grid",
+    placeItems: "center",
+    // Between a phone and the rail breakpoint the table is centered on its
+    // own width; on a phone it runs edge to edge.
+    alignSelf: {
+      default: "start",
+      [TABLET_MEDIA]: "center",
+      [pageLayout.phoneMedia]: "stretch",
+    },
+    minInlineSize: 0,
+    backgroundColor: awbrnVars.ink950,
+    borderRadius: {
+      default: "10px",
+      [pageLayout.phoneMedia]: 0,
+    },
+    // The full picture carries the overhang row above the first tile row, so
+    // the table needs no padding of its own above it.
+    paddingBlock: {
+      default: "0 20px",
+      [pageLayout.phoneMedia]: "0 16px",
+    },
+    paddingInline: {
+      default: `${BOARD_INSET}px`,
+      [pageLayout.phoneMedia]: 0,
+    },
+    marginInline: {
+      default: 0,
+      [pageLayout.phoneMedia]: `calc(${pageLayout.gutterPhone} * -1)`,
+    },
+    overflow: "hidden",
+  },
+  boardWidth: (width: string) => ({
+    inlineSize: {
+      default: width,
+      [pageLayout.phoneMedia]: "auto",
+    },
+  }),
+  boardLoading: {
+    alignSelf: "stretch",
+    minBlockSize: "480px",
+  },
+  boardPicture: {
+    inlineSize: "100%",
+    filter: "drop-shadow(0 20px 36px rgba(0, 0, 0, 0.6))",
+  },
+});
