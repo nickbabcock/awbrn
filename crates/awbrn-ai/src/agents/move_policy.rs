@@ -816,9 +816,9 @@ struct MoveModelFile {
     /// The coefficients of each group, by group name. A group that the file
     /// does not name uses `all`.
     groups: std::collections::BTreeMap<String, Vec<f64>>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    notes: serde_json::Value,
+    /// Notes of the fit. The policy does not read them.
+    #[serde(default, rename = "notes")]
+    _notes: serde::de::IgnoredAny,
 }
 
 impl MoveModel {
@@ -930,7 +930,7 @@ mod tests {
             })
             .map(|(position, _)| position)
             .expect("our headquarters");
-        let mut unit = truth.units.iter().next().expect("a unit").clone();
+        let mut unit = *truth.units.iter().next().expect("a unit");
         unit.id = UnitId::new(9_999);
         unit.kind = UnitKind::Infantry;
         unit.owner = seat;

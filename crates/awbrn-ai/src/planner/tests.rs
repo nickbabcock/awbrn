@@ -2703,9 +2703,9 @@ fn only_the_own_lines_read_the_known_map_in_fog() {
         .into_iter()
         .find(|position| plain(position) && *position != home)
         .unwrap();
-    let template = truth.units.iter().next().unwrap().clone();
+    let template = *truth.units.iter().next().unwrap();
     for (id, owner, position) in [(9_998, ours, own), (9_999, theirs, enemy)] {
-        let mut unit = template.clone();
+        let mut unit = template;
         unit.id = UnitId::new(id);
         unit.kind = UnitKind::Infantry;
         unit.owner = owner;

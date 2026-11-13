@@ -38,10 +38,6 @@ GREEDY = ["greedy", "greedy_gap", "greedy_top"]
 GROUPS = ["foot", "direct", "indirect", "other"]
 
 
-def group_of(row):
-    return row["group"]
-
-
 # The fields of a row that the script reads. The other fields are dropped
 # when the rows load, to save memory.
 KEEP = ("game", "map", "day", "action", "kind", "group", "fog", "offset", "count", "chosen")
@@ -204,11 +200,10 @@ def main():
     parser.add_argument("--holdout-label", default="awbrn-move-holdout-v1")
     parser.add_argument("--force-holdout", type=int, nargs="*", default=[77060])
     parser.add_argument("--max-train", type=int, default=200000,
-                        help="The largest number of fit decisions for each group, "
-                        "for the games with fog and for the games without fog")
+                        help="The largest number of fit decisions for each group")
     parser.add_argument("--max-validation", type=int, default=40000,
-                        help="The largest number of validation decisions for each group, "
-                        "for the games with fog and for the games without fog")
+                        help="The largest number of validation decisions for each group "
+                        "and for each of the two validation sets (fog and no fog)")
     parser.add_argument("--l2", type=float, default=1e-4)
     parser.add_argument("--fog", choices=["no", "yes"], default="no")
     parser.add_argument("--exclude-games", help="A file with one game ID on each line")
@@ -260,8 +255,8 @@ def main():
         return part
 
     for group in GROUPS:
-        tr = sample([r for r in train_rows if group_of(r) == group], args.max_train)
-        va = {side: sample([r for r in v if group_of(r) == group], args.max_validation)
+        tr = sample([r for r in train_rows if r["group"] == group], args.max_train)
+        va = {side: sample([r for r in v if r["group"] == group], args.max_validation)
               for side, v in valid.items()}
         print(f"{group}: {len(tr)} fit, "
               + ", ".join(f"{len(v)} {side} validation" for side, v in va.items()),
