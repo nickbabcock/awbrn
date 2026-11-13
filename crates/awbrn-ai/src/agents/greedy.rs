@@ -741,11 +741,13 @@ pub struct GreedyAgent {
     /// The board values of the move features. Built only when the move
     /// model is on or the features are collected.
     move_context: MoveContext,
-    /// Whether this policy plays the turn of the other seat on the
-    /// observation of this player: a simulated enemy reply. The known map
-    /// of the fog move features is the map of the player that owns the
-    /// observation, so a reply does not read it.
-    simulated_reply: bool,
+    /// The seat that owns the observation in the session of the decision.
+    /// The known map of the fog move features is the map of this seat, so
+    /// only the decisions of this seat read it. A decision of another seat,
+    /// such as a simulated enemy reply on the observation of this player,
+    /// reads only the tiles in sight. `None` (the default) is no seat: no
+    /// decision reads the known map.
+    viewer: Option<PlayerIdx>,
 }
 
 /// One production site with legal builds.
@@ -1044,7 +1046,7 @@ impl GreedyAgent {
             selection: Selection::new(),
             build_sites: Vec::new(),
             move_context: MoveContext::new(),
-            simulated_reply: false,
+            viewer: None,
         }
     }
 
@@ -1060,12 +1062,19 @@ impl GreedyAgent {
         self.selection.position = None;
     }
 
-    /// Tell whether the next decisions are a simulated reply of the other
-    /// seat on the observation of this player
-    /// ([`GreedyAgent::simulated_reply`]).
-    pub(crate) fn set_simulated_reply(&mut self, reply: bool) {
-        if self.simulated_reply != reply {
-            self.simulated_reply = reply;
+    /// The fog positions whose move features read the known map, and those
+    /// whose features did not.
+    #[cfg(test)]
+    pub(crate) fn fog_feature_builds(&self) -> (u64, u64) {
+        self.move_context.fog_builds
+    }
+
+    /// Set the seat that owns the observation in the sessions of the next
+    /// decisions ([`GreedyAgent::viewer`]). A decision from an observation
+    /// sets it to the recipient of the observation.
+    pub(crate) fn set_viewer(&mut self, viewer: Option<PlayerIdx>) {
+        if self.viewer != viewer {
+            self.viewer = viewer;
             self.selection.position = None;
         }
     }
@@ -1194,6 +1203,7 @@ impl GreedyAgent {
             }
             None => Session::from_observation(view).ok()?,
         };
+        self.set_viewer(session.state().players.seat(&view.recipient));
         let result = read(self, &session);
         self.session = Some(session);
         Some(result)
@@ -1789,7 +1799,7 @@ impl GreedyAgent {
             selection,
             build_sites,
             move_context,
-            simulated_reply,
+            viewer,
             ..
         } = self;
         let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
@@ -1912,7 +1922,7 @@ impl GreedyAgent {
             };
             (model, weights.move_policy)
         });
-        move_context.clear(!*simulated_reply);
+        move_context.clear(*viewer == Some(seat));
         let scorer = Scorer {
             board: &board,
             movement_bounds,

@@ -831,6 +831,8 @@ impl PlannerAgent {
                 self.stats.fallbacks += 1;
                 self.fallback.set_fog(fog);
                 self.fallback.set_power_hold(self.hold);
+                self.fallback
+                    .set_viewer(session.state().players.seat(&view.recipient));
                 let modeled = (self.config.fog_memory && session.state().settings.fog)
                     .then(|| Session::new(self.memory.planning_state(session.state())));
                 return self
@@ -1430,7 +1432,7 @@ impl TurnPlanner<'_> {
             .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
         hard.restart(Rng::mix(self.seed ^ 0x5eed));
         hard.set_fog(None);
-        hard.set_simulated_reply(true);
+        hard.set_viewer(Some(self.seat));
         hard.set_power_hold(self.march.hold);
         let mut entropy = MeanLuck;
         let root = session.state().clone();
@@ -1511,7 +1513,7 @@ impl TurnPlanner<'_> {
             .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
         hard.restart(self.seed);
         hard.set_fog(self.fog.clone());
-        hard.set_simulated_reply(false);
+        hard.set_viewer(Some(self.seat));
         hard.set_power_hold(self.march.hold);
         let mut plays = Vec::new();
         let mut root = None;

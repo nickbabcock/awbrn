@@ -159,6 +159,9 @@ pub(super) struct MoveContext {
     /// Whether the acting seat owns the observation, so that the known map
     /// of the fog features applies ([`MoveContext::clear`]).
     viewer: bool,
+    /// The fog positions that read the known map, and those that did not.
+    #[cfg(test)]
+    pub(super) fog_builds: (u64, u64),
     /// Whether `property_distance` is for the current position.
     properties_built: bool,
     width: usize,
@@ -199,7 +202,9 @@ impl MoveContext {
     pub(super) const fn new() -> Self {
         Self {
             built: false,
-            viewer: true,
+            viewer: false,
+            #[cfg(test)]
+            fog_builds: (0, 0),
             properties_built: false,
             width: 0,
             height: 0,
@@ -301,6 +306,14 @@ impl MoveContext {
         // tile in fog can be its own, so the features read only the tiles in
         // sight.
         let fog_map = state.settings.fog && self.viewer;
+        #[cfg(test)]
+        if state.settings.fog {
+            if fog_map {
+                self.fog_builds.0 += 1;
+            } else {
+                self.fog_builds.1 += 1;
+            }
+        }
         for (position, tile) in state.board.iter() {
             if !ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
                 continue;
@@ -1028,23 +1041,16 @@ mod tests {
         assert_eq!(visible(&properties_viewer), properties_reply);
     }
 
-    /// The policy gives the reply mark to the move features.
+    /// A decision from an observation reads the known map: the acting seat
+    /// is the recipient of the observation.
     #[test]
-    fn a_simulated_reply_changes_the_fog_move_features() {
+    fn a_decision_from_an_observation_reads_the_known_map() {
         let (_, _, view) = fog_view();
-        let features = |reply: bool| {
-            let mut agent = crate::profile::V8_MOVE_GREEDY_CONFIG.build_greedy(1);
-            agent.set_simulated_reply(reply);
-            agent
-                .move_candidates(&view)
-                .expect("candidates")
-                .into_iter()
-                .map(|candidate| candidate.features)
-                .collect::<Vec<_>>()
-        };
-        let viewer = features(false);
-        assert!(!viewer.is_empty());
-        assert_ne!(features(true), viewer);
+        let mut agent = crate::profile::V8_MOVE_GREEDY_CONFIG.build_greedy(1);
+        assert!(!agent.move_candidates(&view).expect("candidates").is_empty());
+        let (known, plain) = agent.fog_feature_builds();
+        assert!(known > 0);
+        assert_eq!(plain, 0);
     }
 
     /// The move model reads the fog model in fog games and the other model
