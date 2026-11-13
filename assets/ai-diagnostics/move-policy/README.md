@@ -62,17 +62,26 @@ Validation maps, all groups:
 
 Play, against `planner-v8` on the 14 development maps (Andy mirror, day
 limit 35, node budget 256, mean pair differential with the descriptive 95%
-half width): strength 0.5 scored +0.661 ± 0.060 over 280 pairs (462/6/92
-games). On 56-pair probes, strength 0.25, 1 and 2 scored +0.384, +0.321 and
-−0.589, and strength 0.5 scored +0.652 in the Grit mirror, +0.518 in the
-Sami mirror and +0.857 against `planner-v7`. Two variants were neutral and
-were removed: the model without the greedy features, and the model in the
-own lines of the planner only.
+half width). These runs used earlier commits of the policy, before the
+correction of the unload groups (see the limits below), and the
+configuration `v8` with `baseline_weights: {"move_policy": 0.5}`: strength
+0.5 scored +0.661 ± 0.060 over 280 pairs (462/6/92 games). On 56-pair
+probes, strength 0.25, 1 and 2 scored +0.384, +0.321 and −0.589, and
+strength 0.5 scored +0.652 in the Grit mirror, +0.518 in the Sami mirror and
++0.857 against `planner-v7`. Two variants were neutral and were removed: the
+model without the greedy features, and the model in the own lines of the
+planner only.
 
-The plan of the 280-pair run is
-`assets/ai-diagnostics/sprt/planner-v8-move-vs-v8-fixed280.json`. The run
-used configuration `v8` with `baseline_weights: {"move_policy": 0.5}`, which
-is the same play as `v8-move`: the first 14 pairs give the same games.
+With the current policy (configuration `v8-move`), without fog:
++0.713 ± 0.057 over 280 pairs (Andy mirror, 477/5/78 games; +0.725 without
+map 172238) and +0.634 ± 0.136 over 56 pairs (Sami mirror, run seed
+202611131501). The plan of the 280-pair run is
+`assets/ai-diagnostics/sprt/planner-v8-move-vs-v8-fixed280.json`. On the
+same seeds, the correction of the unload groups changed the score by
+-0.005 ± 0.013 (280 pairs) and -0.036 ± 0.049 (Sami, 56 pairs). On map
+160882 (islands, 20 pairs) the score was +0.350 before and after. In the
+280 pairs, the turn time p95 of `planner-v8-move` was 1.8 s, and of
+`planner-v8` 1.2 s.
 
 Turn time: in the same 14 pairs, the mean turn of `planner-v8-move` takes
 1.5 times that of `planner-v8` (1.9 times before the features were made
@@ -84,17 +93,27 @@ lazy). For each unit of planner work it takes 1.2 times as long.
   gives it the indirect coefficients. To correct this changes the play. Each
   row now names the group of the policy, and the fit script reads it, so a
   new fit agrees with the policy.
-- The extractor did not read the human unload decisions, so `act_unload`
-  has no data and its coefficient is zero. In play, the legal orders give
-  the unload orders after the orders of all units, so the unloads of a
-  transport are a separate choice group. The model does not choose them
-  well, but no fit of the unloads scored better (see the fog model).
+- The extractor does not read the human unload decisions. In play, the
+  unload orders of a transport are a separate choice group. Before a
+  correction, the unload orders of the transport that the legal orders give
+  last were in the group of its other orders. The fit rows have the same
+  groups, so the coefficient of `act_unload` is -19.4 in the group `other`
+  (0 in the other groups): in that group, the model did not choose an
+  unload. In a group of unload orders only, `act_unload` is the same for all
+  orders and does not change the choice. The model chooses only in a group:
+  the greedy scores choose between the groups. The correction changes few
+  rows (1 of 143,818 rows in Cup 4 and Smacky Cup 2).
+- The choices of a row are all the legal orders of the unit, with delete,
+  hide, reveal, repair and explode. In play, the policy gives only wait,
+  capture, supply, join, load and attack orders, and the unloads in their
+  own group. The rows of the fits have these wider choices, and decisions
+  with those actions.
 
 ## The fog model
 
 `human-move-fog.json` has the same features and groups. It is fitted to the
-Division 1 games of Smacky Cups 1 to 5 (fog games, corpus
-`fog-tournaments`).
+Division 1 games of Smacky Cups 1 to 5 and the 3 games of Smacky Cup 6 that
+the parser read at the time (fog games, corpus `fog-tournaments`).
 
 - The features come from the observation of the acting player, which is
   what the agent gets in play. At a decision, the player sees about 30% of
@@ -163,11 +182,15 @@ limit 35, node budget 256), with the seeds of the first fog run (run seed
 The last two rows are a paired comparison on the same seeds: the reply
 without the known map scored -0.036 ± 0.132 against the reply with it.
 
-With fresh seeds, `planner-v8-move` against `planner-v8` in fog scored
-+0.689 ± 0.057 over 280 pairs (Andy mirror, run seed 202611131300; 472/2/86
-games) and +0.670 ± 0.133 over 56 pairs (Sami mirror, run seed
-202611131400). In the 280 pairs, the turn time p95 of `planner-v8-move` was
-2.0 s, and of `planner-v8` 1.0 s. No command was invalid.
+With fresh seeds, before the correction of the unload groups,
+`planner-v8-move` against `planner-v8` in fog scored +0.689 ± 0.057 over
+280 pairs (Andy mirror, run seed 202611131300) and +0.670 ± 0.133 over 56
+pairs (Sami mirror, run seed 202611131400). With the current policy, the
+same Andy seeds give +0.668 ± 0.059 over 280 pairs (466/2/92 games; -0.021
+± 0.025 against the earlier policy on the same seeds). In these 280 pairs,
+the turn time p95 of `planner-v8-move` was 1.9 s, and of `planner-v8` 1.0 s. The plan is
+`assets/ai-diagnostics/sprt/planner-v8-move-vs-v8-fog-fixed280.json`. No
+command was invalid.
 
 ## Make the models again
 
@@ -181,14 +204,16 @@ target/release/examples/move_policy extract <maps> <rows>/<division> <division-f
 ```
 
 Do the extract step for each folder, with the maps of its corpus. Each
-command writes `<rows>/<division>.jsonl` and `<rows>/<division>.f32`. Then
-fit with the row prefixes in name order: Cups 1 to 6 and the Global League
-of the standard corpus, then Smacky Cups 1 to 6. uv installs Python 3.13.9
-and the NumPy and SciPy versions that the script names:
+command writes `<rows>/<division>.jsonl`, `<rows>/<division>.f32` and
+`<rows>/<division>.coverage.json` (the counts of read, failed and unmatched
+archives and decisions). Then fit with the row prefixes in name order: Cups
+1 to 6 and the Global League of the standard corpus, then the six folders
+of Smacky Cups 1 to 6. The mise task `ai:fit:move` runs the fit script with
+uv, which installs Python 3.13.9 and the NumPy and SciPy versions that the
+script names:
 
 ```text
-uv run --python 3.13.9 --script \
-  crates/awbrn-ai-diagnostics/examples/fit_move_policy.py \
+mise run ai:fit:move -- \
   --names <rows>/names.json --rows <rows>/<division>... \
   --max-train 120000 --fog no|yes --exclude-games <short games> \
   --model <fit>/model.json --summary <fit>/summary.json

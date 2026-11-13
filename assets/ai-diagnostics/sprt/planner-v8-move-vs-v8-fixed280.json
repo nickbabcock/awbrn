@@ -29,7 +29,7 @@
     169382
   ],
   "fog": false,
-  "run_seed": 202611121301,
+  "run_seed": 202611131500,
   "max_pairs": 280,
   "stop_early": false,
   "limits": {
@@ -43,5 +43,9 @@
     "alpha": 0.05,
     "beta": 0.05
   },
-  "agent_seed_protocol": "seat-seeded"
+  "agent_seed_protocol": "seat-seeded",
+  "commanders": [
+    "andy",
+    "andy"
+  ]
 }
