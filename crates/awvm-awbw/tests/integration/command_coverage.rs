@@ -74,7 +74,7 @@ fn every_archived_action_maps_or_has_a_named_counted_reason() {
     });
 
     if std::env::var_os("INSTA_GLOB_FILTER").is_none() {
-        assert_eq!(total, 17_639, "mapped={mapped:#?}, tail={tail:#?}");
+        assert_eq!(total, 19_116, "mapped={mapped:#?}, tail={tail:#?}");
         for kind in ACTION_KINDS {
             assert!(
                 mapped.get(kind).copied().unwrap_or_default() > 0,
@@ -84,33 +84,33 @@ fn every_archived_action_maps_or_has_a_named_counted_reason() {
         assert_eq!(
             mapped,
             BTreeMap::from([
-                ("AttackSeam", 58),
-                ("Build", 2_285),
-                ("Capt", 900),
+                ("AttackSeam", 65),
+                ("Build", 2_461),
+                ("Capt", 964),
                 ("Delete", 6),
-                ("End", 820),
+                ("End", 871),
                 ("Explode", 1),
-                ("Fire", 2_966),
+                ("Fire", 3_184),
                 ("Hide", 2),
-                ("Join", 85),
+                ("Join", 87),
                 ("Launch", 1),
-                ("Load", 336),
-                ("Move", 8_796),
-                ("Power", 90),
-                ("Repair", 17),
-                ("Resign", 18),
-                ("Supply", 82),
+                ("Load", 372),
+                ("Move", 9_594),
+                ("Power", 94),
+                ("Repair", 30),
+                ("Resign", 19),
+                ("Supply", 84),
                 ("Tag", 5),
                 ("Unhide", 1),
-                ("Unload", 325),
+                ("Unload", 361),
             ]),
             "mapped compatibility histogram changed"
         );
         assert_eq!(
             tail,
             BTreeMap::from([
-                (("Capt", "missing-move"), 837),
-                (("Repair", "missing-move"), 5),
+                (("Capt", "missing-move"), 901),
+                (("Repair", "missing-move"), 10),
                 (("Supply", "missing-move"), 3),
             ]),
             "named compatibility tail changed"

@@ -449,10 +449,12 @@ fn assert_recorded_turn_start(
             );
             continue;
         };
-        let expected = if Some(before.owner) == prior.player_index(&next) {
-            UnitAction::Ready
-        } else {
+        let expected = if Some(before.owner) != prior.player_index(&next) {
             before.action
+        } else if before.action == UnitAction::Immobilized {
+            UnitAction::Spent
+        } else {
+            UnitAction::Ready
         };
         assert_eq!(
             after.action,

@@ -757,6 +757,42 @@ pub fn power_fires_area_strikes(commander: CommanderKind, level: PowerLevel) -> 
         })
 }
 
+/// An area strike on enemy units that also immobilizes them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImmobilizingStrike {
+    pub area: ruleset::AreaStrikeProfile,
+    /// Exact HP that a struck unit keeps at least.
+    pub minimum_hp: u8,
+}
+
+/// The strike that immobilizes enemy units when the commander's `level`
+/// power starts, such as Von Bolt's Ex Machina.
+///
+/// A recorded game names the strike's center but lists only the units that
+/// the activating player can see, so a reader needs the area and damage.
+pub fn power_immobilizing_strike(
+    commander: CommanderKind,
+    level: PowerLevel,
+) -> Option<ImmobilizingStrike> {
+    let activation = power_activation(commander, level, 0).ok().flatten()?;
+    activation
+        .instant_effects
+        .iter()
+        .find_map(|effect| match *effect {
+            InstantEffect::FireImmobilizingAreaStrike {
+                target: UnitTarget::Enemy,
+                radius,
+                damage,
+                minimum_hp,
+                ..
+            } => Some(ImmobilizingStrike {
+                area: ruleset::AreaStrikeProfile { radius, damage },
+                minimum_hp,
+            }),
+            _ => None,
+        })
+}
+
 /// Return the charge that one power star is worth at the given use count.
 ///
 /// A power meter is drawn in stars, so a renderer needs the value of one
@@ -1441,7 +1477,8 @@ pub fn player_weather(state: &State, seat: PlayerIdx) -> WeatherKind {
 mod tests {
     use super::{
         CommanderKind, InstantEffect, PowerLevel, UnitTarget, maximum_power_charge,
-        power_activation, power_activation_cost, power_fires_area_strikes, power_star_charge,
+        power_activation, power_activation_cost, power_fires_area_strikes,
+        power_immobilizing_strike, power_star_charge,
     };
 
     /// Grit adds one to the range of an indirect unit day to day, and Max
@@ -1486,6 +1523,23 @@ mod tests {
             CommanderKind::Jess,
             PowerLevel::Scop
         ));
+    }
+
+    #[test]
+    fn only_ex_machina_immobilizes_an_area() {
+        let strike = power_immobilizing_strike(CommanderKind::VonBolt, PowerLevel::Scop).unwrap();
+        assert_eq!(
+            (strike.area.radius, strike.area.damage, strike.minimum_hp),
+            (2, 30, 1)
+        );
+        assert_eq!(
+            power_immobilizing_strike(CommanderKind::VonBolt, PowerLevel::Cop),
+            None
+        );
+        assert_eq!(
+            power_immobilizing_strike(CommanderKind::Rachel, PowerLevel::Scop),
+            None
+        );
     }
 
     #[test]

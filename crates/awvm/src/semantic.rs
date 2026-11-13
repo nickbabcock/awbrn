@@ -2126,6 +2126,17 @@ pub enum UnitAction {
     Spent,
     Immobilized,
 }
+
+impl UnitAction {
+    /// The action a unit holds when its owner's turn starts: a unit that Von
+    /// Bolt immobilized spends the turn, and every other unit is ready.
+    pub const fn at_owner_turn_start(self) -> Self {
+        match self {
+            Self::Immobilized => Self::Spent,
+            Self::Ready | Self::Moved | Self::Spent => Self::Ready,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
