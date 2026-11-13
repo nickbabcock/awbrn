@@ -52,7 +52,8 @@ fn every_replay_timestamp_round_trips_through_awbw_format() {
             }
 
             if let Some(end) = game.end_date {
-                assert_eq!(rendered(end).len(), 19, "{name}: bad end_date");
+                let raw = strtime::format(AWBW_DATE, end.date()).unwrap();
+                assert_eq!(AwbwDate::parse(&raw), Some(end), "{name}: bad end_date");
                 checked += 1;
             }
 
