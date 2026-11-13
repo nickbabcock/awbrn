@@ -2630,6 +2630,14 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
     /// Give the scored orders of the current unit to the selection. With the
     /// move model, the order that the model chooses gets the highest greedy
     /// score of the unit, and the other orders get zero.
+    ///
+    /// The other orders also lose their attack terms, so they cannot be a
+    /// denial sacrifice ([`TacticalPolicy::preserve_denial_sacrifice`]): the
+    /// model chooses the order of the unit, and a sacrifice of the unit is
+    /// kept only when the model chooses it. In six games of `planner-v8-move`
+    /// without fog (all decisions, with the simulated ones), 17 of about
+    /// 300,000 decisions lost a sacrifice that the policy would have played
+    /// without the model.
     fn flush(&mut self) {
         if self.unit_orders.is_empty() {
             return;
@@ -2722,7 +2730,9 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
     /// with zero never changes the selection: the selected score is above
     /// zero, or nothing is selected yet. So only the chosen order can change
     /// the selection: when `best` is above the selected score or equal to
-    /// it, or when the order can be a denial sacrifice.
+    /// it, or when the chosen order is a denial sacrifice ([`Self::flush`]).
+    /// The choice is not known before the features are calculated, so the
+    /// check is true when any order of the unit can be a sacrifice.
     fn model_can_change_selection(&self, best: f64, orders: &[UnitOrder]) -> bool {
         if best > self.best || (best == self.best && self.chosen.is_some()) {
             return true;
