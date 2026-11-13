@@ -261,6 +261,9 @@ def main():
         print(f"{group}: {len(tr)} fit, "
               + ", ".join(f"{len(v)} {side} validation" for side, v in va.items()),
               file=sys.stderr)
+        if not tr:
+            sys.exit(f"The group {group} has no fit decisions. "
+                     "Give more rows or change --fog.")
         result = {"fit_decisions": len(tr),
                   "validation_decisions": {side: len(v) for side, v in va.items()}}
         betas = {}

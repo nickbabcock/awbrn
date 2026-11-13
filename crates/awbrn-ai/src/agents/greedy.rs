@@ -1861,7 +1861,9 @@ impl GreedyAgent {
         // A map priced at nothing is never read, so it is never built. That
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
-        if unit_fields_needed && weights.threat != 0.0 {
+        // The move model reads the map for its threat features, so a weighting
+        // with the model builds the map also when the threat term is zero.
+        if unit_fields_needed && (weights.threat != 0.0 || weights.move_policy != 0.0) {
             threat.set_commander_effects(weights.commander_effects);
             threat.set_overlay(fog.map(|estimate| Arc::clone(&estimate.threat)));
             threat.build(session, seat);

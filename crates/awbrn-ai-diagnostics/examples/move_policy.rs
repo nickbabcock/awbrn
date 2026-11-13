@@ -430,6 +430,26 @@ fn replay_rows(
                 candidate.unit == actor && !matches!(candidate.order.kind(), OrderKind::Unload(_))
             })
             .collect();
+        // The tool does not read the unit that a repair order repairs. When
+        // one destination has repair orders for different units, the order of
+        // the replay is not known, so the row is not written.
+        if kind == "repair" {
+            let mut targets = own.iter().filter_map(|candidate| {
+                match (
+                    candidate.order.destination() == destination,
+                    candidate.order.kind(),
+                ) {
+                    (true, OrderKind::Repair(cell)) => Some(cell),
+                    _ => None,
+                }
+            });
+            if let Some(first) = targets.next()
+                && targets.any(|cell| cell != first)
+            {
+                coverage.unmatched += 1;
+                continue;
+            }
+        }
         let chosen = own.iter().position(|candidate| {
             candidate.order.destination() == destination
                 && same_kind(kind, candidate.order.kind())
