@@ -23,6 +23,11 @@ interface FactionCrestProps {
 /**
  * The army's crest, and the way its army is chosen.
  *
+ *   <FactionCrest factionCode="os" />                      a plain mark
+ *   <FactionCrest factionCode="os" onChange={setArmy} />   a key that opens the roll
+ *
+ * The roll is a popover on desktop and a bottom sheet on a phone.
+ *
  * The mark is the control: a seat shows only its insignia, and clicking it
  * opens the roll of armies. Every army is named there, so this is where the
  * crest is learned and why the surrounding row does not have to repeat it.
@@ -88,6 +93,7 @@ export function FactionCrest({
       label="Army"
       onOpenChange={setIsOpen}
       placement="below"
+      presentation="adaptive"
       width={PICKER_WIDTH}
     >
       <Button
@@ -108,7 +114,6 @@ const styles = stylex.create({
     flexWrap: "wrap",
   },
   // Army names are proper nouns, not commands, so they take the body voice.
-  // The HUD face is too wide to fit "Purple Lightning" beside its crest.
   item: {
     width: PICKER_ITEM_WIDTH,
     justifyContent: "start",

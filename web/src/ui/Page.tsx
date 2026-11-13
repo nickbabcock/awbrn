@@ -1,40 +1,41 @@
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import {
-  borderVars,
-  colorVars,
-  spacingVars,
-  textSizeVars,
-  typographyVars,
-} from "@astryxdesign/core/theme/tokens.stylex";
+import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
-import { RouterTextLink } from "#/ui/astryx-links.tsx";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { sectionForPath, type SiteSection } from "#/ui/site_sections.ts";
 
 type PageWidth = "standard" | "wide" | "narrow" | "full";
 
 /**
- * The frame of one screen: a centered measure on the terrain with one gutter.
+ * The frame of one paper page: a centered measure on the paper ground with
+ * one gutter (32px, 16px on a phone).
  *
- * Every page sits in the same frame, so the title, the first panel, and the
- * edge of the content land in the same place on every screen. A board that
- * needs the whole window asks for `full`; a map set beside a panel asks for
- * `wide`; prose and single forms ask for `narrow`.
+ * - `standard`: max 1240px, gutters included. A main column plus a 360 to 420px rail
+ *   (`pageLayout.railWidth`) that drops below the main column under 1180px
+ *   (`pageLayout.belowRailMedia`).
+ * - `narrow`: a single-list page (My games) centers 880px of content (gutters
+ *   outside it) instead of leaving a band beside it.
+ * - `wide`: max 1440px, gutters included.
+ * - `full`: no measure and no gutter (a screen that lays out its own frame).
+ *
+ *   <Page><PageHeader title="Play" />...</Page>
  */
 export function Page({ children, width = "standard" }: { children: ReactNode; width?: PageWidth }) {
   return (
     <VStack
-      gap={8}
+      gap={6}
       xstyle={[
         styles.frame,
         width === "standard" && styles.standard,
         width === "wide" && styles.wide,
         width === "narrow" && styles.narrow,
+        width === "full" && styles.full,
       ]}
     >
       {children}
@@ -43,20 +44,31 @@ export function Page({ children, width = "standard" }: { children: ReactNode; wi
 }
 
 /**
- * The head of a page: its title, one line on what it is for, its commands, and
- * the other pages of its section.
+ * The head of a paper page: the title in the display cut, a figure only when
+ * it carries live state (`Your move 3`), the page's commands, and the other
+ * pages of its section as underline tabs.
  *
- * The title is the same size on every page. A page that is a section of the
- * site gets the section's tabs under its title, so a player can see where they
- * are and move sideways without going back to the bar.
+ * **Delete By Default**: a page head is the title. No subtitle, no eyebrow, no
+ * helper sentence. `description` is kept only so older screens compile while
+ * they are restyled; do not pass it in new work.
+ *
+ *   <PageHeader title="Play" />
+ *   <PageHeader back={<BackLink to="/ranked" label="Ranked" />} title="1vs1 Normandie" />
  */
 export function PageHeader({
   actions,
+  back,
   description,
+  figure,
   title,
 }: {
   actions?: ReactNode;
+  /** A `BackLink` above the title, for a page reached from a list. */
+  back?: ReactNode;
+  /** @deprecated Delete By Default: a page head is its title. */
   description?: ReactNode;
+  /** A live count after the title, usually a `CountBadge` with `size="heading"`. */
+  figure?: ReactNode;
   title: ReactNode;
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -64,10 +76,15 @@ export function PageHeader({
   const section = sectionForPath(pathname);
 
   return (
-    <VStack gap={4} as="header">
-      <HStack align="end" gap={4} justify="between" wrap="wrap">
+    <VStack gap={0} as="header">
+      {back}
+      <HStack align="end" gap={6} justify="between" wrap="wrap" xstyle={styles.head}>
         <VStack gap={2} xstyle={styles.titleBlock}>
-          <Heading level={1}>{title}</Heading>
+          {/* Focus lands here after a route change (`#/ui/arrivalFocus.ts`). */}
+          <Heading level={1} tabIndex={-1} xstyle={styles.title}>
+            {title}
+            {figure}
+          </Heading>
           {description ? (
             <Text color="secondary" type="large" xstyle={styles.description}>
               {description}
@@ -103,20 +120,18 @@ function SectionTabs({
   const selected = pages.find((page) => page.matches(pathname))?.to ?? "";
 
   return (
-    <HStack as="nav" aria-label={section.label} gap={0} wrap="wrap" xstyle={styles.tabs}>
+    <nav aria-label={section.label} {...stylex.props(styles.tabs)}>
       {pages.map((page) => (
-        <RouterTextLink
-          activeOptions={{ exact: true }}
+        <Link
           aria-current={page.to === selected ? "page" : undefined}
-          isStandalone
           key={page.to}
           to={page.to}
-          xstyle={[styles.tab, page.to === selected && styles.tabSelected]}
+          {...stylex.props(styles.tab, page.to === selected && styles.tabSelected)}
         >
           {page.label}
-        </RouterTextLink>
+        </Link>
       ))}
-    </HStack>
+    </nav>
   );
 }
 
@@ -125,54 +140,106 @@ const styles = stylex.create({
     boxSizing: "border-box",
     inlineSize: "100%",
     marginInline: "auto",
-    paddingInline: {
-      default: spacingVars["--spacing-8"],
-      [pageLayout.phoneMedia]: spacingVars["--spacing-4"],
+    paddingInlineStart: {
+      default: `max(${pageLayout.gutterDesktop}, ${pageLayout.safeInsetLeft})`,
+      [pageLayout.phoneMedia]: `max(${pageLayout.gutterPhone}, ${pageLayout.safeInsetLeft})`,
+    },
+    paddingInlineEnd: {
+      default: `max(${pageLayout.gutterDesktop}, ${pageLayout.safeInsetRight})`,
+      [pageLayout.phoneMedia]: `max(${pageLayout.gutterPhone}, ${pageLayout.safeInsetRight})`,
     },
     paddingBlockStart: {
-      default: spacingVars["--spacing-8"],
-      [pageLayout.phoneMedia]: spacingVars["--spacing-5"],
+      default: "36px",
+      [pageLayout.phoneMedia]: "20px",
     },
-    paddingBlockEnd: spacingVars["--spacing-10"],
+    paddingBlockEnd: {
+      default: "72px",
+      [pageLayout.phoneMedia]: "40px",
+    },
   },
+  // The standard and wide measures hold their gutters, so at 1440 a standard
+  // page's content starts at x=132.
   standard: {
-    maxInlineSize: `calc(${pageLayout.standardWidth} + 2 * ${spacingVars["--spacing-8"]})`,
+    maxInlineSize: pageLayout.standardWidth,
   },
   wide: {
-    maxInlineSize: `calc(${pageLayout.wideWidth} + 2 * ${spacingVars["--spacing-8"]})`,
+    maxInlineSize: pageLayout.wideWidth,
   },
   narrow: {
-    maxInlineSize: `calc(${pageLayout.narrowWidth} + 2 * ${spacingVars["--spacing-8"]})`,
+    maxInlineSize: `calc(${pageLayout.narrowWidth} + 2 * ${pageLayout.gutterDesktop})`,
   },
+  full: {
+    paddingInlineStart: 0,
+    paddingInlineEnd: 0,
+    paddingBlock: 0,
+  },
+  head: {
+    marginBlockEnd: "16px",
+  },
+  // As wide as its words, so the focus ring on arrival hugs the title.
+  title: {
+    alignSelf: "flex-start",
+    maxInlineSize: "100%",
+  },
+  // On a phone the title takes its own width, so a short title and its key
+  // share one row and a long one still wraps the key under it.
   titleBlock: {
     minInlineSize: 0,
-    flexBasis: "32rem",
+    flexBasis: {
+      default: "32rem",
+      [pageLayout.phoneMedia]: "auto",
+    },
     flexGrow: 1,
   },
-  // A description is one sentence, and a sentence stretched across a desktop
-  // window is read as two separate lines of text.
   description: {
     maxInlineSize: "60ch",
   },
-  // The tabs sit on the sky, where the rail under them is the only edge the
-  // strip has. It takes the one ink the rest of the chrome is drawn in.
+  // Sub-pages are underline tabs on a 1px rule. On a phone the strip bleeds to
+  // the screen edges and scrolls sideways rather than wrapping.
   tabs: {
-    borderColor: colorVars["--color-border-emphasized"],
+    display: "flex",
+    gap: "4px",
+    marginInline: {
+      default: 0,
+      [pageLayout.phoneMedia]: `calc(${pageLayout.gutterPhone} * -1)`,
+    },
+    paddingInline: {
+      default: 0,
+      [pageLayout.phoneMedia]: `calc(${pageLayout.gutterPhone} - 6px)`,
+    },
+    overflowX: "auto",
+    scrollbarWidth: "none",
+    borderBlockEndColor: awbrnVars.rule,
     borderBlockEndStyle: "solid",
-    borderBlockEndWidth: borderVars["--border-width"],
+    borderBlockEndWidth: "1px",
   },
-  // A tab is a HUD label, the same voice as the bar above it, so the two
-  // levels of navigation read as one system.
   tab: {
-    paddingBlock: spacingVars["--spacing-3"],
-    paddingInline: spacingVars["--spacing-4"],
-    fontFamily: typographyVars["--font-family-code"],
-    fontSize: textSizeVars["--font-size-sm"],
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
-    color: colorVars["--color-text-secondary"],
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    minBlockSize: "44px",
+    paddingBlock: "10px 12px",
+    paddingInline: "14px",
+    color: {
+      default: colorVars["--color-text-secondary"],
+      ":hover": { default: null, [pageLayout.hoverMedia]: colorVars["--color-text-primary"] },
+      ":active": colorVars["--color-text-primary"],
+    },
+    textDecoration: "none",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
   },
   tabSelected: {
     color: colorVars["--color-text-primary"],
+    "::after": {
+      content: '""',
+      position: "absolute",
+      insetInline: "10px",
+      insetBlockEnd: "-1px",
+      blockSize: awbrnVars.currentMark,
+      backgroundColor: awbrnVars.ink900,
+      borderStartStartRadius: awbrnVars.currentMark,
+      borderStartEndRadius: awbrnVars.currentMark,
+    },
   },
 });

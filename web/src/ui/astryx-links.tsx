@@ -1,5 +1,4 @@
 import * as stylex from "@stylexjs/stylex";
-import { durationVars } from "@astryxdesign/core/theme/tokens.stylex";
 import { Link as AstryxLink, type LinkProps as AstryxLinkProps } from "@astryxdesign/core/Link";
 import { ClickableCard, type ClickableCardProps } from "@astryxdesign/core/ClickableCard";
 import { ListItem, type ListItemProps } from "@astryxdesign/core/List";
@@ -61,14 +60,7 @@ type AstryxTopNavItemLinkHostProps = Omit<TopNavItemProps, "as" | "href" | "ref"
 
 const AstryxTopNavItemLinkHost = forwardRef<HTMLAnchorElement, AstryxTopNavItemLinkHostProps>(
   function AstryxTopNavItemLinkHost({ xstyle, ...props }, ref) {
-    return (
-      <TopNavItem
-        {...props}
-        as="a"
-        ref={ref}
-        xstyle={[styles.topNavItem, styles.reducedMotion, xstyle]}
-      />
-    );
+    return <TopNavItem {...props} as="a" ref={ref} xstyle={[styles.topNavItem, xstyle]} />;
   },
 );
 
@@ -93,61 +85,21 @@ type AstryxClickableCardLinkHostProps = Omit<ClickableCardProps, "href" | "ref">
   href?: string;
 };
 
-/**
- * A whole panel that opens a screen, with the press this system gives a key.
- *
- * The theme raises the panel; the press has to be stated here, because the
- * component library sets the pressed state at a specificity a theme layer
- * cannot reach. This is the same arrangement `ui/Button.tsx` already lives
- * with.
- */
+/** A whole sheet that opens a screen. */
 const AstryxClickableCardLinkHost = forwardRef<HTMLDivElement, AstryxClickableCardLinkHostProps>(
   function AstryxClickableCardLinkHost({ xstyle, ...props }, ref) {
-    return (
-      <ClickableCard
-        {...props}
-        ref={ref}
-        xstyle={[styles.clickableCard, styles.reducedMotion, xstyle]}
-      />
-    );
+    return <ClickableCard {...props} ref={ref} xstyle={[styles.clickableCard, xstyle]} />;
   },
 );
 
 export const RouterClickableCard = createLink(AstryxClickableCardLinkHost);
 
 const styles = stylex.create({
-  clickableCard: {
-    boxShadow: {
-      default: null,
-      ":active": "none",
-    },
-    transform: {
-      default: null,
-      ":active": `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
-    },
-    transitionDuration: {
-      default: null,
-      ":active": durationVars["--duration-fast-min"],
-    },
-  },
+  // A nav item steps between its states in two frames; nothing on it moves.
   topNavItem: {
-    boxShadow: {
-      default: null,
-      ":active": "none",
-    },
-    transform: {
-      default: null,
-      ":active": `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
-    },
-    transitionDuration: {
-      default: null,
-      ":active": durationVars["--duration-fast-min"],
-    },
+    transitionTimingFunction: awbrnVars.easeStep,
   },
-  reducedMotion: {
-    transform: {
-      default: null,
-      "@media (prefers-reduced-motion: reduce)": "none",
-    },
+  clickableCard: {
+    transitionTimingFunction: awbrnVars.easeStep,
   },
 });

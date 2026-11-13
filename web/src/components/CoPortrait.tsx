@@ -1,7 +1,5 @@
 import { Avatar } from "@astryxdesign/core/Avatar";
-import { borderVars, colorVars, radiusVars } from "@astryxdesign/core/theme/tokens.stylex";
-import * as stylex from "@stylexjs/stylex";
-import type { CSSProperties } from "react";
+import { PortraitSprite, StampFrame } from "#/components/CoStamp.tsx";
 import type { CoPortraitCatalog } from "./co_portraits";
 import { loadCoPortraitCatalog, resolveCoPortrait } from "./co_portraits";
 
@@ -10,17 +8,22 @@ interface CoPortraitProps {
   coKey: string | null | undefined;
   fallbackLabel: string;
   /**
-   * Whether the portrait draws its own frame.
-   *
-   * Off where the portrait already sits inside something outlined — a picker
-   * cell, a field — because two borders in a row is the tell of a component
-   * that stopped asking where it lives.
+   * Whether the portrait wears the stamp's perforated white margin. Off where
+   * the portrait already sits inside something framed (a picker cell).
    */
   hasFrame?: boolean;
   /** Rendered height in px. The portrait keeps its own aspect ratio. */
   size?: number;
 }
 
+/**
+ * A commander's portrait at any size.
+ *
+ * New work should use `CoStamp` (`#/components/CoStamp.tsx`), which draws the
+ * portrait at a whole scale (32, 64 or 96px) on the army's field. This
+ * component stays for screens that size a portrait freely; framed, it wears
+ * the stamp's own perforated margin (`StampFrame`) so it still reads as a stamp.
+ */
 export function CoPortrait({
   catalog,
   coKey,
@@ -34,41 +37,19 @@ export function CoPortrait({
     return <Avatar name={fallbackLabel} size="lg" tooltip={false} />;
   }
 
-  // Scaling through the background box keeps the cell on whole pixels, so the
-  // art stays crisp instead of being resampled by a transform.
-  const scale = size ? size / portrait.height : 1;
-  const style: CSSProperties = {
-    width: `${Math.round(portrait.width * scale)}px`,
-    height: `${Math.round(portrait.height * scale)}px`,
-    backgroundImage: `url(${portrait.sheetUrl})`,
-    backgroundSize: `${Math.round(portrait.sheetWidth * scale)}px ${Math.round(portrait.sheetHeight * scale)}px`,
-    backgroundPosition: `-${Math.round(portrait.x * scale)}px -${Math.round(portrait.y * scale)}px`,
-  };
-
-  return (
-    <span
+  const sprite = (
+    <PortraitSprite
       aria-label={portrait.displayName}
+      portrait={portrait}
       role="img"
-      style={style}
+      scale={size ? size / portrait.height : 1}
       title={portrait.displayName}
-      {...stylex.props(styles.portrait, hasFrame && styles.framed)}
     />
   );
-}
 
-const styles = stylex.create({
-  portrait: {
-    display: "block",
-    flex: "0 0 auto",
-    // The sprite cell is sized exactly; the frame is drawn outside it.
-    boxSizing: "content-box",
-    backgroundRepeat: "no-repeat",
-    imageRendering: "pixelated",
-  },
-  framed: {
-    borderWidth: borderVars["--border-width"],
-    borderStyle: "solid",
-    borderColor: colorVars["--color-border-emphasized"],
-    borderRadius: radiusVars["--radius-element"],
-  },
-});
+  if (!hasFrame) {
+    return sprite;
+  }
+
+  return <StampFrame isSmall={(size ?? 32) < 48}>{sprite}</StampFrame>;
+}
