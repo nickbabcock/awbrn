@@ -200,8 +200,9 @@ impl BevyApp {
                     meta_check: bevy::asset::AssetMetaCheck::Never,
                     ..AssetPlugin::default()
                 })
-                // The URLs we reference are on the same origin and controlled
-                // by the asset manifest on the JS side.
+                // The URLs we reference are on the same origin: the worker's
+                // resolveGameAssets makes the manifest's root-relative paths
+                // absolute against its own origin.
                 .set(bevy::asset::io::web::WebAssetPlugin {
                     silence_startup_warning: true,
                 }),
