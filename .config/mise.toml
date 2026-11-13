@@ -191,6 +191,12 @@ tools.uv = "0.13.6"
 dir = "{{cwd}}"
 run = "uv run --python 3.13.9 --script {{config_root | quote}}/crates/awbrn-ai-diagnostics/examples/fit_build_policy.py"
 
+[tasks."ai:fit:move"]
+description = "Fit a move model. Give the arguments of fit_move_policy.py"
+tools.uv = "0.13.6"
+dir = "{{cwd}}"
+run = "uv run --python 3.13.9 --script {{config_root | quote}}/crates/awbrn-ai-diagnostics/examples/fit_move_policy.py"
+
 [tasks."ai:fit:replay"]
 description = "Fit the replay score. Give the arguments of fit_replay.py"
 tools.uv = "0.13.6"
