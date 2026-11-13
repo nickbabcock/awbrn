@@ -157,6 +157,42 @@ the row prefixes of the Smacky Cups after those of the standard corpus. The
 script keeps the features as float32 and fits one group at a time. The fit
 used 3.5 GB at most, and two fits gave the same model file.
 
+## The fog model with the known map
+
+`human-move-fog-v2.json` is the fog model with the features that read the
+map that the player knows (`Weights::move_fog_map`). In fog, a tile out of
+sight has no owner in the observation. A property of the player is always
+in sight, so with this field a property in fog is a property that the
+player can capture, and a headquarters in fog is an enemy headquarters.
+The fit is the same as for `human-move-fog-v1.json`, on rows that the mode
+`extract-fog-map` of the extractor writes. The greedy scores of
+`planner-v8` have the same blind spot (a property in fog is not a capture
+target), and this change does not change them.
+
+`planner-v8-move-fog-map` (`PlannerConfig::V8_MOVE_FOG_MAP`) is
+`planner-v8-move-fog` with this field. In games without fog it plays the
+same games as `planner-v8-move` (14 pairs, the same games).
+
+Validation top-1 on the same fog decisions as above: 0.413 (log loss 2.06),
+against 0.410 for `human-move-fog-v1.json`. The feature `hq_distance_change`
+is not zero for 74% of the orders, against 13% before.
+
+Play in fog against `planner-v8` at strength 0.5:
+
+| Run | Pair score |
+| --- | --- |
+| Andy, seeds of the earlier fog run, 56 pairs | +0.652 ± 0.143 (v1: +0.509) |
+| Andy, run seed 202611130100, 280 pairs | +0.637 ± 0.063 (455/7/98 games) |
+| Sami, run seed 202611130200, 56 pairs | +0.607 ± 0.147 (v1: +0.241) |
+
+In the 280 pairs, the turn time p95 of the candidate was 2.7 s, and of
+`planner-v8` 1.5 s.
+
+A fit with Smacky Cup 6 and the other archives that the parser now reads
+(537,444 fog decisions, against 470,703) had the same validation top-1
+(0.407 against 0.408 on 92,006 decisions) and scored +0.598 ± 0.138 over
+the same 56 pairs. The model file keeps the first fit.
+
 ## Make the model again
 
 The inputs are the replay archives and map files that the build model
