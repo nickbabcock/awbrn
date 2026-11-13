@@ -1,7 +1,7 @@
 use crate::de::{bool_ynstr, deserialize_sub_dive, non_negative_u32, values_only};
 use awbrn_types::{
-    AwbwCoId, AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain,
-    AwbwUnitId, Co, CoExt, PlayerFaction, Unit,
+    AwbwCoId, AwbwDate, AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId,
+    AwbwTerrain, AwbwUnitId, Co, CoExt, PlayerFaction, Unit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -12,8 +12,9 @@ pub struct AwbwGame {
     pub password: Option<String>,
     pub creator: AwbwPlayerId,
     pub start_date: AwbwDateTime,
-    /// AWBW currently sends this field as null.
-    pub end_date: Option<AwbwDateTime>,
+    /// Almost always null. When set, it is a calendar day, like the
+    /// `gameEndDate` of a game over.
+    pub end_date: Option<AwbwDate>,
     pub activity_date: AwbwDateTime,
     pub maps_id: AwbwMapId,
     pub weather_type: String,
@@ -204,56 +205,69 @@ pub enum MatchType {
 mod tests {
     use super::*;
 
+    const PHP_GAME: &str = concat!(
+        r#"O:8:"awbwGame":36:{"#,
+        r#"s:2:"id";i:1598747;"#,
+        r#"s:4:"name";s:42:"AC6 D1 [H] R4G01 - (8) uxna vs. (41) DarKz";"#,
+        r#"s:8:"password";N;"#,
+        r#"s:7:"creator";i:195551;"#,
+        r#"s:10:"start_date";s:19:"2026-06-10 18:20:17";"#,
+        r#"s:8:"end_date";N;"#,
+        r#"s:13:"activity_date";s:19:"2026-06-13 21:34:25";"#,
+        r#"s:7:"maps_id";i:153972;"#,
+        r#"s:12:"weather_type";s:5:"Clear";"#,
+        r#"s:13:"weather_start";N;"#,
+        r#"s:12:"weather_code";s:1:"C";"#,
+        r#"s:13:"win_condition";N;"#,
+        r#"s:4:"turn";i:3842324;"#,
+        r#"s:3:"day";i:9;"#,
+        r#"s:6:"active";s:1:"Y";"#,
+        r#"s:5:"funds";i:1000;"#,
+        r#"s:11:"capture_win";i:31;"#,
+        r#"s:3:"fog";s:1:"N";"#,
+        r#"s:7:"comment";N;"#,
+        r#"s:4:"type";s:1:"N";"#,
+        r#"s:13:"boot_interval";i:-1;"#,
+        r#"s:14:"starting_funds";i:0;"#,
+        r#"s:8:"official";s:1:"N";"#,
+        r#"s:10:"min_rating";N;"#,
+        r#"s:10:"max_rating";N;"#,
+        r#"s:6:"league";N;"#,
+        r#"s:4:"team";s:1:"N";"#,
+        r#"s:12:"aet_interval";i:-1;"#,
+        r#"s:8:"aet_date";s:19:"2026-06-13 21:34:25";"#,
+        r#"s:10:"use_powers";s:1:"Y";"#,
+        r#"s:7:"players";a:0:{}"#,
+        r#"s:9:"buildings";a:0:{}"#,
+        r#"s:5:"units";a:0:{}"#,
+        r#"s:14:"timers_initial";i:7200;"#,
+        r#"s:16:"timers_increment";i:2160;"#,
+        r#"s:15:"timers_max_turn";i:7200;"#,
+        "}",
+    );
+
     #[test]
     fn test_php_game_records_can_have_a_null_minimum_rating() {
-        let bytes = concat!(
-            r#"O:8:"awbwGame":36:{"#,
-            r#"s:2:"id";i:1598747;"#,
-            r#"s:4:"name";s:42:"AC6 D1 [H] R4G01 - (8) uxna vs. (41) DarKz";"#,
-            r#"s:8:"password";N;"#,
-            r#"s:7:"creator";i:195551;"#,
-            r#"s:10:"start_date";s:19:"2026-06-10 18:20:17";"#,
-            r#"s:8:"end_date";N;"#,
-            r#"s:13:"activity_date";s:19:"2026-06-13 21:34:25";"#,
-            r#"s:7:"maps_id";i:153972;"#,
-            r#"s:12:"weather_type";s:5:"Clear";"#,
-            r#"s:13:"weather_start";N;"#,
-            r#"s:12:"weather_code";s:1:"C";"#,
-            r#"s:13:"win_condition";N;"#,
-            r#"s:4:"turn";i:3842324;"#,
-            r#"s:3:"day";i:9;"#,
-            r#"s:6:"active";s:1:"Y";"#,
-            r#"s:5:"funds";i:1000;"#,
-            r#"s:11:"capture_win";i:31;"#,
-            r#"s:3:"fog";s:1:"N";"#,
-            r#"s:7:"comment";N;"#,
-            r#"s:4:"type";s:1:"N";"#,
-            r#"s:13:"boot_interval";i:-1;"#,
-            r#"s:14:"starting_funds";i:0;"#,
-            r#"s:8:"official";s:1:"N";"#,
-            r#"s:10:"min_rating";N;"#,
-            r#"s:10:"max_rating";N;"#,
-            r#"s:6:"league";N;"#,
-            r#"s:4:"team";s:1:"N";"#,
-            r#"s:12:"aet_interval";i:-1;"#,
-            r#"s:8:"aet_date";s:19:"2026-06-13 21:34:25";"#,
-            r#"s:10:"use_powers";s:1:"Y";"#,
-            r#"s:7:"players";a:0:{}"#,
-            r#"s:9:"buildings";a:0:{}"#,
-            r#"s:5:"units";a:0:{}"#,
-            r#"s:14:"timers_initial";i:7200;"#,
-            r#"s:16:"timers_increment";i:2160;"#,
-            r#"s:15:"timers_max_turn";i:7200;"#,
-            "}",
-        )
-        .as_bytes();
+        let bytes = PHP_GAME.as_bytes();
         let game = AwbwGame::deserialize(&mut phpserz::PhpDeserializer::new(bytes)).unwrap();
         assert_eq!(game.min_rating, None);
-        let numeric = String::from_utf8(bytes.to_vec())
-            .unwrap()
-            .replace("s:10:\"min_rating\";N;", "s:10:\"min_rating\";i:0;");
+        let numeric = PHP_GAME.replace("s:10:\"min_rating\";N;", "s:10:\"min_rating\";i:0;");
         let game =
             AwbwGame::deserialize(&mut phpserz::PhpDeserializer::new(numeric.as_bytes())).unwrap();
         assert_eq!(game.min_rating, Some(0));
+    }
+
+    #[test]
+    fn test_php_game_records_can_end_on_a_calendar_day() {
+        let game =
+            AwbwGame::deserialize(&mut phpserz::PhpDeserializer::new(PHP_GAME.as_bytes())).unwrap();
+        assert_eq!(game.end_date, None);
+        let ended = PHP_GAME.replace(
+            r#"s:8:"end_date";N;"#,
+            r#"s:8:"end_date";s:10:"2023-06-14";"#,
+        );
+        let game =
+            AwbwGame::deserialize(&mut phpserz::PhpDeserializer::new(ended.as_bytes())).unwrap();
+        assert_eq!(game.end_date, AwbwDate::parse("2023-06-14"));
     }
 }

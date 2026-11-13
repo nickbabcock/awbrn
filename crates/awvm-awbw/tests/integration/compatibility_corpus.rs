@@ -74,7 +74,7 @@ fn archived_actions_have_an_advisory_local_compatibility_report() {
         return;
     }
     assert_eq!(fog_off.actions, 10_987, "fog-off archive size drifted");
-    assert_eq!(fog.actions, 5_740, "fog archive size drifted");
+    assert_eq!(fog.actions, 6_652, "fog archive size drifted");
 
     let snapshot = format!(
         "{}\n\n{}\n\n{}",

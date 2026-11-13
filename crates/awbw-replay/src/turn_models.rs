@@ -181,9 +181,13 @@ pub struct UnitProperty {
     pub units_movement_type: String,
     pub units_x: Option<u32>,
     pub units_y: Option<u32>,
-    pub units_moved: Option<u32>,
+    /// -1 = stunned (Von Bolt), as in [`UnitChange::units_moved`]
+    pub units_moved: Option<i32>,
     pub units_capture: Option<u32>,
     pub units_fired: Option<u32>,
+    /// Masked with `"?"`, or, in archives recorded since early 2026, omitted
+    /// from the summary a player sees of an enemy unit that ends out of sight.
+    #[serde(default)]
     pub units_hit_points: Masked<AwbwHpDisplay>,
     #[serde(default)]
     pub units_cargo1_units_id: Masked<u32>,
@@ -790,10 +794,11 @@ pub struct Discovery {
 }
 
 /// Complete building details including terrain information
+///
+/// Older archives also carry a `"0"` key, PHP's numeric index of the row's
+/// first column. It is not always the building ID and newer archives omit it.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct BuildingDiscovery {
-    #[serde(rename = "0")]
-    pub id: u32,
     pub buildings_id: u32,
     pub buildings_x: u32,
     pub buildings_y: u32,
@@ -1486,6 +1491,106 @@ mod tests {
         }"#;
         let action: PowerAction = serde_json::from_str(json).unwrap();
         assert!(action.missile_coords.is_none());
+    }
+
+    #[test]
+    fn test_unit_leaving_vision_omits_hit_points() {
+        // From a 2026 fog replay: the opponent saw the recon pass through and
+        // received a summary of it without hit points.
+        let json = r#"{
+            "action": "Move",
+            "unit": {
+                "3887583": {
+                    "units_id": 196872446,
+                    "units_players_id": 3887582,
+                    "units_name": "Recon",
+                    "countries_code": "gs",
+                    "units_sub_dive": "N",
+                    "units_movement_type": "W"
+                },
+                "3887582": {
+                    "units_id": 196872446,
+                    "units_players_id": 3887582,
+                    "units_name": "Recon",
+                    "units_sub_dive": "N",
+                    "units_movement_type": "W",
+                    "units_x": 19,
+                    "units_y": 0,
+                    "units_hit_points": 10,
+                    "countries_code": "gs"
+                }
+            },
+            "paths": {
+                "3887583": [
+                    {"unit_visible": true, "x": 20, "y": 0},
+                    {"unit_visible": false, "x": 19, "y": 0}
+                ],
+                "3887582": [
+                    {"unit_visible": true, "x": 20, "y": 0},
+                    {"unit_visible": true, "x": 19, "y": 0}
+                ]
+            },
+            "dist": 1,
+            "trapped": false,
+            "discovered": {"3887582": null}
+        }"#;
+        let Action::Move(action) = serde_json::from_str(json).unwrap() else {
+            panic!("expected a move");
+        };
+        let unit = |id| {
+            action.unit[&TargetedPlayer::Player(AwbwGamePlayerId::new(id))]
+                .get_value()
+                .unwrap()
+        };
+        assert_eq!(unit(3887583).units_hit_points, Masked::Masked);
+        assert_eq!(
+            unit(3887582).units_hit_points.get_value().unwrap().value(),
+            10
+        );
+    }
+
+    #[test]
+    fn test_discovered_unit_keeps_the_von_bolt_stun() {
+        let json = r#"{
+            "units": [
+                {"units_id": 179372159, "units_games_id": 1371871,
+                 "units_players_id": 3249947, "units_name": "Anti-Air",
+                 "units_movement_points": 6, "units_vision": 2, "units_fuel": 35,
+                 "units_fuel_per_turn": 0, "units_sub_dive": "N", "units_ammo": 7,
+                 "units_short_range": 0, "units_long_range": 0,
+                 "units_second_weapon": "N", "units_symbol": "G", "units_cost": 8000,
+                 "units_movement_type": "T", "units_x": 6, "units_y": 6,
+                 "units_moved": -1, "units_capture": 0, "units_fired": 1,
+                 "units_hit_points": 7, "units_cargo1_units_id": 0,
+                 "units_cargo2_units_id": 0, "units_carried": "N",
+                 "countries_code": "ge"}
+            ]
+        }"#;
+        let discovery: Discovery = serde_json::from_str(json).unwrap();
+        assert_eq!(discovery.units[0].units_moved, Some(-1));
+        let serialized = serde_json::to_value(&discovery).unwrap();
+        assert_eq!(serialized["units"][0]["units_moved"], -1);
+    }
+
+    #[test]
+    fn test_discovered_buildings_with_and_without_the_php_index() {
+        let json = r#"{
+            "buildings": [
+                {"0": 2736635, "buildings_id": 58136760, "buildings_x": 0,
+                 "buildings_y": 15, "buildings_capture": 20, "terrain_id": 149,
+                 "terrain_name": "Cobalt Ice Airport", "terrain_defense": 3,
+                 "is_occupied": false, "buildings_players_id": 2736635,
+                 "buildings_team": "2736635"},
+                {"buildings_id": 87264860, "buildings_x": 16, "buildings_y": 2,
+                 "buildings_capture": 20, "terrain_id": 34,
+                 "terrain_name": "Neutral City", "terrain_defense": 3,
+                 "is_occupied": false, "buildings_players_id": null,
+                 "buildings_team": null}
+            ]
+        }"#;
+        let discovery: Discovery = serde_json::from_str(json).unwrap();
+        let ids: Vec<_> = discovery.buildings.iter().map(|b| b.buildings_id).collect();
+        assert_eq!(ids, [58136760, 87264860]);
     }
 
     #[test]
