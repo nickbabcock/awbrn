@@ -18,3 +18,6 @@ export const boardMenuLayout = stylex.defineConsts({
   buildRowSpaciousMinBlockSize: "56px",
   sheetBorderRadius: "var(--radius-container) var(--radius-container) 0 0",
 });
+
+/** Marks a menu row, so its caret can follow the row's focus. */
+export const menuRowMarker = stylex.defineMarker();

@@ -1,262 +1,184 @@
-import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { HStack, Stack } from "@astryxdesign/core/Stack";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Link } from "@tanstack/react-router";
 import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useState } from "react";
-import {
-  BoardMenuShell,
-  boardMenuStyles,
-  followPointerCursor,
-  type BoardMenuPresentation,
-} from "#/matches/components/BoardMenu.tsx";
+import { useEffect, useRef, useState } from "react";
+import { PushToggle } from "#/players/components/PushToggle.tsx";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
-import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
-
-interface MatchMenuProps {
-  /** The day the match stands on, for the menu's own readout. */
-  day: number | null;
-  /** Why the commands are inert, when they are. */
-  disabledReason?: string;
-  isEnabled: boolean;
-  onDismiss: () => void;
-  onResign: () => void;
-  onRestoreFocus: () => void;
-  presentation: BoardMenuPresentation;
-}
+import { IconFlag } from "#/ui/icons.tsx";
+import { MenuRow, ModalSheet } from "#/ui/ModalSheet.tsx";
+import { Terms } from "#/ui/Terms.tsx";
 
 /**
- * What a player can do to the match itself rather than to a unit on it.
- *
- * The board already opens a menu for a production site and another for a
- * destination, and this is the third of the same object: the window the game
- * opens over the map when the player asks it something. It carries one command
- * today, and it still opens as a menu — a command that is sometimes a menu and
- * sometimes a bare key is a command a player has to look for twice.
- *
- * Resignation is the match-level twin of deleting a unit, so it is asked the
- * same way: the list is replaced in the frame it already occupies, the header
- * names what is being asked, and the one red key in the system commits it. What
- * it adds over a deleted unit is a line saying what leaving does, because a
- * seat leaving is the one order here whose result is not drawn on the board.
+ * What a player can do to the match itself rather than to a unit on it: the
+ * terms said once (`Live 5m +2m`, the funds, the map as a link), Turn alerts,
+ * and Resign, asked twice.
  */
 export function MatchMenu({
-  day,
+  canResign,
+  clockTerms,
   disabledReason,
-  isEnabled,
-  onDismiss,
+  funds,
+  hasFog,
+  isOpen,
+  isResigning,
+  mapId,
+  mapName,
+  onOpenChange,
   onResign,
-  onRestoreFocus,
-  presentation,
-}: MatchMenuProps) {
+}: {
+  /** A seat still in the match can resign; a spectator or a fallen seat cannot. */
+  canResign: boolean;
+  /** `Live 5m +2m`. */
+  clockTerms: string;
+  /** Why Resign cannot be sent right now, when it cannot. */
+  disabledReason?: string;
+  funds: number;
+  hasFog: boolean;
+  isOpen: boolean;
+  isResigning: boolean;
+  mapId: string;
+  mapName: string | null;
+  onOpenChange: (isOpen: boolean) => void;
+  onResign: () => void;
+}) {
   const [isConfirming, setIsConfirming] = useState(false);
-  const confirm = useCallback(() => setIsConfirming(true), []);
-  const cancelConfirmation = useCallback(() => setIsConfirming(false), []);
-  const commit = useCallback(() => {
-    if (isEnabled) onResign();
-  }, [isEnabled, onResign]);
+  const keepPlayingRef = useRef<HTMLButtonElement>(null);
+  const resignRowRef = useRef<HTMLElement>(null);
+  // Where the keyboard goes once the row it was on is swapped out: the
+  // question opens on its safe key, and backing out returns to Resign.
+  const focusAfterSwapRef = useRef<"keep" | "resign" | null>(null);
+
+  // A closed menu forgets the question it was asking.
+  useEffect(() => {
+    if (!isOpen) setIsConfirming(false);
+  }, [isOpen]);
+
+  useEffect(() => {
+    const target = focusAfterSwapRef.current;
+    focusAfterSwapRef.current = null;
+    if (target === "keep") keepPlayingRef.current?.focus();
+    if (target === "resign") resignRowRef.current?.querySelector("button")?.focus();
+  }, [isConfirming]);
 
   return (
-    <BoardMenuShell
-      // A menu opened from the strip was not opened at a tile, so it stands in
-      // the middle of the board rather than beside a square it has nothing to
-      // do with.
-      anchor={null}
-      footer={
-        isConfirming ? (
-          <VStack gap={2} paddingBlock={3} paddingInline={3}>
-            <Button
-              clickAction={commit}
-              isDisabled={!isEnabled}
-              label="Resign"
-              size="lg"
-              variant="destructive"
-              width="100%"
-              xstyle={styles.key}
-            />
-            <Button
-              clickAction={cancelConfirmation}
-              label="Keep playing"
-              size="lg"
-              variant="secondary"
-              width="100%"
-              xstyle={styles.key}
-            />
-          </VStack>
-        ) : undefined
-      }
-      inlineSize={boardMenuLayout.actionForecastInlineSize}
-      label="Match commands"
-      onDismiss={onDismiss}
-      onRestoreFocus={onRestoreFocus}
-      presentation={presentation}
-    >
-      {({ isSheet, spriteScale }) => (
-        <VStack gap={0} xstyle={boardMenuStyles.body}>
-          <HStack
-            align="center"
-            gap={3}
-            justify="between"
-            paddingBlock={spriteScale === 2 ? 2 : 0}
-            paddingInline={2}
-            xstyle={boardMenuStyles.header}
-          >
-            <Text type="label" xstyle={styles.heading}>
-              {isConfirming ? "Resign" : "Match"}
+    <ModalSheet isOpen={isOpen} onOpenChange={onOpenChange} title="Match" width={360}>
+      <HStack as="span" xstyle={styles.terms}>
+        <Terms clock={clockTerms} funds={funds} hasFog={hasFog} />
+        <Link params={{ mapId }} to="/maps/$mapId" {...stylex.props(styles.mapLink)}>
+          {mapName ?? "The map"}
+        </Link>
+      </HStack>
+      {/* The switch names itself, and draws nothing where alerts cannot
+          work, so its row goes with it. */}
+      <Stack as="span" xstyle={styles.alerts}>
+        <PushToggle isSignedIn />
+      </Stack>
+      {!canResign ? null : isConfirming ? (
+        <Stack as="span" xstyle={styles.confirm}>
+          <Text color="inherit" type="inherit" xstyle={styles.confirmText}>
+            <b>Resign?</b> Your army leaves the board. This cannot be undone.
+          </Text>
+          {disabledReason ? (
+            <Text color="inherit" type="inherit" xstyle={styles.reason}>
+              {disabledReason}
             </Text>
-            {day === null ? null : (
-              <Text type="label" xstyle={styles.day}>
-                Day {day}
-              </Text>
-            )}
+          ) : null}
+          <HStack as="span" xstyle={styles.confirmKeys}>
+            <Button
+              label="Keep playing"
+              onClick={() => {
+                focusAfterSwapRef.current = "resign";
+                setIsConfirming(false);
+              }}
+              ref={keepPlayingRef}
+              variant="secondary"
+            />
+            <Button
+              isDisabled={disabledReason !== undefined}
+              isLoading={isResigning}
+              label="Resign"
+              onClick={() => {
+                onResign();
+                onOpenChange(false);
+              }}
+              variant="destructive"
+            />
           </HStack>
-
-          {isConfirming ? (
-            <>
-              {/* The one line of prose in the menu, and the reason it is here:
-                  a deleted unit leaves the board where the player can see it,
-                  and a resigned seat leaves a record they cannot. */}
-              <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.consequence}>
-                <Text type="supporting">
-                  Your army leaves the board. The seat cannot come back.
-                </Text>
-              </VStack>
-              {/* The sheet answers the question in its own footer, where the
-                  thumb already expects the commands. */}
-              {isSheet ? null : (
-                <VStack gap={0} xstyle={boardMenuStyles.list}>
-                  <button
-                    // The menu opens its confirmation on the harmless answer,
-                    // so the key under the cursor still commits nothing.
-                    autoFocus
-                    onClick={cancelConfirmation}
-                    onPointerMove={followPointerCursor}
-                    type="button"
-                    {...stylex.props(boardMenuStyles.row, styles.row)}
-                  >
-                    <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
-                      Keep playing
-                    </Text>
-                  </button>
-                  <button
-                    disabled={!isEnabled}
-                    onClick={commit}
-                    onPointerMove={followPointerCursor}
-                    title={isEnabled ? undefined : disabledReason}
-                    type="button"
-                    {...stylex.props(
-                      boardMenuStyles.row,
-                      styles.row,
-                      styles.rowCommit,
-                      !isEnabled && boardMenuStyles.rowInert,
-                    )}
-                  >
-                    <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
-                      Resign
-                    </Text>
-                  </button>
-                </VStack>
-              )}
-            </>
-          ) : (
-            <VStack gap={0} xstyle={isSheet ? undefined : boardMenuStyles.list}>
-              <button
-                disabled={!isEnabled}
-                onClick={confirm}
-                onPointerMove={followPointerCursor}
-                title={isEnabled ? undefined : disabledReason}
-                type="button"
-                {...stylex.props(
-                  boardMenuStyles.row,
-                  styles.row,
-                  spriteScale === 2 && styles.rowSpacious,
-                  styles.rowDestructive,
-                  !isEnabled && boardMenuStyles.rowInert,
-                )}
-              >
-                <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
-                  Resign
-                </Text>
-              </button>
-              {/* The board menu has no footer of its own, so the way out is a
-                  key on the menu, the way the source game leaves one. */}
-              {isSheet ? null : (
-                <button
-                  onClick={onDismiss}
-                  onPointerMove={followPointerCursor}
-                  type="button"
-                  {...stylex.props(boardMenuStyles.row, styles.row)}
-                >
-                  <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
-                    Cancel
-                  </Text>
-                </button>
-              )}
-            </VStack>
-          )}
-
-          {isEnabled || !disabledReason ? null : (
-            <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={boardMenuStyles.notice}>
-              <Text color="secondary" type="supporting">
-                {disabledReason}
-              </Text>
-            </VStack>
-          )}
-        </VStack>
+        </Stack>
+      ) : (
+        <Stack as="span" ref={resignRowRef} xstyle={styles.resign}>
+          <MenuRow
+            icon={<Icon icon={IconFlag} size="sm" />}
+            isDisabled={isResigning}
+            label="Resign"
+            onClick={() => {
+              focusAfterSwapRef.current = "keep";
+              setIsConfirming(true);
+            }}
+          />
+        </Stack>
       )}
-    </BoardMenuShell>
+    </ModalSheet>
   );
 }
 
 const styles = stylex.create({
-  // A command is a word, not a unit: the row is a line of the HUD face and one
-  // step either side, the same key the destination menu draws.
-  row: {
+  terms: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: `${spacingVars["--spacing-1-5"]} ${spacingVars["--spacing-3"]}`,
+    paddingBlock: spacingVars["--spacing-3"],
+    paddingInline: awbrnVars.spacing3_5,
+    backgroundColor: awbrnVars.paperWell,
+  },
+  mapLink: {
+    color: awbrnVars.blue,
+    fontSize: awbrnVars.text13,
+    fontWeight: 650,
+    textUnderlineOffset: "3px",
+  },
+  alerts: {
+    display: {
+      default: "block",
+      ":empty": "none",
+    },
+    paddingBlock: spacingVars["--spacing-1"],
+    paddingInline: awbrnVars.spacing3_5,
+    borderBlockStartColor: awbrnVars.rule,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: borderVars["--border-width"],
+    fontSize: awbrnVars.text15_5,
+  },
+  resign: {
+    display: "block",
+    color: awbrnVars.danger,
+  },
+  confirm: {
+    display: "grid",
+    gap: awbrnVars.spacing2_5,
+    paddingBlock: awbrnVars.spacing3_5,
+    paddingInline: awbrnVars.spacing3_5,
+    borderBlockStartColor: awbrnVars.rule,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: borderVars["--border-width"],
+    backgroundColor: awbrnVars.paper,
+  },
+  confirmText: {
+    fontSize: awbrnVars.text14,
+    color: colorVars["--color-text-secondary"],
+  },
+  reason: {
+    fontSize: awbrnVars.text13,
+    color: awbrnVars.danger,
+  },
+  confirmKeys: {
+    display: "flex",
+    justifyContent: "flex-end",
     gap: spacingVars["--spacing-2"],
-    minBlockSize: boardMenuLayout.actionRowMinBlockSize,
-    paddingBlock: 0,
-    paddingInline: spacingVars["--spacing-2"],
-  },
-  // A thumb still needs a real target, so the sheet keeps its height.
-  rowSpacious: {
-    minBlockSize: boardMenuLayout.actionRowSpaciousMinBlockSize,
-    paddingInline: spacingVars["--spacing-3"],
-  },
-  // The command that ends a player's match reads in the error color, so it is
-  // not one more word in a list of words. Under the cursor it keeps the orange
-  // fill every other row wears, and the name inverts to stay legible on it.
-  rowDestructive: {
-    color: {
-      default: colorVars["--color-error"],
-      ":focus": colorVars["--color-on-accent"],
-    },
-  },
-  // The commit on the confirmation is the one key in the system whose cursor is
-  // not orange. It is the last press before the army is gone, the screen exists
-  // only to say so, and a key that looks like every other key does not say it.
-  rowCommit: {
-    backgroundColor: { default: "transparent", ":focus": colorVars["--color-error"] },
-    color: {
-      default: colorVars["--color-error"],
-      ":focus": colorVars["--color-on-error"],
-    },
-  },
-  // The line above the answers is part of the question, so it is divided from
-  // them by the frame's own rule rather than by the soft rule between rows.
-  consequence: {
-    borderBlockEndWidth: borderVars["--border-width"],
-    borderBlockEndStyle: "solid",
-    borderBlockEndColor: colorVars["--color-border-emphasized"],
-  },
-  // The stock large button is shorter than a thumb needs, and these two are the
-  // only commands on the sheet.
-  key: {
-    minBlockSize: boardMenuLayout.actionRowSpaciousMinBlockSize,
-  },
-  heading: {
-    color: colorVars["--color-text-secondary"],
-  },
-  day: {
-    color: colorVars["--color-text-secondary"],
-    fontVariantNumeric: "tabular-nums",
   },
 });

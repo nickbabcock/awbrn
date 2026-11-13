@@ -1,37 +1,23 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
-import { Badge } from "@astryxdesign/core/Badge";
-import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "#/ui/Button.tsx";
-import { Card } from "@astryxdesign/core/Card";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Grid } from "@astryxdesign/core/Grid";
-import { Heading } from "@astryxdesign/core/Heading";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Text } from "@astryxdesign/core/Text";
-import { compactDefinition } from "@astryxdesign/core/theme";
-import {
-  borderVars,
-  colorVars,
-  fontWeightVars,
-  spacingVars,
-  typeScaleVars,
-} from "@astryxdesign/core/theme/tokens.stylex";
-import { Calculator as CalculatorIcon } from "pixelarticons/react/Calculator";
-import { MenuSquare as MatchMenuIcon } from "pixelarticons/react/MenuSquare";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Icon } from "@astryxdesign/core/Icon";
+import { borderVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
-import { loadCoPortraitCatalog } from "#/components/co_portraits.ts";
-import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
-import { TileInfoBar } from "#/components/TileInfoBar.tsx";
+import { useCanvasCourierSurface, pressBoardKey } from "#/canvas_courier/index.ts";
+import { TileDetails, TileLine, TileWindow } from "#/components/TileInfoBar.tsx";
+import { ImmersiveNoticeLine, useImmersiveNotice } from "#/components/GameFullscreen.tsx";
+import { ReviewFoot, PhoneReviewBar, type ReviewModel } from "#/components/StepControls.tsx";
+import { sessionQueryOptions } from "#/auth/auth.queries.ts";
+import { useAppSession } from "#/auth/useAppSession.ts";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import type { LiveMatchPlayer } from "#/engine/worker_module.ts";
 import { getFactionByCode } from "#/factions.ts";
-import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
+import { mapCatalogEntryQueryOptions } from "#/maps/maps.queries.ts";
 import { useMatchWebSocket, type MatchWebSocketStatus } from "#/matches/match_websocket.ts";
 import type {
   InitialBoardMessage,
@@ -42,80 +28,105 @@ import type {
   ReviewBoundary,
 } from "#/matches/match_protocol.ts";
 import { nextTurnStart, previousTurnStart, stepTarget } from "#/matches/match_review.ts";
-import { StepControls } from "#/components/StepControls.tsx";
-import { clockPressure, formatClockDuration, seatRemainingMs } from "#/matches/match_clock.ts";
-import { SeatClock, useClockNow } from "#/matches/components/SeatClock.tsx";
-import { buildArmies } from "#/matches/match_armies.ts";
+import {
+  clockPressure,
+  findClockPreset,
+  formatClockDuration,
+  formatClockTerms,
+  seatRemainingMs,
+} from "#/matches/match_clock.ts";
+import { useClockNow } from "#/matches/components/SeatClock.tsx";
+import { buildArmies, type MatchArmy, recordedSeat } from "#/matches/match_armies.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
+import type { MatchSnapshot } from "#/matches/schemas.ts";
 import { MatchOverDialog } from "#/matches/components/MatchOverDialog.tsx";
-import type { MatchClock } from "#/matches/schemas.ts";
 import {
   BATTLE_CALCULATOR_SHEET_MEDIA,
   BattleCalculator,
 } from "#/matches/components/BattleCalculator.tsx";
 import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
+import { buildMenuMount } from "#/matches/components/board_menu_mount.ts";
+import { useLeaving } from "#/matches/components/useLeaving.ts";
+import { plateView as pickPlateView } from "#/matches/components/plate_view.ts";
 import { MatchMenu } from "#/matches/components/MatchMenu.tsx";
-import { AttackPreview } from "#/matches/components/AttackPreview.tsx";
+import { DockedAttackPreview } from "#/matches/components/AttackPreview.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
-import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
+import {
+  ArmedPower,
+  ArmyCard,
+  ArmyPlate,
+  ArmySheet,
+  Ledger,
+  PowerKey,
+  powerName,
+  readyPowers,
+  TurnOrderRow,
+  type ArmyClock,
+  type ArmyView,
+  type PowerControl,
+} from "#/matches/components/Armies.tsx";
+import {
+  BoardKeys,
+  Locator,
+  useTableLayout,
+  useWholeMap,
+  ViewKey,
+  WholeMapOutline,
+  formatScale,
+  useBoardView,
+  FirstTouchHint,
+} from "#/matches/components/BoardControls.tsx";
+import { BoardTable, WaitingLine } from "#/matches/components/BoardTable.tsx";
+import { TurnLog } from "#/matches/components/TurnLog.tsx";
+import { dayStarts, type LogBoundary } from "#/matches/components/turn_log.ts";
+import { fallDayFromOutline, recordFalls, type ArmyFall } from "#/matches/components/army_falls.ts";
+import { EndTurnDialog, EndTurnKey } from "#/matches/components/EndTurn.tsx";
+import {
+  isAsyncClock,
+  TurnAlertsOffer,
+  useTurnAlertsOffer,
+} from "#/matches/components/TurnAlertsOffer.tsx";
+import {
+  ConnectionState,
+  DockKey,
+  DockRow,
+  FullscreenKey,
+  InkIconKey,
+  MatchFrame,
+  MatchNotice,
+  ReconnectKey,
+  SignInKey,
+  type MatchConnection,
+  StripClock,
+  TurnLine,
+  TurnStrip,
+  WaitCell,
+  WatchingTag,
+  useFullscreenEnabled,
+} from "#/matches/components/MatchFrame.tsx";
 import { canActivatePower } from "#/replay/power_meter.ts";
 import { describeTurnResidue } from "#/matches/turn_residue.ts";
 import type { ActivatablePowerLevel } from "#/replay/power_meter.ts";
-import type {
-  PlayerRosterSnapshot,
-  ProductionOptionsChanged,
-  UnitActionsChanged,
-  UnitKind,
-} from "#/wasm/awbrn_wasm.js";
-import { Page } from "#/ui/Page.tsx";
+import type { UnitKind } from "#/wasm/awbrn_wasm.js";
+import { matchLayout, matchType } from "#/matches/components/matchLayout.stylex.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { BackKey } from "#/ui/BackKey.tsx";
+import { Button } from "#/ui/Button.tsx";
+import { IconCalculator, IconClose, IconMore, IconRefresh, IconReplay } from "#/ui/icons.tsx";
+import { ModalSheet } from "#/ui/ModalSheet.tsx";
 
-/** The press that opened a menu: where it landed, and what pressed. */
-interface BoardPress {
-  at: number;
-  isCoarse: boolean;
-  x: number;
-  y: number;
-}
-
-/**
- * Below this width the board has no room beside it for a menu, so the build
- * order becomes a sheet on the bottom edge whatever pressed the board. The
- * width is the one at which Astryx makes its own sheets compact. Only the
- * width is used, so that this rule agrees with BOARD_BLEED_MEDIA.
- */
-const BUILD_SHEET_MEDIA = `(width < ${compactDefinition().widthBelow}px)`;
-
-/**
- * A device whose primary input is a finger. The board's own menus read this
- * from the press that opened them; a menu opened from the strip has no press
- * on the board to read, so it asks the device instead.
- */
-const COARSE_POINTER_MEDIA = "(pointer: coarse)";
-
-/**
- * Below this width the board gives up the page inset and runs to both edges.
- * This is the same breakpoint the build order uses to become a sheet: the width
- * at which the phone, not the desk, is the machine being designed for. StyleX
- * needs a literal media key, so keep 768px equal to BUILD_SHEET_MEDIA.
- */
-const BOARD_BLEED_MEDIA = "@media (width < 768px)";
-
-/**
- * The AWBW page for a map, so a player can read the map the match is played on
- * where it is published. AWBRN is independent of AWBW; this is a reference to
- * the map, not a claim of any relationship.
- */
-
-/**
- * How long a press can still be the one that opened a menu. A selection made
- * from the keyboard has no press behind it, and a menu placed at a pointer that
- * has not moved since the last turn would be placed nowhere in particular.
- */
-const BOARD_PRESS_MAX_AGE_MS = 2000;
+/** A phone: the board full-bleed, the dock under the thumb. */
+const PHONE_MEDIA = "(max-width: 720px)";
 
 /** Said when a question about the past could not be put to the host at all. */
 const REVIEW_UNREACHABLE = "The match could not be read because the connection is not open.";
+/** Said when the board could not be put back after a reading; a reconnect rebuilds it. */
+/** Who is connected to the match, and how (`MatchConnection`). */
+type Connection = MatchConnection;
+const REVIEW_RESTORE_FAILED = "The live board could not be restored. Reconnect to catch up.";
+/** The host's answer when a match's log cannot be opened for reading. */
+const REVIEW_REFUSED = "this match cannot be reviewed";
 
 export function MatchActivePage({
   joinSlug = null,
@@ -125,12 +136,10 @@ export function MatchActivePage({
   matchId: string;
 }) {
   const { data: match } = useSuspenseQuery(matchDetailQueryOptions(matchId, joinSlug));
+  const session = useAppSession();
   const queryClient = useQueryClient();
-  const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
   const runner = useActiveMatchRunner();
   const playerRoster = useGameStore((state) => state.playerRoster);
-  const productionOptions = useGameStore((state) => state.productionOptions);
-  const unitActions = useGameStore((state) => state.unitActions);
   const setProductionOptions = useGameStore((state) => state.actions.setProductionOptions);
   const setUnitActions = useGameStore((state) => state.actions.setUnitActions);
   const livePlayers = useMemo<LiveMatchPlayer[]>(
@@ -140,10 +149,6 @@ export function MatchActivePage({
         factionId: participant.factionId,
       })),
     [match.participants],
-  );
-  const armies = useMemo(
-    () => buildArmies(match.participants, playerRoster),
-    [match.participants, playerRoster],
   );
   // Reading an earlier moment of the match. The board is the engine's either
   // way; what changes is who says what goes on it. While the viewer is
@@ -168,13 +173,41 @@ export function MatchActivePage({
    * when it lands, rather than a key that does nothing the first time.
    */
   const pendingStepRef = useRef<{ kind: "action" | "turn"; delta: number } | null>(null);
+  /**
+   * The outline is asked for as soon as the match is open, so the scrubber has
+   * its day ticks and the rail its log before anybody reaches back. Each move
+   * the match makes bumps the revision, and the outline held is fresh only
+   * while it answers the latest one: a step is never spelled against an
+   * outline that ends before the match does.
+   */
+  const [outlineRevision, setOutlineRevision] = useState(0);
+  const [outlineAnswered, setOutlineAnswered] = useState<number | null>(null);
+  const outlineAskedRef = useRef<number | null>(null);
   /** What the engine has been told, read from inside callbacks and effects. */
   const isReviewingRef = useRef(false);
   const [initialBoard, setInitialBoard] = useState<InitialBoardMessage | null>(null);
+  // Funds are in the match state the host opens with, so every army shows
+  // them from the first paint rather than waiting on the engine to report.
+  const openingFunds = initialBoard?.gameState?.players;
+  const armies = useMemo(
+    () => withOpeningFunds(buildArmies(match.participants, playerRoster), openingFunds),
+    [match.participants, openingFunds, playerRoster],
+  );
   const [matchError, setMatchError] = useState<string | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);
   // `undefined` until the server says which seat, if any, this viewer holds.
   const [viewerSlotIndex, setViewerSlotIndex] = useState<number | null | undefined>(undefined);
+  // The seat the match record gives this account, while the connection has
+  // not said yet: the rail keeps YOU on it from the first paint. A hotseat
+  // account holds several, and only the server can say which one is up.
+  const userId = session?.user.id ?? null;
+  const recordSeat = useMemo(
+    () => recordedSeat(match.participants, userId),
+    [match.participants, userId],
+  );
+  const seatSlot = viewerSlotIndex === undefined ? recordSeat : viewerSlotIndex;
+  // How each fallen army left, as the observations this page was handed say.
+  const [falls, setFalls] = useState<ReadonlyMap<number, ArmyFall>>(() => new Map());
   const [spectatorFogActive, setSpectatorFogActive] = useState<boolean | null>(null);
   /**
    * How the match ended, once it has. Held rather than acted on: the result is
@@ -223,11 +256,15 @@ export function MatchActivePage({
           setBoardError(null);
           setInitialBoard(message);
           setActivePlayerSlot(message.gameState?.activePlayerSlot ?? null);
+          const opening = message.gameState?.observation;
+          if (opening) setFalls((known) => recordFalls(known, opening, true));
           return;
         }
         case "connected": {
-          // A fresh connection supersedes whatever went wrong on the last one.
+          // A fresh connection supersedes whatever went wrong on the last one,
+          // and opens on the live board.
           setMatchError(null);
+          setReviewError(null);
           // A hotseat handoff to another seat of the same viewer closes the
           // turn with this frame and not with a player update, so the end turn
           // command must stop here too.
@@ -243,6 +280,12 @@ export function MatchActivePage({
           return;
         }
         case "error": {
+          // The outline the page asks for on its own is a convenience; a match
+          // that cannot be read back says so only when somebody reaches back.
+          if (message.message === REVIEW_REFUSED && !isReviewingRef.current) {
+            outlineAskedRef.current = null;
+            return;
+          }
           finishEndingTurn();
           finishResigning();
           finishActivatingPower();
@@ -274,7 +317,9 @@ export function MatchActivePage({
           return;
         }
         case "playerUpdate": {
+          setOutlineRevision((revision) => revision + 1);
           setActivePlayerSlot(message.activePlayerSlot);
+          setFalls((known) => recordFalls(known, message.transition.post, false));
           finishEndingTurn();
           void runner.applyLiveTransition(message.transition).catch((error) => {
             console.error("Error applying live player transition:", error);
@@ -283,6 +328,7 @@ export function MatchActivePage({
         }
         case "reviewOutline": {
           setReviewOutline(message.boundaries);
+          setOutlineAnswered(outlineAskedRef.current);
           return;
         }
         case "reviewState": {
@@ -314,7 +360,7 @@ export function MatchActivePage({
               )
               .catch((error) => {
                 console.error("Error returning to the live match:", error);
-                setReviewError("The live board could not be restored. Reconnect to catch up.");
+                setReviewError(REVIEW_RESTORE_FAILED);
               });
             return;
           }
@@ -330,6 +376,9 @@ export function MatchActivePage({
         }
         case "spectatorState": {
           if (!message.transition) return;
+          const post = message.transition.post;
+          setOutlineRevision((revision) => revision + 1);
+          setFalls((known) => recordFalls(known, post, false));
           void runner.applyLiveTransition(message.transition).catch((error) => {
             console.error("Error applying live spectator transition:", error);
           });
@@ -342,7 +391,43 @@ export function MatchActivePage({
     },
     [finishActivatingPower, finishEndingTurn, finishResigning, restoreAfterRefusal, runner],
   );
-  const { reconnect, sendMessage, status } = useMatchWebSocket(matchId, handleMatchMessage);
+  // The server lets only a signed-in viewer onto the match, so a signed-out
+  // one is asked to sign in rather than shown a connection that cannot open.
+  const isSignedOut = session === null;
+  const { reconnect, sendMessage, status } = useMatchWebSocket(
+    matchId,
+    handleMatchMessage,
+    !isSignedOut,
+  );
+  // Until a connection has opened, waiting on one is not a problem: the first
+  // connection reads in Text on ink 2, and warn means a connection that
+  // dropped. A first connection that fails was refused, not dropped.
+  const [hasConnected, setHasConnected] = useState(false);
+  const [isRefused, setIsRefused] = useState(false);
+  useEffect(() => {
+    if (status === "connected") {
+      setHasConnected(true);
+      setIsRefused(false);
+    } else if (status === "disconnected" || status === "error") {
+      setIsRefused(true);
+    }
+  }, [status]);
+  // A session that ended elsewhere still reads as signed in here, and the
+  // server refuses it: ask again, so the page can say to sign in.
+  useEffect(() => {
+    if (isRefused && !hasConnected) {
+      void queryClient.invalidateQueries({ queryKey: sessionQueryOptions().queryKey });
+    }
+  }, [hasConnected, isRefused, queryClient]);
+  const connection: Connection = isSignedOut
+    ? "signedOut"
+    : status === "connected"
+      ? "connected"
+      : hasConnected
+        ? "reconnecting"
+        : isRefused
+          ? "refused"
+          : "connecting";
 
   useEffect(() => {
     runner.setLiveCommandHandler((command) => {
@@ -357,7 +442,7 @@ export function MatchActivePage({
   // The army the build menu speaks for. Its treasury pays for the order, and
   // its sprites are the ones the menu shows, in whatever depiction the viewer
   // has chosen for it.
-  const viewerArmy = armies.find((army) => army.entry.playerId === viewerSlotIndex);
+  const viewerArmy = armies.find((army) => army.entry.playerId === seatSlot);
 
   useEffect(() => {
     if (activatingPower !== undefined && viewerArmy?.entry.activePower !== undefined) {
@@ -449,6 +534,8 @@ export function MatchActivePage({
     (canActivatePower(viewerArmy.entry, "cop") || canActivatePower(viewerArmy.entry, "scop"));
   const turnResidue = describeTurnResidue(turnReadiness, isPowerReady);
   const [isConfirmingEndTurn, setIsConfirmingEndTurn] = useState(false);
+  const alertsOffer = useTurnAlertsOffer(isAsyncClock(match.settings.clock));
+  const offerAlerts = alertsOffer.offer;
 
   const handleEndTurn = useCallback(() => {
     if (
@@ -471,9 +558,11 @@ export function MatchActivePage({
       return;
     }
     setProductionOptions(null);
+    offerAlerts();
   }, [
     activePlayerSlot,
     finishEndingTurn,
+    offerAlerts,
     sendMessage,
     setProductionOptions,
     status,
@@ -593,16 +682,20 @@ export function MatchActivePage({
    * the outline answers that, so the first press does what every later one
    * does rather than nothing.
    */
+  const isOutlineFresh = reviewOutline !== null && outlineAnswered === outlineRevision;
   const requestStep = useCallback(
     (kind: "action" | "turn", delta: number) => {
       beginReview();
       const boundaries = reviewOutline;
-      if (boundaries === null || currentReviewIndex === null) {
+      if (boundaries === null || currentReviewIndex === null || !isOutlineFresh) {
         // A step held for an outline that was never asked for would wait for
         // an answer nothing is coming back with, under a key that stays busy.
-        if (!sendMessage({ type: "reviewOutline" })) {
-          setReviewError(REVIEW_UNREACHABLE);
-          return;
+        if (outlineAskedRef.current !== outlineRevision) {
+          if (!sendMessage({ type: "reviewOutline" })) {
+            setReviewError(REVIEW_UNREACHABLE);
+            return;
+          }
+          outlineAskedRef.current = outlineRevision;
         }
         pendingStepRef.current = { kind, delta };
         setIsReviewBusy(true);
@@ -616,13 +709,32 @@ export function MatchActivePage({
       }
       requestReviewSeek(target);
     },
-    [beginReview, currentReviewIndex, requestReviewSeek, reviewOutline, sendMessage],
+    [
+      beginReview,
+      currentReviewIndex,
+      isOutlineFresh,
+      outlineRevision,
+      requestReviewSeek,
+      reviewOutline,
+      sendMessage,
+    ],
   );
+
+  // The outline, asked for once the host has said who is watching, and again
+  // whenever the match moves on. A watcher of a fogged match is shown no
+  // earlier board, so they are not given its outline either.
+  useEffect(() => {
+    if (status !== "connected" || viewerSlotIndex === undefined || spectatorFogActive === true) {
+      return;
+    }
+    if (outlineAskedRef.current === outlineRevision) return;
+    if (sendMessage({ type: "reviewOutline" })) outlineAskedRef.current = outlineRevision;
+  }, [outlineRevision, sendMessage, spectatorFogActive, status, viewerSlotIndex]);
 
   // A step that was waiting on the outline, taken now that it has one.
   useEffect(() => {
     const pending = pendingStepRef.current;
-    if (pending === null || reviewOutline === null) return;
+    if (pending === null || reviewOutline === null || !isOutlineFresh) return;
     pendingStepRef.current = null;
 
     const target = stepTarget(
@@ -636,7 +748,7 @@ export function MatchActivePage({
       return;
     }
     requestReviewSeek(target);
-  }, [requestReviewSeek, reviewOutline, reviewPosition]);
+  }, [isOutlineFresh, requestReviewSeek, reviewOutline, reviewPosition]);
 
   /** Come back to the match as it stands. */
   const returnToLiveMatch = useCallback(() => {
@@ -661,6 +773,8 @@ export function MatchActivePage({
     setIsReviewBusy(false);
     setReviewPosition(null);
     setReviewOutline(null);
+    setOutlineAnswered(null);
+    outlineAskedRef.current = null;
     // The engine is told as well as the page. A board left under review holds
     // the live match at the edge, so the next connection's own board would
     // wait there rather than being played on.
@@ -673,186 +787,158 @@ export function MatchActivePage({
   // is open, so it sets how often every readout redraws.
   const runningRemaining = clock === null ? null : Math.max(0, clock.deadlineAt - Date.now());
   const now = useClockNow(runningRemaining);
-  const viewerRemainingMs =
-    clock === null || viewerSlotIndex === null || viewerSlotIndex === undefined
+
+  const day = playerRoster?.day ?? null;
+  const landingDay = useLandingDay(day, !isReviewing && status === "connected");
+  const isPlayer = seatSlot !== null;
+  const isViewerOut = viewerArmy?.entry.eliminated ?? false;
+  const clockInitialMs = match.settings.clock.initialMs;
+
+  const turnOrder = useMemo(() => armies.map((army) => army.entry.playerId), [armies]);
+  const views = useMemo<ArmyView[]>(
+    () =>
+      armies.map((army) => ({
+        army,
+        isViewer: seatSlot === army.entry.playerId,
+        clock: readArmyClock(clock, army.entry.playerId, now, clockInitialMs),
+        fall: army.entry.eliminated
+          ? readFall(falls.get(army.entry.playerId), reviewOutline, army.entry.playerId, turnOrder)
+          : null,
+        onFactionChange: army.hasLiveStats
+          ? (factionId: number) =>
+              handleDisplayFactionChange(
+                army.entry.playerId,
+                factionId === getFactionByCode(army.entry.actualFactionCode)?.id ? null : factionId,
+              )
+          : undefined,
+        isRecordOnly: isSignedOut,
+      })),
+    [
+      armies,
+      clock,
+      clockInitialMs,
+      falls,
+      handleDisplayFactionChange,
+      isSignedOut,
+      now,
+      reviewOutline,
+      seatSlot,
+      turnOrder,
+    ],
+  );
+
+  // A fogged match has no board a watcher may read, so it offers them no
+  // controls for reading one either; nor does a match a signed-out viewer
+  // cannot open.
+  const review: ReviewModel | null =
+    spectatorFogActive === true || isSignedOut
       ? null
-      : seatRemainingMs(clock, viewerSlotIndex, now);
+      : {
+          position: isReviewing
+            ? reviewPosition
+            : reviewOutline === null
+              ? null
+              : { index: reviewOutline.length - 1, total: reviewOutline.length - 1 },
+          isAtLatest: !isReviewing,
+          canStepBack: isReviewing
+            ? (reviewPosition?.index ?? 1) > 0
+            : // A match nobody has played yet has nothing behind it.
+              reviewOutline === null || reviewOutline.length > 1,
+          canStepForward:
+            isReviewing && (reviewPosition === null || reviewPosition.index < reviewPosition.total),
+          canStepTurnBack:
+            reviewOutline === null || currentReviewIndex === null
+              ? !isReviewing
+              : previousTurnStart(reviewOutline, currentReviewIndex) !== null,
+          canStepTurnForward:
+            isReviewing &&
+            (reviewOutline === null ||
+              currentReviewIndex === null ||
+              nextTurnStart(reviewOutline, currentReviewIndex) !== null),
+          latestLabel: "Live",
+          isBusy: isReviewBusy || status !== "connected",
+          onSeekStart: () => {
+            beginReview();
+            requestReviewSeek(0);
+          },
+          onStep: (delta: number) => requestStep("action", delta),
+          onTurnStep: (delta: number) => requestStep("turn", delta),
+          onSeekLatest: returnToLiveMatch,
+          onSeek:
+            reviewOutline === null
+              ? undefined
+              : (index: number) => {
+                  if (index >= reviewOutline.length - 1 && !isReviewing) return;
+                  beginReview();
+                  requestReviewSeek(index);
+                },
+          dayStarts: reviewOutline === null ? undefined : dayStarts(reviewOutline),
+          hasLastKey: false,
+        };
 
   return (
-    <Page width="full">
-      <VStack gap={6}>
-        {matchError ? (
-          <Banner description={matchError} role="alert" status="error" title="Match error" />
-        ) : null}
-        {reviewError ? (
-          <Banner
-            description={reviewError}
-            role="alert"
-            status="error"
-            title="The match could not be read"
-          />
-        ) : null}
-        {boardError ? (
-          <Banner
-            description={boardError}
-            role="alert"
-            status="error"
-            title="The board could not be loaded."
-          />
-        ) : null}
-        {spectatorFogActive === null ? null : (
-          <Banner
-            status="info"
-            title={
-              spectatorFogActive
-                ? "Spectating — you see only what is public."
-                : "Spectating — the full board is visible."
-            }
-          />
-        )}
-
-        {/* The board leads. It takes whatever width the viewport has and the
-            roster keeps a fixed rail beside it, so the map is the largest thing
-            on the page at every size instead of splitting the page with a
-            readout. Below the breakpoint the rail drops under the board rather
-            than beside it, and the board still comes first. */}
-        <Grid align="start" gap={4} xstyle={styles.matchLayout}>
-          <ActiveMatchBoard
-            day={playerRoster?.day ?? null}
-            initialBoard={initialBoard}
-            review={
-              // A fogged match has no board a watcher may read, so it offers
-              // them no controls for reading one either.
-              spectatorFogActive === true
-                ? null
-                : {
-                    canStepBack: isReviewing
-                      ? (reviewPosition?.index ?? 1) > 0
-                      : // A match nobody has played yet has nothing behind it.
-                        reviewOutline === null || reviewOutline.length > 1,
-                    canStepForward:
-                      isReviewing &&
-                      (reviewPosition === null || reviewPosition.index < reviewPosition.total),
-                    canStepTurnBack:
-                      reviewOutline === null || currentReviewIndex === null
-                        ? !isReviewing
-                        : previousTurnStart(reviewOutline, currentReviewIndex) !== null,
-                    canStepTurnForward:
-                      isReviewing &&
-                      (reviewOutline === null ||
-                        currentReviewIndex === null ||
-                        nextTurnStart(reviewOutline, currentReviewIndex) !== null),
-                    isBusy: isReviewBusy || status !== "connected",
-                    isReviewing,
-                    onSeekLatest: returnToLiveMatch,
-                    onSeekStart: () => {
-                      beginReview();
-                      requestReviewSeek(0);
-                    },
-                    onStep: (delta: number) => requestStep("action", delta),
-                    onTurnStep: (delta: number) => requestStep("turn", delta),
-                    position: isReviewing ? reviewPosition : null,
-                    turnHolder: armies.find((army) => army.isActive)?.name ?? null,
-                  }
-            }
-            match={match}
-            onBoardError={setBoardError}
-            onBuildUnit={handleBuildUnit}
-            onEndTurn={requestEndTurn}
-            onResign={handleResign}
-            isResigning={isResigning}
-            isViewerOut={viewerArmy?.entry.eliminated ?? false}
-            isTurnReadinessKnown={turnReadiness !== undefined}
-            isTurnSpent={turnResidue === null}
-            players={livePlayers}
-            productionOptions={productionOptions}
-            unitActions={unitActions}
-            playerRoster={playerRoster}
-            reconnect={reconnect}
-            runner={runner}
-            status={status}
-            activePlayerSlot={activePlayerSlot}
-            isEndingTurn={isEndingTurn}
-            matchClock={match.settings.clock}
-            viewerFactionCode={viewerArmy?.entry.displayFactionCode ?? null}
-            viewerFunds={viewerArmy?.entry.stats.funds ?? null}
-            viewerRemainingMs={viewerRemainingMs}
-            viewerSlotIndex={viewerSlotIndex}
-          />
-
-          {/* Each row names its own army through its crest, so the panel needs
-              no visible heading of its own. An active match always has seats;
-              if the record says otherwise, an empty outlined box would be the
-              wrong thing to draw. */}
-          {armies.length === 0 ? null : (
-            <VStack as="section" aria-label="Armies" gap={0} xstyle={styles.rosterSection}>
-              <Card padding={0} xstyle={styles.rosterPanel}>
-                <RosterList>
-                  {armies.map((army) => (
-                    <RosterRow
-                      isActive={army.isActive}
-                      activatingPower={activatingPower}
-                      clock={
-                        clock === null ? undefined : (
-                          <SeatClock
-                            clock={match.settings.clock}
-                            expiresAt={
-                              army.entry.playerId === clock.activeSlot ? clock.deadlineAt : null
-                            }
-                            isRunning={army.entry.playerId === clock.activeSlot}
-                            name={army.name}
-                            remaining={seatRemainingMs(clock, army.entry.playerId, now)}
-                          />
-                        )
-                      }
-                      isViewer={viewerSlotIndex === army.entry.playerId}
-                      key={army.entry.playerId}
-                      name={army.name}
-                      onActivatePower={
-                        status === "connected" &&
-                        army.isActive &&
-                        viewerSlotIndex === army.entry.playerId
-                          ? handleActivatePower
-                          : undefined
-                      }
-                      onFactionChange={
-                        army.hasLiveStats
-                          ? (factionId) =>
-                              handleDisplayFactionChange(
-                                army.entry.playerId,
-                                factionId === getFactionByCode(army.entry.actualFactionCode)?.id
-                                  ? null
-                                  : factionId,
-                              )
-                          : undefined
-                      }
-                      player={army.entry}
-                      portraitCatalog={portraitCatalog}
-                    />
-                  ))}
-                </RosterList>
-              </Card>
-            </VStack>
-          )}
-        </Grid>
-      </VStack>
+    <>
+      <ActiveMatchScreen
+        activatingPower={activatingPower}
+        activePlayerSlot={activePlayerSlot}
+        armies={armies}
+        alertsOffer={alertsOffer}
+        boardError={boardError}
+        connection={connection}
+        day={day}
+        initialBoard={initialBoard}
+        isDayNew={landingDay !== null && landingDay === day && !isReviewing}
+        isEndingTurn={isEndingTurn}
+        isPlayer={isPlayer}
+        isResigning={isResigning}
+        isReviewing={isReviewing}
+        isTurnReadinessKnown={turnReadiness !== undefined}
+        isTurnSpent={turnResidue === null}
+        isViewerOut={isViewerOut}
+        log={
+          review === null || reviewOutline === null || currentReviewIndex === null
+            ? null
+            : { boundaries: reviewOutline, currentIndex: currentReviewIndex }
+        }
+        match={match}
+        matchError={matchError}
+        onActivatePower={handleActivatePower}
+        onBoardError={setBoardError}
+        onBuildUnit={handleBuildUnit}
+        onEndTurn={requestEndTurn}
+        onResign={handleResign}
+        onDismissMatchError={() => setMatchError(null)}
+        onReturnToLive={() => {
+          setReviewError(null);
+          if (isReviewingRef.current) returnToLiveMatch();
+        }}
+        players={livePlayers}
+        reconnect={reconnect}
+        review={review}
+        reviewError={reviewError}
+        runner={runner}
+        spectatorFogActive={spectatorFogActive}
+        status={status}
+        turnReadiness={turnReadiness}
+        viewerArmy={viewerArmy ?? null}
+        viewerSlotIndex={seatSlot}
+        views={views}
+      />
 
       {/* The one move in the game that cannot be taken back, and the only one
           the page asks about. It asks only when the turn has something left in
           it, so the question is never a habit. */}
-      <AlertDialog
-        actionLabel="End turn"
-        actionVariant="primary"
-        cancelLabel="Keep playing"
-        description={turnResidue ?? ""}
-        isActionLoading={isEndingTurn}
+      <EndTurnDialog
+        factionCode={viewerArmy?.entry.displayFactionCode ?? "os"}
+        isEnding={isEndingTurn}
         isOpen={isConfirmingEndTurn}
-        onAction={() => {
+        isPowerReady={isPowerReady}
+        onConfirm={() => {
           setIsConfirmingEndTurn(false);
           handleEndTurn();
         }}
         onOpenChange={setIsConfirmingEndTurn}
-        title="End your turn?"
+        readiness={turnReadiness}
       />
 
       {/* How the match ended, over the board it ended on. Watching the replay
@@ -861,7 +947,9 @@ export function MatchActivePage({
       {matchResults ? (
         <MatchOverDialog
           armies={armies}
+          day={day}
           isOpen={isResultOpen}
+          isRated={match.pool !== null && match.void === null}
           matchId={matchId}
           onOpenChange={setIsResultOpen}
           onWatchReplay={() => {
@@ -870,100 +958,167 @@ export function MatchActivePage({
               queryKey: matchKeys.detail(matchId, joinSlug),
             });
           }}
-          portraitCatalog={portraitCatalog}
           results={matchResults}
           viewerSlotIndex={viewerSlotIndex ?? null}
         />
       ) : null}
-    </Page>
+    </>
   );
 }
 
+/** How long a landing postmark keeps its landing: its two frames, and a margin. */
+const POSTMARK_LANDING_MS = 400;
+
 /**
- * The board, with the game's own readouts on the strip beneath it.
+ * The live day that just opened, while its postmark lands.
  *
- * Day, map, and connection belong to the board rather than to the page, so they
- * stay in the same viewport as the thing they describe at every width.
+ * The day the page opened on never lands, and neither does a day read in
+ * review: only a later live day than any seen before (an End turn that opens
+ * a day). The landing is let go once it has played, so coming back from review
+ * or reconnecting does not play it again.
  */
-/**
- * The keys that walk a match, and everything they need to draw themselves.
- *
- * Null for a viewer with nothing to walk: a fogged match keeps its history
- * from anybody holding no seat in it.
- */
-interface BoardReviewControls {
-  /** True while the board is showing a moment the match has moved on from. */
-  isReviewing: boolean;
-  isBusy: boolean;
-  position: { index: number; total: number } | null;
-  canStepBack: boolean;
-  canStepForward: boolean;
-  canStepTurnBack: boolean;
-  canStepTurnForward: boolean;
-  turnHolder: string | null;
-  onSeekStart: () => void;
-  onStep: (delta: number) => void;
-  onTurnStep: (delta: number) => void;
-  onSeekLatest: () => void;
+function useLandingDay(day: number | null, isLive: boolean): number | null {
+  const latestRef = useRef<number | null>(null);
+  const [landing, setLanding] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isLive || day === null) return;
+    const latest = latestRef.current;
+    latestRef.current = latest === null ? day : Math.max(latest, day);
+    if (latest !== null && day > latest) setLanding(day);
+  }, [day, isLive]);
+  useEffect(() => {
+    if (landing === null) return;
+    const timer = window.setTimeout(() => setLanding(null), POSTMARK_LANDING_MS);
+    return () => window.clearTimeout(timer);
+  }, [landing]);
+  return landing;
 }
 
-function ActiveMatchBoard({
+/** The clock as terms: `Live 5m +2m`, `Async 7d +2d`, or the terms alone. */
+function clockTerms(clock: MatchSnapshot["settings"]["clock"]): string {
+  const preset = findClockPreset(clock);
+  const terms = formatClockTerms(clock);
+  return preset ? `${preset.name} ${terms}` : terms;
+}
+
+/**
+ * How a fallen army left. The day comes from the observation the fall was
+ * first seen in, or else from the outline when the outline alone can say it.
+ */
+function readFall(
+  seen: ArmyFall | undefined,
+  outline: readonly ReviewBoundary[] | null,
+  playerId: number,
+  turnOrder: readonly number[],
+): ArmyFall {
+  const day = seen?.day ?? (outline ? fallDayFromOutline(outline, playerId, turnOrder) : null);
+  return { day, reason: seen?.reason ?? null };
+}
+
+/** One seat's clock, as its army shows it. */
+function readArmyClock(
+  clock: MatchClockMessage | null,
+  playerId: number,
+  now: number,
+  initialMs: number,
+): ArmyClock | null {
+  if (clock === null) return null;
+  const remaining = seatRemainingMs(clock, playerId, now);
+  const value = formatClockDuration(remaining);
+  const isRunning = playerId === clock.activeSlot;
+  return {
+    value,
+    isRunning,
+    pressure: clockPressure(remaining, initialMs),
+    label: remaining <= 0 ? "Out of time" : `${value} left${isRunning ? ", running" : ""}`,
+  };
+}
+
+/**
+ * The live match screen: the turn strip, the table with the board, the rail
+ * of armies and its keys (desktop); the turn line, the armies, the board, the
+ * tile row and the dock (phone).
+ */
+function ActiveMatchScreen({
+  activatingPower,
   activePlayerSlot,
+  alertsOffer,
+  armies,
+  boardError,
+  connection,
   day,
   initialBoard,
-  review,
+  isDayNew,
   isEndingTurn,
+  isPlayer,
   isResigning,
+  isReviewing,
   isTurnReadinessKnown,
   isTurnSpent,
   isViewerOut,
+  log,
   match,
-  matchClock,
+  matchError,
+  onActivatePower,
   onBoardError,
   onBuildUnit,
   onEndTurn,
   onResign,
+  onDismissMatchError,
+  onReturnToLive,
   players,
-  playerRoster,
-  productionOptions,
-  unitActions,
   reconnect,
+  review,
+  reviewError,
   runner,
+  spectatorFogActive,
   status,
-  viewerFactionCode,
-  viewerFunds,
-  viewerRemainingMs,
+  turnReadiness,
+  viewerArmy,
   viewerSlotIndex,
+  views,
 }: {
+  activatingPower: ActivatablePowerLevel | undefined;
   activePlayerSlot: number | null;
+  alertsOffer: ReturnType<typeof useTurnAlertsOffer>;
+  armies: MatchArmy[];
+  boardError: string | null;
+  connection: Connection;
   day: number | null;
   initialBoard: InitialBoardMessage | null;
+  /** The live day just opened, so its postmark lands. */
+  isDayNew: boolean;
   isEndingTurn: boolean;
-  /** True while the viewer's resignation is on its way to the server. */
+  isPlayer: boolean;
   isResigning: boolean;
+  isReviewing: boolean;
   isTurnReadinessKnown: boolean;
   isTurnSpent: boolean;
-  /** True once the viewer's own army has left the match. */
   isViewerOut: boolean;
-  match: { mapId: string; maxPlayers: number; name: string; settings: { fogEnabled: boolean } };
+  /** The match's outline and where the viewer stands in it, once the host has said. */
+  log: { boundaries: readonly LogBoundary[]; currentIndex: number } | null;
+  match: MatchSnapshot;
+  matchError: string | null;
+  onActivatePower: (level: ActivatablePowerLevel) => void;
   onBoardError: (message: string | null) => void;
   onBuildUnit: (unit: UnitKind, x: number, y: number) => void;
   onEndTurn: () => void;
   onResign: () => void;
+  /** Leave a reading of the past that failed, back to the match as it stands. */
+  onReturnToLive: () => void;
+  /** Clear a refused order's notice once the board is back where it was. */
+  onDismissMatchError: () => void;
   players: LiveMatchPlayer[];
-  playerRoster: PlayerRosterSnapshot | null;
-  review: BoardReviewControls | null;
-  productionOptions: ProductionOptionsChanged | null;
-  unitActions: UnitActionsChanged | null;
   reconnect: () => void;
+  review: ReviewModel | null;
+  reviewError: string | null;
   runner: GameRunner;
+  spectatorFogActive: boolean | null;
   status: MatchWebSocketStatus;
-  matchClock: MatchClock;
-  viewerFactionCode: string | null;
-  viewerFunds: number | null;
-  /** What the viewer's own bank holds, or null when they hold no seat. */
-  viewerRemainingMs: number | null;
+  turnReadiness: ReturnType<typeof useGameStore.getState>["turnReadiness"];
+  viewerArmy: MatchArmy | null;
   viewerSlotIndex: number | null | undefined;
+  views: ArmyView[];
 }) {
   const {
     canvasContainerRef,
@@ -977,63 +1132,79 @@ function ActiveMatchBoard({
     host: runner.host,
     canvasClassName: stylex.props(styles.gameCanvas).className ?? "",
   });
+  const isImmersiveNotice = useImmersiveNotice(fullscreenMode);
   const playersRef = useRef(players);
   playersRef.current = players;
   const onBoardErrorRef = useRef(onBoardError);
   onBoardErrorRef.current = onBoardError;
+  const productionOptions = useGameStore((state) => state.productionOptions);
+  const unitActions = useGameStore((state) => state.unitActions);
+  const inspectedUnit = useGameStore((state) => state.inspectedUnit);
   const setProductionOptions = useGameActions().setProductionOptions;
-  const isCompactViewport = useMediaQuery(BUILD_SHEET_MEDIA);
-  const pressRef = useRef<BoardPress | null>(null);
-  const [press, setPress] = useState<BoardPress | null>(null);
+  const isPhone = useMediaQuery(PHONE_MEDIA);
+  const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
+  const isFullscreenEnabled = useFullscreenEnabled();
+  const tableRef = useRef<HTMLDivElement>(null);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isMatchMenuOpen, setIsMatchMenuOpen] = useState(false);
-  const dismissMatchMenu = useCallback(() => setIsMatchMenuOpen(false), []);
-  // The calculator's own breakpoint. It is not the build menu's: a sheet under
-  // a thumb is one question, and a panel that outgrows the board frame is
-  // another.
-  const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
-  const isCoarsePointer = useMediaQuery(COARSE_POINTER_MEDIA);
+  const [isTileSheetOpen, setIsTileSheetOpen] = useState(false);
+  const [sheetArmyId, setSheetArmyId] = useState<number | null>(null);
+  // The army stays in the sheet while it closes, so its exit can play.
+  const [isArmySheetOpen, setIsArmySheetOpen] = useState(false);
+  const openArmySheet = (playerId: number) => {
+    setSheetArmyId(playerId);
+    setIsArmySheetOpen(true);
+  };
+  const [armedPower, setArmedPower] = useState<ActivatablePowerLevel | null>(null);
+  // The power that is on is said once, in the tile row, until it is read.
+  const [seenPowerDay, setSeenPowerDay] = useState<number | null>(null);
+  const hoveredTile = useGameStore((state) => state.hoveredTile);
   const productionSite = productionOptions?.site;
+  const mapDims = initialBoard
+    ? { width: initialBoard.map.width, height: initialBoard.map.height }
+    : null;
+  const layout = useTableLayout(tableRef, mapDims, isPhone);
+  const whole = useWholeMap(runner);
+  const boardView = useBoardView();
+  const { data: catalogEntry } = useQuery(
+    mapCatalogEntryQueryOptions(match.mapId, match.mapRevision),
+  );
+  // Each Try again loads the board afresh.
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
-  // The last press on the board, so the menu opens in the shape the input the
-  // player used expects, and beside the press on a board too old to say where
-  // the tile is. A press is only kept for as long as it can still plausibly be
-  // the one that opened a menu.
   useEffect(() => {
-    const surface = surfaceRef.current;
-    if (!surface) return;
+    if (!initialBoard) return;
 
-    const onPointerDown = (event: PointerEvent) => {
-      const bounds = surface.getBoundingClientRect();
-      pressRef.current = {
-        at: event.timeStamp,
-        isCoarse: event.pointerType !== "mouse",
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      };
+    let canceled = false;
+    void Promise.resolve()
+      .then(async () => {
+        if (canceled) return;
+        if (initialBoard.gameState) {
+          await runner.loadLiveMatch(
+            initialBoard.map,
+            playersRef.current,
+            initialBoard.gameState.observation,
+          );
+        } else {
+          await runner.loadMatchMap(initialBoard.map);
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("Error loading match map:", error);
+        if (canceled) return;
+        onBoardErrorRef.current(
+          error instanceof Error ? error.message : "The engine did not report a reason.",
+        );
+      });
+
+    return () => {
+      canceled = true;
     };
-
-    surface.addEventListener("pointerdown", onPointerDown, { passive: true });
-    return () => surface.removeEventListener("pointerdown", onPointerDown);
-  }, [surfaceRef]);
-
-  // A menu belongs to the selection that opened it, so the press is read once,
-  // when the engine reports the site, and then held still while the menu is up.
-  const openMenu = productionOptions ?? unitActions;
-  useEffect(() => {
-    if (openMenu === null) {
-      setPress(null);
-      return;
-    }
-
-    const recent = pressRef.current;
-    setPress(recent && performance.now() - recent.at < BOARD_PRESS_MAX_AGE_MS ? recent : null);
-  }, [openMenu]);
+  }, [initialBoard, loadAttempt, runner]);
 
   const dismissBuildMenu = useCallback(() => {
     setProductionOptions(null);
   }, [setProductionOptions]);
-
   // The engine owns the selection, so a dismissal is reported to it rather than
   // acted on here; it answers by closing the menu and stepping back to the unit.
   const chooseUnitAction = useCallback(
@@ -1050,506 +1221,710 @@ function ActiveMatchBoard({
     });
   }, [runner]);
 
-  useEffect(() => {
-    if (!initialBoard) return;
-
-    let cancelled = false;
-    void Promise.resolve()
-      .then(async () => {
-        if (cancelled) return;
-        if (initialBoard.gameState) {
-          await runner.loadLiveMatch(
-            initialBoard.map,
-            playersRef.current,
-            initialBoard.gameState.observation,
-          );
-        } else {
-          await runner.loadMatchMap(initialBoard.map);
-        }
-      })
-      .catch((error: unknown) => {
-        console.error("Error loading match map:", error);
-        if (cancelled) return;
-        onBoardErrorRef.current(
-          error instanceof Error ? error.message : "The engine did not report a reason.",
-        );
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [initialBoard, runner]);
-
-  // The map names itself in the readout, so the status line reports the
-  // connection and nothing else. Naming the map here as well made a socket
-  // state and a match identity share one sentence, and neither one read.
-  const mapName = initialBoard?.map.metadata.name ?? null;
-  const statusText =
-    status === "connected"
-      ? initialBoard
-        ? "Live"
-        : "Waiting for board state…"
-      : status === "connecting"
-        ? "Connecting to match…"
-        : status === "error"
-          ? "Connection error — retrying."
-          : "Disconnected — reconnecting.";
-  const isPlayer = viewerSlotIndex !== null && viewerSlotIndex !== undefined;
+  const mapName = initialBoard?.map.metadata.name ?? catalogEntry?.name ?? null;
   const isViewerTurn = isPlayer && viewerSlotIndex === activePlayerSlot;
-  const endTurnTooltip =
-    status !== "connected"
-      ? "Reconnect to the match before ending your turn."
+  const isOwed = isViewerTurn && !isReviewing && !isViewerOut;
+  const isConnected = status === "connected";
+  const mover = armies.find((army) => army.entry.playerId === activePlayerSlot) ?? null;
+  const moverView = views.find((view) => view.army.entry.playerId === activePlayerSlot) ?? null;
+  const title = isOwed ? "Your turn" : mover ? `${mover.name}'s turn` : (mapName ?? match.name);
+  const factionCode = viewerArmy?.entry.displayFactionCode ?? "os";
+  const endTurnTooltip = !isConnected
+    ? "Reconnect to the match before ending your turn."
+    : isReviewing
+      ? "Return to live to play on"
       : !isViewerTurn
         ? "You can end the turn when your army is active."
         : !isTurnReadinessKnown
           ? "Waiting for the board to report turn readiness."
-          : isTurnSpent
-            ? "Nothing left to do this turn (Ctrl+Enter)."
-            : "Ctrl+Enter";
-  const buildBlockedReason =
-    status !== "connected" ? "Reconnect to the match to send this order." : undefined;
-  // A resignation is not an order to the board, so it says what it needs in its
-  // own words rather than borrowing the board's.
-  const matchBlockedReason =
-    status !== "connected" ? "Reconnect to the match before resigning." : undefined;
+          : "End turn (Ctrl+Enter)";
+  const isEndTurnDisabled = !isConnected || !isViewerTurn || !isTurnReadinessKnown || isReviewing;
+  const buildBlockedReason = isConnected ? undefined : "Reconnect to the match to send this order.";
+  const power: PowerControl = {
+    activating: activatingPower,
+    onActivate: isConnected && isViewerTurn && !isReviewing ? onActivatePower : undefined,
+  };
+  const viewerPowers = viewerArmy && power.onActivate ? readyPowers(viewerArmy.entry) : [];
+  const hasOrders = unitActions !== null && unitActions.destination !== undefined;
+  const hasBuild = productionOptions !== null && productionSite !== undefined;
+  const isSelecting = inspectedUnit !== null && isViewerTurn && !isReviewing;
 
-  return (
-    <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
-      {/* The engine draws 960x640; the frame keeps that ratio at every width so
-          the map is never stretched or dropped into a tall slot on a phone.
-          Full screen is the one place that ratio is dropped: the engine redraws
-          at whatever size the canvas is given, so filling the screen buys the
-          player board rather than stretching what was already there. */}
-      <VStack
-        gap={0}
-        ref={surfaceRef}
-        xstyle={[
-          styles.gameSurface,
-          isFullscreen && styles.gameSurfaceFullscreen,
-          fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
-        ]}
-      >
-        <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
+  // An armed power is disarmed by anything that takes the dock away from it.
+  useEffect(() => {
+    if (viewerPowers.length === 0) setArmedPower(null);
+  }, [viewerPowers.length]);
 
-        {isFullscreen ? (
-          <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
-        ) : null}
+  const moverClock = moverView?.clock ?? null;
+  const stripClock =
+    moverClock === null ? null : (
+      <StripClock
+        label={`${mover?.name ?? "The mover"}: ${moverClock.label}`}
+        pressure={moverClock.pressure}
+        value={moverClock.value}
+      />
+    );
 
-        {/* The order sits on the battlefield with the base it belongs to, not
-            in a strip under the board that a phone would have to scroll to. */}
-        {productionOptions === null || productionSite === undefined ? null : (
-          <BuildMenu
-            anchor={productionOptions.anchor ?? press}
-            disabledReason={buildBlockedReason}
-            factionCode={viewerFactionCode ?? "os"}
-            funds={viewerFunds ?? null}
-            isEnabled={buildBlockedReason === undefined}
-            onBuild={(unit) => onBuildUnit(unit, productionSite.x, productionSite.y)}
-            onDismiss={dismissBuildMenu}
-            onRestoreFocus={focus}
-            options={productionOptions.options}
-            presentation={press?.isCoarse || isCompactViewport ? "sheet" : "board"}
-            site={productionSite}
-          />
-        )}
-
-        {/* What the unit does where it is going. This is the only thing on the
-            board that commits an order, so it is the one place a move can be
-            reconsidered before it becomes real. */}
-        {unitActions === null || unitActions.destination === undefined ? null : (
-          <UnitActionMenu
-            anchor={unitActions.anchor ?? press}
-            attacker={unitActions.attacker ?? undefined}
-            destination={unitActions.destination}
-            disabledReason={buildBlockedReason}
-            isEnabled={buildBlockedReason === undefined}
-            onChoose={chooseUnitAction}
-            onDismiss={dismissUnitActions}
-            onRestoreFocus={focus}
-            options={unitActions.options}
-            preselected={unitActions.preselected ?? undefined}
-            presentation={press?.isCoarse || isCompactViewport ? "sheet" : "board"}
-          />
-        )}
-
-        {/* The engagement a player is imagining, over the board they are
-            imagining it on. It commits nothing: the action menu stays the only
-            thing that can spend a unit. */}
-        {isCalculatorOpen ? (
-          <BattleCalculator
-            onDismiss={() => setIsCalculatorOpen(false)}
-            onRestoreFocus={focus}
-            presentation={isCalculatorCompact ? "sheet" : "board"}
-            roster={playerRoster}
-            runner={runner}
-            viewerSlotIndex={viewerSlotIndex ?? null}
-          />
-        ) : null}
-
-        {/* What the player can do to the match rather than to a unit in it.
-            It opens in the middle of the board because the strip it was opened
-            from names no tile, and it is the same window every other order is
-            chosen from. */}
-        {isMatchMenuOpen ? (
-          <MatchMenu
-            day={day}
-            disabledReason={matchBlockedReason}
-            isEnabled={matchBlockedReason === undefined}
-            onDismiss={dismissMatchMenu}
-            onResign={() => {
-              // The server is authoritative and answers on the socket, so the
-              // menu closes on the order the way the production menu does.
-              setIsMatchMenuOpen(false);
-              onResign();
-            }}
-            onRestoreFocus={focus}
-            presentation={isCoarsePointer || isCompactViewport ? "sheet" : "board"}
-          />
-        ) : null}
-
-        {/* What the shot being aimed would cost, in the frame the order menu
-            will arrive in. It stands beside the target rather than in a corner,
-            and it takes no press: the shot is fired through it. */}
-        <AttackPreview surfaceRef={surfaceRef} />
-
-        {/* The terrain window stands on the battlefield, the way the game's own
-            does, so reading a tile costs the page no height. */}
-        <TileInfoBar />
-      </VStack>
-
-      {/* The readout carries no chrome of its own: inside a panel that already
-          has an outline, a second frame would only add noise. The End turn key
-          is the one object in the strip and the one place command orange
-          appears, so a glance separates what the match is from what the player
-          can do about it. */}
-      <HStack
-        align="center"
-        gap={4}
-        justify="between"
-        paddingBlock={3}
-        paddingInline={3}
-        wrap="wrap"
-        xstyle={styles.boardHud}
-      >
-        {/* An <output> is a live region by default, so a drop is announced
-            rather than only recolored. The dot repeats what the text beside it
-            already says, so it is hidden from assistive technology. */}
-        <HStack align="center" as="output" gap={3} wrap="wrap" xstyle={styles.hudReadout}>
-          {/* Before the engine reports, there is no day to report. */}
-          {day === null ? null : <Badge label={`Day ${day}`} variant="info" />}
-          {/* The day beside it is the day of the moment being read, not of the
-              match, so the strip says which of the two a reader is looking
-              at. */}
-          {review?.isReviewing ? <Badge label="Reading back" variant="warning" /> : null}
-          {/* The match names itself here rather than in a display heading above
-              the board. A player inside a match already knows which match they
-              are in, and on a phone that heading cost more board than the name
-              was worth. It stays the page's heading; it just stops shouting.
-              A match name is free text, so it may arrive as one unbroken run. */}
-          <Heading level={1} xstyle={styles.hudMatchName}>
-            {match.name}
-          </Heading>
-          {/* The map is the one thing here a player may want to leave the match
-              for, so it names itself and links out. The id is the fallback for
-              the window before the engine reports the board, not the label. */}
-          <Text type="supporting" xstyle={styles.hudMap}>
-            {mapName ?? `Map ${match.mapId}`}
-          </Text>
-          <HStack align="center" gap={2} xstyle={styles.hudState}>
-            <StatusDot
-              aria-hidden="true"
-              isPulsing={status === "connecting"}
-              label={statusText}
-              variant={statusVariant(status)}
-            />
-            <Text color={status === "connected" ? "primary" : "secondary"} type="supporting">
-              {statusText}
-            </Text>
-          </HStack>
-        </HStack>
-        {/* Every control the strip offers, and the one reading that belongs to
-            a control: how much of the viewer's own bank the open turn is
-            spending, beside the key that stops it spending. */}
-        <HStack align="center" gap={3} wrap="wrap">
-          {isViewerTurn && viewerRemainingMs !== null ? (
-            <TurnClockNotice openingMs={matchClock.initialMs} remaining={viewerRemainingMs} />
-          ) : null}
-          {/* While the board holds the screen this strip is behind it, and the
-              way back out is the key on the board itself. */}
-          <Button
-            clickAction={() => setIsCalculatorOpen(true)}
-            icon={<CalculatorIcon aria-hidden height={16} width={16} />}
-            isDisabled={isCalculatorOpen}
-            label="Calculator"
-            size="sm"
-            variant="secondary"
-          />
-          {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
-          {status === "disconnected" || status === "error" ? (
-            <Button clickAction={reconnect} label="Reconnect" size="sm" variant="secondary" />
-          ) : null}
-          {/* Match commands stand apart from the board's own orders: a key
-              that opens a menu, so nothing that ends a match is ever one press
-              away from the key that ends a turn. A seat that has already left
-              has no match commands, so the key goes with them. */}
-          {isPlayer && !isViewerOut ? (
+  // Each notice carries the way out of what failed, and stays until its cause
+  // clears: there is no close key.
+  const notices = (
+    <>
+      {boardError ? (
+        <MatchNotice
+          action={
             <Button
-              clickAction={() => setIsMatchMenuOpen(true)}
-              icon={<MatchMenuIcon aria-hidden height={16} width={16} />}
-              isDisabled={isMatchMenuOpen || isResigning}
-              isLoading={isResigning}
-              label="Match"
-              size="sm"
-              variant="secondary"
+              icon={<Icon icon={IconRefresh} />}
+              label="Try again"
+              onClick={() => {
+                onBoardError(null);
+                setLoadAttempt((attempt) => attempt + 1);
+              }}
+              variant="on-ink"
             />
-          ) : null}
-          {/* A seat that has left the match will never be on the move again,
-              so the key that would hand its turn on goes with it. */}
-          {isPlayer && !isViewerOut ? (
+          }
+          description={boardError}
+          title="The board could not be loaded"
+        />
+      ) : null}
+      {connection === "signedOut" ? (
+        // On a phone its key is the dock's Sign in, so the notice says it
+        // without a second one.
+        <MatchNotice
+          action={isPhone ? undefined : <SignInKey size="notice" />}
+          title="Sign in to watch"
+          tone="info"
+        />
+      ) : null}
+      {connection === "refused" ? (
+        <MatchNotice
+          action={
             <Button
-              clickAction={onEndTurn}
-              isDisabled={
-                status !== "connected" ||
-                !isViewerTurn ||
-                !isTurnReadinessKnown ||
-                review?.isReviewing === true
-              }
-              isLoading={isEndingTurn}
-              label="End turn"
-              size="sm"
-              tooltip={review?.isReviewing === true ? "Return to live to play on" : endTurnTooltip}
-              // Ending the turn is the primary thing to do only once there is
-              // nothing else: a board with units still to move has its primary
-              // action out on the board, not on the strip.
-              variant={isTurnSpent && isViewerTurn ? "primary" : "secondary"}
+              icon={<Icon icon={IconRefresh} />}
+              label="Try again"
+              onClick={reconnect}
+              variant="on-ink"
             />
-          ) : null}
-        </HStack>
-      </HStack>
-
-      {/* The match is walked from under the board it is drawn on, so the keys
-          are beside the thing they move. They sit below the strip rather than
-          in it: the strip says what the match is, and these change which
-          moment of it is on the board. */}
-      {review === null ? null : (
-        <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.stepControls}>
-          <StepControls
-            canStepBack={review.canStepBack}
-            canStepForward={review.canStepForward}
-            canStepTurnBack={review.canStepTurnBack}
-            canStepTurnForward={review.canStepTurnForward}
-            day={day ?? 1}
-            isAtLatest={!review.isReviewing}
-            isBusy={review.isBusy}
-            latestLabel="Live"
-            onSeekLatest={review.onSeekLatest}
-            onSeekStart={review.onSeekStart}
-            onStep={review.onStep}
-            onTurnStep={review.onTurnStep}
-            position={review.position}
-            turnHolder={review.turnHolder}
-          />
-        </VStack>
-      )}
-    </Card>
+          }
+          title="The match could not be reached"
+        />
+      ) : null}
+      {matchError ? (
+        <MatchNotice
+          action={
+            isConnected ? (
+              // The board is already back where it was before the order; OK
+              // gives the row back to it.
+              <Button label="OK" onClick={onDismissMatchError} variant="on-ink" />
+            ) : (
+              <ReconnectKey onPress={reconnect} />
+            )
+          }
+          description={matchError}
+          title="The order was not taken"
+        />
+      ) : null}
+      {reviewError ? (
+        <MatchNotice
+          action={
+            reviewError === REVIEW_RESTORE_FAILED || !isConnected ? (
+              <ReconnectKey onPress={reconnect} />
+            ) : (
+              <Button label="Back to live" onClick={onReturnToLive} variant="on-ink" />
+            )
+          }
+          description={reviewError}
+          title="The match could not be read"
+        />
+      ) : null}
+    </>
   );
-}
+  const hasNotice =
+    connection === "signedOut" ||
+    connection === "refused" ||
+    boardError !== null ||
+    matchError !== null ||
+    reviewError !== null;
 
-/**
- * The viewer's own bank, on the strip, once it is worth acting on.
- *
- * The roster already reports every army's clock, this one included, so a
- * healthy bank has nothing to add here and says nothing. What the roster
- * cannot do is put the warning against the key that answers it, so the line
- * appears when the bank turns short and names what to do about it.
- */
-function TurnClockNotice({ openingMs, remaining }: { openingMs: number; remaining: number }) {
-  const pressure = clockPressure(remaining, openingMs);
-  if (pressure === "steady") return null;
-  const span = formatClockDuration(remaining);
+  // A new selection is a new menu: it lands (90ms, stepped) and takes the
+  // caret afresh.
+  const ordersMenu = hasOrders ? (
+    <UnitActionMenu
+      key={`${unitActions.destination!.x},${unitActions.destination!.y}:${unitActions.options
+        .map((option) => option.name)
+        .join("|")}`}
+      anchor={null}
+      attacker={unitActions.attacker ?? undefined}
+      destination={unitActions.destination!}
+      disabledReason={buildBlockedReason}
+      isEnabled={buildBlockedReason === undefined}
+      onChoose={chooseUnitAction}
+      onDismiss={dismissUnitActions}
+      onRestoreFocus={focus}
+      options={unitActions.options}
+      preselected={unitActions.preselected ?? undefined}
+      presentation={isPhone ? "dock" : "docked"}
+    />
+  ) : null;
+  // Mounted once per width: beside the board, in the rail, or as a phone sheet.
+  const buildMount = hasBuild ? buildMenuMount(layout.mode) : null;
+  // The phone sheet keeps its last site while it leaves, so its exit plays.
+  const buildSheet = useLeaving(buildMount === "sheet" ? productionOptions : null);
+  const renderBuildMenu = (
+    production: NonNullable<typeof productionOptions>,
+    presentation: "sheet" | "docked",
+    isOpen = true,
+  ) => {
+    const site = production.site!;
+    return (
+      <BuildMenu
+        key={`${site.x},${site.y}`}
+        anchor={null}
+        disabledReason={buildBlockedReason}
+        factionCode={factionCode}
+        funds={viewerArmy?.entry.stats.funds ?? null}
+        isEnabled={buildBlockedReason === undefined}
+        isOpen={isOpen}
+        // A leaving sheet's site is gone from the engine; it takes no order.
+        onBuild={(unit) => {
+          if (isOpen) onBuildUnit(unit, site.x, site.y);
+        }}
+        onDismiss={dismissBuildMenu}
+        onRestoreFocus={focus}
+        options={production.options}
+        presentation={presentation}
+        site={site}
+      />
+    );
+  };
+  const buildMenu =
+    hasBuild && (buildMount === "column" || buildMount === "rail")
+      ? renderBuildMenu(productionOptions, "docked")
+      : null;
+  const locator =
+    catalogEntry && mapName ? (
+      <Locator mapName={mapName} runner={runner} src={catalogEntry.screenshot.small} />
+    ) : null;
+  // A notice, or the Turn alerts offer, takes the tile window's place beside
+  // the orders, as it takes the tile row on a phone.
+  const tileMessage = hasNotice ? (
+    <VStack xstyle={styles.columnNotice}>{notices}</VStack>
+  ) : alertsOffer.isOffering ? (
+    <TurnAlertsOffer onDismiss={alertsOffer.dismiss} />
+  ) : null;
+  const side = (
+    <>
+      <BoardKeys runner={runner} />
+      {tileMessage ?? <TileWindow />}
+      <DockedAttackPreview />
+      {isPhone ? null : ordersMenu}
+      {buildMount === "column" ? buildMenu : null}
+    </>
+  );
 
-  return (
-    <HStack
-      align="center"
-      xstyle={[styles.turnClock, pressure === "critical" && styles.turnClockCritical]}
-    >
-      <Text as="p" color="inherit" hasTabularNumbers type="supporting">
-        {pressure === "critical" ? `End your turn — ${span} left` : `${span} left on your clock`}
-      </Text>
+  // The phone sheet stays while it leaves, so its exit plays.
+  const calculatorSheet = useLeaving(isCalculatorOpen && isCalculatorCompact ? true : null);
+  const calculator =
+    isCalculatorOpen || calculatorSheet.value ? (
+      <BattleCalculator
+        isOpen={isCalculatorOpen}
+        onDismiss={() => setIsCalculatorOpen(false)}
+        onRestoreFocus={focus}
+        presentation={isCalculatorCompact ? "sheet" : "board"}
+        roster={useGameStore.getState().playerRoster}
+        runner={runner}
+        viewerSlotIndex={viewerSlotIndex ?? null}
+      />
+    ) : null;
+
+  // The connection is said once: in the desktop strip, a dot and its word;
+  // on a phone the dock says the word, so the turn line keeps only the dot.
+  const subLine = (
+    <>
+      {title === match.name ? null : <b {...stylex.props(styles.matchName)}>{match.name}</b>}
+      {spectatorFogActive === null ? (
+        <ConnectionState status={connection} />
+      ) : (
+        <WatchingTag hasFog={spectatorFogActive} />
+      )}
+    </>
+  );
+
+  // Rail: the armies, then the view block when the table has no column. The
+  // ledger scrolls inside the rail, so the view block (and the orders docked
+  // in it) never falls below the fold; while orders are open there, they take
+  // the log's place.
+  const isOrderingInRail = layout.mode === "none" && (hasOrders || hasBuild);
+  const rail = (
+    <>
+      {views.length <= 2 ? (
+        views.map((view) => (
+          <ArmyCard
+            isOwed={isOwed && view.isViewer}
+            key={view.army.entry.playerId}
+            onOpen={() => openArmySheet(view.army.entry.playerId)}
+            power={view.isViewer ? power : undefined}
+            view={view}
+          />
+        ))
+      ) : (
+        <Ledger isOwed={isOwed} onOpen={openArmySheet} power={power} views={views} />
+      )}
+      {layout.mode === "none" ? (
+        <section aria-label="View" {...stylex.props(styles.viewBlock)}>
+          {tileMessage ?? <TileLine hasNames />}
+          <BoardKeys runner={runner} />
+          {locator}
+          <DockedAttackPreview />
+          {ordersMenu}
+          {buildMount === "rail" ? buildMenu : null}
+        </section>
+      ) : null}
+      {log && review?.onSeek && !isOrderingInRail ? (
+        <TurnLog
+          armies={armies}
+          boundaries={log.boundaries}
+          currentIndex={log.currentIndex}
+          isDisabled={review.isBusy}
+          onSeek={review.onSeek}
+        />
+      ) : null}
+    </>
+  );
+
+  const railFoot = (
+    <>
+      <InkIconKey
+        icon={IconCalculator}
+        isDisabled={isCalculatorOpen}
+        label="Calculator"
+        onPress={() => setIsCalculatorOpen(true)}
+      />
+      {isPlayer && !isViewerOut ? (
+        <>
+          <InkIconKey
+            icon={IconMore}
+            isDisabled={isMatchMenuOpen}
+            label="Match"
+            onPress={() => setIsMatchMenuOpen(true)}
+          />
+          <EndTurnKey
+            factionCode={factionCode}
+            isDisabled={isEndTurnDisabled}
+            isLoading={isEndingTurn}
+            isSpent={isTurnSpent && isViewerTurn}
+            onPress={onEndTurn}
+            readiness={turnReadiness}
+            size="rail"
+            tooltip={endTurnTooltip}
+          />
+        </>
+      ) : null}
+    </>
+  );
+
+  // Phone: the army plates, or the turn-order row over one plate.
+  const showUnits = isReviewing;
+  const plateView = pickPlateView(views, { isReviewing, moverSlot: activePlayerSlot });
+  const phoneArmies =
+    views.length <= 2 ? (
+      <Grid columns={Math.max(views.length, 1)} gap={0} xstyle={styles.plates}>
+        {views.map((view) => (
+          <ArmyPlate
+            hasYouTag
+            isOwed={isOwed && view.isViewer}
+            key={view.army.entry.playerId}
+            onOpen={() => openArmySheet(view.army.entry.playerId)}
+            showUnits={showUnits}
+            view={view}
+          />
+        ))}
+      </Grid>
+    ) : (
+      <>
+        <TurnOrderRow isOwed={isOwed} onOpen={openArmySheet} views={views} />
+        {/* A record-only plate would repeat the stamp and name above it. */}
+        {plateView && !plateView.isRecordOnly ? (
+          <ArmyPlate
+            hasYouTag={false}
+            isOwed={false}
+            isWide
+            onOpen={() => openArmySheet(plateView.army.entry.playerId)}
+            showUnits={showUnits}
+            view={plateView}
+          />
+        ) : null}
+      </>
+    );
+
+  const viewerEntry = viewerArmy?.entry ?? null;
+  // The board is waited on only once the match has a connection to send it;
+  // until then the connection itself is what is waited on, and the strip (or
+  // the phone dock) already says so.
+  const waiting =
+    boardError === null && (initialBoard !== null || connection === "connected")
+      ? "Loading the board"
+      : null;
+  const tileRow = hasOrders ? null : (
+    <HStack align="center" gap={2} xstyle={styles.tileRow}>
+      {hasNotice ? (
+        <VStack xstyle={styles.tileRowNotice}>{notices}</VStack>
+      ) : isImmersiveNotice ? (
+        <ImmersiveNoticeLine xstyle={styles.wholeLine} />
+      ) : alertsOffer.isOffering ? (
+        <TurnAlertsOffer onDismiss={alertsOffer.dismiss} />
+      ) : boardView.bv === null ? (
+        <>
+          {waiting === null ? (
+            <HStack as="span" xstyle={[styles.wholeLine, styles.idleLine]} />
+          ) : (
+            <WaitingLine label={waiting} />
+          )}
+          <ViewKey runner={runner} />
+        </>
+      ) : viewerEntry?.activePower !== undefined && isViewerTurn && seenPowerDay !== day ? (
+        <>
+          <HStack as="span" role="status" xstyle={[styles.wholeLine, styles.powerOn]}>
+            <b>{powerName(viewerEntry, viewerEntry.activePower === "scop" ? "scop" : "cop")} on</b>
+          </HStack>
+          <Button
+            label="OK"
+            onClick={() => setSeenPowerDay(day)}
+            variant="on-ink"
+            xstyle={styles.okKey}
+          />
+        </>
+      ) : armedPower !== null && viewerEntry ? (
+        <ArmedPower
+          entry={viewerEntry}
+          level={armedPower}
+          onCancel={() => setArmedPower(null)}
+          onUse={() => {
+            onActivatePower(armedPower);
+            setArmedPower(null);
+          }}
+        />
+      ) : whole.isWhole ? (
+        <>
+          <HStack as="span" xstyle={styles.wholeLine}>
+            <b {...stylex.props(styles.wholeScale)}>{formatScale(boardView.bv?.fitScale ?? 1)}</b>
+            Tap to jump
+          </HStack>
+          <ViewKey runner={runner} />
+        </>
+      ) : (
+        <>
+          <FirstTouchHint>
+            <TileLine onOpen={() => setIsTileSheetOpen(true)} />
+          </FirstTouchHint>
+          <ViewKey runner={runner} />
+        </>
+      )}
     </HStack>
   );
+
+  const dock = hasOrders ? (
+    ordersMenu
+  ) : isReviewing && review ? (
+    <PhoneReviewBar review={review} />
+  ) : (
+    <DockRow>
+      {viewerEntry && viewerPowers.length > 0 ? (
+        <PowerKey
+          isArmed={armedPower !== null}
+          isLoading={activatingPower !== undefined}
+          label={`CO power: ${powerName(viewerEntry, viewerPowers[viewerPowers.length - 1]!)}`}
+          level={viewerPowers[viewerPowers.length - 1]!}
+          onPress={() =>
+            setArmedPower((armed) =>
+              armed === null ? viewerPowers[viewerPowers.length - 1]! : null,
+            )
+          }
+          size="dock"
+        />
+      ) : null}
+      <DockKey
+        icon={IconCalculator}
+        isDisabled={isCalculatorOpen}
+        label="Calculator"
+        onPress={() => setIsCalculatorOpen(true)}
+      />
+      {isPlayer && !isViewerOut ? (
+        <DockKey icon={IconMore} label="Match" onPress={() => setIsMatchMenuOpen(true)} />
+      ) : null}
+      {connection === "signedOut" ? (
+        <SignInKey size="dock" />
+      ) : !isConnected ? (
+        <>
+          <WaitCell
+            line={connection === "reconnecting" ? "reconnecting" : "connecting"}
+            name={connection === "reconnecting" ? "Reconnecting" : "Connecting"}
+          />
+          {/* A dock key, so the word "Reconnecting" keeps its room at 390px. */}
+          {connection === "reconnecting" ? (
+            <DockKey icon={IconRefresh} label="Reconnect" onPress={reconnect} />
+          ) : null}
+        </>
+      ) : isPlayer && !isViewerOut && isViewerTurn ? (
+        isSelecting && !hasBuild ? (
+          <DockKey
+            icon={IconClose}
+            label="Deselect"
+            onPress={() => {
+              const canvas = runner.host.canvas;
+              if (canvas) pressBoardKey(canvas, "Escape");
+            }}
+          />
+        ) : (
+          <EndTurnKey
+            factionCode={factionCode}
+            isDisabled={isEndTurnDisabled}
+            isLoading={isEndingTurn}
+            isSpent={isTurnSpent}
+            onPress={onEndTurn}
+            readiness={turnReadiness}
+            size="dock"
+            tooltip={endTurnTooltip}
+          />
+        )
+      ) : mover ? (
+        <WaitCell
+          clock={moverClock ? <StripClockSmall clock={moverClock} /> : undefined}
+          name={mover.name}
+        />
+      ) : null}
+    </DockRow>
+  );
+
+  const sheetView = views.find((view) => view.army.entry.playerId === sheetArmyId) ?? null;
+
+  return (
+    <>
+      <MatchFrame
+        dock={dock}
+        foot={review ? <ReviewFoot review={review} /> : undefined}
+        fullscreenMode={fullscreenMode}
+        label={match.name}
+        phoneArmies={phoneArmies}
+        rail={rail}
+        railFoot={railFoot}
+        strip={
+          <TurnStrip
+            clock={stripClock}
+            day={day}
+            isDayNew={isDayNew}
+            isLive={!isReviewing}
+            isOwed={isOwed}
+            keys={
+              <>
+                {connection === "reconnecting" ? <ReconnectKey onPress={reconnect} /> : null}
+                <FullscreenKey
+                  isFullscreen={isFullscreen}
+                  onEnter={enterFullscreen}
+                  onExit={exitFullscreen}
+                />
+              </>
+            }
+            sub={
+              <>
+                {subLine}
+                {isImmersiveNotice ? <ImmersiveNoticeLine /> : null}
+              </>
+            }
+            title={title}
+          />
+        }
+        surfaceRef={surfaceRef}
+        table={
+          <BoardTable
+            canvasContainerRef={canvasContainerRef}
+            layout={layout}
+            locator={locator}
+            map={mapDims}
+            floating={calculator}
+            notice={hasNotice ? <VStack xstyle={styles.columnNotice}>{notices}</VStack> : null}
+            overlay={<WholeMapOutline runner={runner} />}
+            side={side}
+            tableRef={tableRef}
+            waiting={waiting}
+          />
+        }
+        tileRow={tileRow}
+        turnLine={
+          <TurnLine
+            back={<BackKey label="Back to Play" to="/matches" />}
+            day={day}
+            isDayNew={isDayNew}
+            isTitleDim={!isOwed && isPlayer}
+            keys={
+              <>
+                {review && !isReviewing ? (
+                  <InkIconKey
+                    icon={IconReplay}
+                    isDisabled={review.isBusy || !review.canStepBack}
+                    label="Review earlier moments"
+                    onPress={() => review.onStep(-1)}
+                  />
+                ) : null}
+                {isFullscreenEnabled ? (
+                  <FullscreenKey
+                    isFullscreen={isFullscreen}
+                    onEnter={enterFullscreen}
+                    onExit={exitFullscreen}
+                  />
+                ) : null}
+              </>
+            }
+            sub={subLine}
+            title={title}
+          />
+        }
+      />
+      {buildSheet.value?.site
+        ? renderBuildMenu(buildSheet.value, "sheet", buildSheet.isOpen)
+        : null}
+
+      <MatchMenu
+        canResign={isPlayer && !isViewerOut}
+        clockTerms={clockTerms(match.settings.clock)}
+        disabledReason={isConnected ? undefined : "Reconnect to the match before resigning."}
+        funds={match.settings.startingFunds}
+        hasFog={match.settings.fogEnabled}
+        isOpen={isMatchMenuOpen}
+        isResigning={isResigning}
+        mapId={match.mapId}
+        mapName={mapName}
+        onOpenChange={setIsMatchMenuOpen}
+        onResign={onResign}
+      />
+
+      <ArmySheet
+        isOpen={isArmySheetOpen && sheetView !== null}
+        onOpenChange={setIsArmySheetOpen}
+        power={sheetView?.isViewer ? power : undefined}
+        view={sheetView}
+      />
+
+      <ModalSheet
+        isOpen={isTileSheetOpen}
+        onOpenChange={setIsTileSheetOpen}
+        title={hoveredTile?.unit?.name ?? hoveredTile?.terrainName ?? "Tile"}
+      >
+        <TileDetails />
+      </ModalSheet>
+    </>
+  );
 }
 
 /**
- * A dropped live match is a warning, not a resting state. Neutral is the
- * quietest color in the set and it read as "nothing is wrong" on the one event
- * a player most needs to notice.
+ * Fill the funds of armies the engine has not reported on yet from the match
+ * state the host opened with.
  */
-function statusVariant(status: MatchWebSocketStatus): "success" | "warning" | "error" | "neutral" {
-  switch (status) {
-    case "connected":
-      return "success";
-    case "connecting":
-      return "warning";
-    case "error":
-      return "error";
-    case "disconnected":
-      return "warning";
-  }
+function withOpeningFunds(
+  armies: MatchArmy[],
+  players: readonly { slotIndex: number; funds: number }[] | undefined,
+): MatchArmy[] {
+  if (!players) return armies;
+  return armies.map((army) => {
+    if (army.hasLiveStats || army.entry.stats.funds !== undefined) return army;
+    const funds = players.find((player) => player.slotIndex === army.entry.playerId)?.funds;
+    if (funds === undefined) return army;
+    return { ...army, entry: { ...army.entry, stats: { ...army.entry.stats, funds } } };
+  });
+}
+
+/** The mover's clock in the phone wait cell. */
+function StripClockSmall({ clock }: { clock: ArmyClock }) {
+  return <StripClock label={clock.label} pressure={clock.pressure} value={clock.value} />;
 }
 
 const styles = stylex.create({
-  // The reading sits on the strip with no chrome of its own. Its color is the
-  // whole signal, so it moves through the game's own low supply and damage
-  // rather than through a severity scale, and it never blinks: the system has
-  // one gesture and this is not it.
-  turnClock: {
-    flex: "0 0 auto",
-    color: colorVars["--color-warning"],
-  },
-  turnClockCritical: {
-    color: colorVars["--color-error"],
-  },
-  // One column until the rail and a board wide enough to read both fit; two
-  // from there. The board takes the width its height allows and the rail stays
-  // against it, so a wide window puts the spare space around the pair instead
-  // of between the map and the armies that describe it.
-  matchLayout: {
-    gridTemplateColumns: {
-      default: "minmax(0, 1fr)",
-      [rosterLayout.desktopMedia]: rosterLayout.railColumns,
-    },
-    justifyContent: {
-      default: "stretch",
-      [rosterLayout.desktopMedia]: "center",
-    },
-  },
-  // A 3:2 board that grows without limit runs off a laptop screen, and a map
-  // you have to scroll to see is not the focal point. The width is capped at
-  // whatever keeps the whole board in the viewport, with a floor so a short
-  // window shrinks the board rather than making it unreadable.
-  // On a phone the board takes the whole viewport width, pulling out through
-  // the page inset. The inset is worth 12% of a 390px screen, and the board is
-  // 3:2, so that width buys height as well. Everything else on the page keeps
-  // its inset; only the board bleeds.
-  //
-  // A negative margin alone only moves the panel: `inlineSize` and
-  // `maxInlineSize` both resolve against the inset column, so the panel keeps
-  // the column's width and slides left, leaving the gap on one side. The width
-  // has to grow by the same amount the margins pull out.
-  //
-  // The amount is the page inset, which is this screen's `Section padding={6}`
-  // and nothing else, because the app shell is mounted with `contentPadding={0}`.
-  // Measuring against the viewport with `vw` instead would ignore the scrollbar
-  // and scroll the body sideways on a narrow desktop window.
-  boardPanel: {
-    overflow: "hidden",
-    justifySelf: "start",
-    inlineSize: {
-      default: "100%",
-      [BOARD_BLEED_MEDIA]: `calc(100% + ${spacingVars["--spacing-6"]} * 2)`,
-    },
-    maxInlineSize: {
-      default: rosterLayout.boardMaxInlineSize,
-      [BOARD_BLEED_MEDIA]: "none",
-    },
-    marginInline: {
-      default: 0,
-      [BOARD_BLEED_MEDIA]: `calc(${spacingVars["--spacing-6"]} * -1)`,
-    },
-  },
-  gameSurface: {
-    position: "relative",
-    aspectRatio: "3 / 2",
-    backgroundColor: colorVars["--color-background-inverted"],
-  },
-  // The board gives up its 3:2 frame and takes the screen's own shape. The
-  // engine is told the new canvas size and redraws to it, so the extra room is
-  // more map rather than a stretched one.
-  gameSurfaceFullscreen: {
-    alignItems: "center",
-    aspectRatio: "auto",
-    blockSize: "100%",
-    inlineSize: "100%",
-    justifyContent: "center",
-  },
-  // The fallback for browsers that will not hand an element the screen, iOS
-  // Safari above all. It has to reach the same result the browser would: over
-  // everything, including the app shell's own bar, and out to the edges the
-  // notch leaves usable.
-  gameSurfaceImmersive: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 100,
-    blockSize: "100dvh",
-    inlineSize: "100dvw",
-    paddingBlock: "env(safe-area-inset-top) env(safe-area-inset-bottom)",
-    paddingInline: "env(safe-area-inset-left) env(safe-area-inset-right)",
-  },
   gameCanvas: {
     display: "block",
     width: "100%",
     height: "100%",
     imageRendering: "pixelated",
     outline: "none",
+    touchAction: "none",
   },
-  // The keys sit under the status strip and share its ground, separated from
-  // it by the same rule the strip is separated from the board by.
-  stepControls: {
-    borderTopWidth: borderVars["--border-width"],
-    borderTopStyle: "solid",
-    borderTopColor: colorVars["--color-border"],
-    backgroundColor: colorVars["--color-background-surface"],
-  },
-  boardHud: {
-    borderTopWidth: borderVars["--border-width"],
-    borderTopStyle: "solid",
-    borderTopColor: colorVars["--color-border-emphasized"],
-    backgroundColor: colorVars["--color-background-surface"],
-  },
-  // The readout takes whatever the commands leave, and gives it back to the map
-  // name, which is the only part of it that can be long.
-  hudReadout: {
-    flex: "1 1 auto",
-    minInlineSize: 0,
-  },
-  // The heading keeps its rank in the document and gives up its display voice:
-  // it reads as one more fact on the readout line, at the size of the text
-  // beside it.
-  hudMatchName: {
-    fontSize: typeScaleVars["--text-body-size"],
-    fontWeight: fontWeightVars["--font-weight-bold"],
-    lineHeight: typeScaleVars["--text-body-leading"],
+  matchName: {
     minInlineSize: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+    color: awbrnVars.textOnInk,
+    fontWeight: 650,
   },
-  // A map name runs to about forty characters. It shortens rather than pushing
-  // the End turn key onto a line of its own.
-  hudMap: {
+  viewBlock: {
+    display: "grid",
+    flexShrink: 0,
+    gap: spacingVars["--spacing-3"],
+    paddingBlock: awbrnVars.spacing3_5,
+    paddingInline: spacingVars["--spacing-4"],
+    borderBlockEndColor: awbrnVars.ink800,
+    borderBlockEndStyle: "solid",
+    borderBlockEndWidth: borderVars["--border-width"],
+  },
+  plates: {
+    display: "grid",
+    backgroundColor: awbrnVars.ink900,
+    borderBlockEndColor: awbrnVars.ink800,
+    borderBlockEndStyle: "solid",
+    borderBlockEndWidth: borderVars["--border-width"],
+  },
+  tileRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-2"],
+    minBlockSize: matchLayout.footHeight,
+    paddingBlock: spacingVars["--spacing-1-5"],
+    paddingInline: spacingVars["--spacing-2"],
+    backgroundColor: awbrnVars.ink900,
+    borderBlockStartColor: awbrnVars.ink800,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: borderVars["--border-width"],
+  },
+  /** A notice in the tile window's place: the window's frame, on ink. */
+  columnNotice: {
+    overflow: "hidden",
+    borderRadius: radiusVars["--radius-container"],
+    boxShadow: `inset 0 0 0 1px ${awbrnVars.ink700}`,
+  },
+  tileRowNotice: {
+    flexGrow: 1,
     minInlineSize: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    marginBlock: `calc(-1 * ${spacingVars["--spacing-1-5"]})`,
+    marginInline: `calc(-1 * ${spacingVars["--spacing-2"]})`,
   },
-  hudState: {
-    flex: "none",
+  /** The tile row's place, held empty while the match is not connected. */
+  idleLine: {
+    backgroundColor: "transparent",
   },
-  // The panel keeps the whole rail. Its section is a column, where `align-self`
-  // is the width rather than the height, so asking it to sit at the start once
-  // shrank the armies to the width of their own sprites. The board's height is
-  // not imposed on it either way: the grid places both columns at the start.
-  rosterPanel: {
-    overflow: "hidden",
+  wholeLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: awbrnVars.spacing2_5,
+    flexGrow: 1,
+    minInlineSize: 0,
+    blockSize: matchLayout.target,
+    paddingInline: spacingVars["--spacing-3"],
+    borderRadius: radiusVars["--radius-element"],
+    backgroundColor: awbrnVars.ink850,
+    color: awbrnVars.textOnInkSecondary,
+    fontSize: matchType.small,
   },
-  // The armies stay with the board on a tall screen rather than scrolling away
-  // from the thing they describe.
-  rosterSection: {
-    position: {
-      default: "static",
-      [rosterLayout.desktopMedia]: "sticky",
-    },
-    top: spacingVars["--spacing-4"],
+  powerOn: {
+    color: awbrnVars.gold,
+    boxShadow: `inset 0 0 0 1.5px ${awbrnVars.gold}`,
+    backgroundColor: awbrnVars.ink950,
+  },
+  okKey: {
+    flexShrink: 0,
+    blockSize: matchLayout.target,
+    minInlineSize: matchLayout.dockKeyWidth,
+  },
+  wholeScale: {
+    color: awbrnVars.textOnInkStrong,
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: matchType.body,
+    fontWeight: 600,
   },
 });

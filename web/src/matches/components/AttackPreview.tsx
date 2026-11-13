@@ -1,12 +1,13 @@
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { colorVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useGameStore } from "#/engine/store.ts";
 import { AttackEngagement, Attacker } from "#/matches/components/AttackEngagement.tsx";
 import { BoardAnchoredPanel, boardMenuStyles } from "#/matches/components/BoardMenu.tsx";
 import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import type { AttackPreviewChanged } from "#/wasm/awbrn_wasm.js";
 
 /**
@@ -58,9 +59,9 @@ export function AttackPreview({ surfaceRef }: { surfaceRef: RefObject<HTMLElemen
             <Attacker badge={preview.attacker} spriteScale={1} />
           )}
         </HStack>
-        <span {...stylex.props(styles.engagement)}>
+        <HStack as="span" xstyle={styles.engagement}>
           <AttackEngagement forecast={preview.forecast} spriteScale={1} />
-        </span>
+        </HStack>
       </VStack>
     </BoardAnchoredPanel>
   );
@@ -74,6 +75,31 @@ export function AttackPreview({ surfaceRef }: { surfaceRef: RefObject<HTMLElemen
  * is already reporting on would be a moving target for the eye that came to
  * read it, and the aim only changes when the tile under the pointer does.
  */
+/**
+ * The forecast while aiming, docked in the table's column beside the board
+ * (desktop), so it never stands over the tile being aimed at.
+ */
+export function DockedAttackPreview() {
+  const preview = useGameStore((state) => state.attackPreview);
+  const hasOrders = useGameStore((state) => state.unitActions !== null);
+  if (preview === null || preview.forecast === undefined || hasOrders) return null;
+
+  return (
+    <section aria-label="Forecast" {...stylex.props(styles.docked)}>
+      <HStack align="center" gap={3} justify="between" xstyle={boardMenuStyles.header}>
+        {preview.attacker === undefined ? (
+          <Text type="label">Attack</Text>
+        ) : (
+          <Attacker badge={preview.attacker} spriteScale={1} />
+        )}
+      </HStack>
+      <HStack as="span" xstyle={[styles.engagement, styles.dockedEngagement]}>
+        <AttackEngagement forecast={preview.forecast} spriteScale={1} />
+      </HStack>
+    </section>
+  );
+}
+
 function useAimAnchor(
   surfaceRef: RefObject<HTMLElement | null>,
   preview: AttackPreviewChanged | null,
@@ -111,6 +137,22 @@ function useAimAnchor(
 }
 
 const styles = stylex.create({
+  docked: {
+    display: "flex",
+    flexDirection: "column",
+    flexShrink: 0,
+    inlineSize: "100%",
+    maxInlineSize: "296px",
+    overflow: "hidden",
+    borderRadius: radiusVars["--radius-container"],
+    backgroundColor: awbrnVars.sheet,
+    boxShadow: "var(--shadow-sheet)",
+    color: colorVars["--color-text-primary"],
+  },
+  dockedEngagement: {
+    paddingBlock: spacingVars["--spacing-3"],
+    paddingInline: awbrnVars.spacing3_5,
+  },
   // The panel reports; it is not a surface. Every press on it is a press on the
   // board underneath, which is where the shot it is describing is fired from.
   panel: {
