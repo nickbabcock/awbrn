@@ -90,8 +90,7 @@ Use `256` to match the Medium and Hard profiles, which use `planner-v8` and
 `planner-v8-move`.
 `planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
 it. A budget of `1` scores only the seed turn. Use a new run directory after a
-policy or budget change. The earlier four-evaluation plan remains available
-for historical runs.
+policy or budget change.
 
 Use sequential runs for development. Keep the frozen gate and the sealed
 holdout for a release decision.
@@ -191,7 +190,8 @@ planning call. The
 [archived summary](../../assets/ai-diagnostics/sprt/results/planner-v4-review-summary.json)
 records the source, inputs, results, and timing environment. The
 [summary of the `planner-v3` promotion](../../assets/ai-diagnostics/sprt/results/hard-v3-review-summary.json)
-records the earlier comparison against `ai-hard-v2`. These maps have been used
+records the earlier comparison against `ai-hard-v2`. Its plan was removed
+with the profile `ai-hard-v3`. These maps have been used
 in development. Their results do not supply holdout evidence.
 
 The replay regression tests in `crates/awbrn-ai/tests/replay_regressions.rs`

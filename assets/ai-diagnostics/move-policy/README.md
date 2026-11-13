@@ -101,7 +101,9 @@ lazy). For each unit of planner work it takes 1.2 times as long.
   groups, so the coefficient of `act_unload` is -19.4 in the group `other`
   (0 in the other groups): in that group, the model did not choose an
   unload. In a group of unload orders only, `act_unload` is the same for all
-  orders and does not change the choice. The model chooses only in a group:
+  orders and does not change the choice. The other features are different
+  for each unload order, and the fit has no unload rows. Thus the choice
+  between unload orders is not fitted. The model chooses only in a group:
   the greedy scores choose between the groups. The correction changes few
   rows (1 of 143,818 rows in Cup 4 and Smacky Cup 2).
 - The choices of a row are all the legal orders of the unit, with delete,
