@@ -748,6 +748,9 @@ pub struct GreedyAgent {
     /// reads only the tiles in sight. `None` (the default) is no seat: no
     /// decision reads the known map.
     viewer: Option<PlayerIdx>,
+    /// The buffers of the orders and the move features of one unit, kept
+    /// across decisions so that a decision does not allocate them.
+    move_buffers: (Vec<UnitOrder>, Vec<move_policy::MoveFeatures>),
     /// Calculate the move features of every unit, also when the choice of
     /// the model cannot change the selection. A test compares this with the
     /// lazy calculation.
@@ -1052,6 +1055,7 @@ impl GreedyAgent {
             build_sites: Vec::new(),
             move_context: MoveContext::new(),
             viewer: None,
+            move_buffers: (Vec::new(), Vec::new()),
             #[cfg(test)]
             eager_move_features: false,
         }
@@ -1809,6 +1813,7 @@ impl GreedyAgent {
             build_sites,
             move_context,
             viewer,
+            move_buffers,
             ..
         } = self;
         let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
@@ -1969,7 +1974,8 @@ impl GreedyAgent {
             model,
             moves,
             context: move_context,
-            unit_orders: Vec::new(),
+            unit_orders: std::mem::take(&mut move_buffers.0),
+            unit_features: std::mem::take(&mut move_buffers.1),
             #[cfg(test)]
             eager,
         };
@@ -1978,6 +1984,10 @@ impl GreedyAgent {
             None => session.legal().visit_orders(&mut visitor),
         }
         visitor.flush();
+        *move_buffers = (
+            std::mem::take(&mut visitor.unit_orders),
+            std::mem::take(&mut visitor.unit_features),
+        );
         if !RECORD && visitor.selection.ready {
             visitor.selection.sacrifice = visitor.denial_sacrifice.map(|value| value.order);
         }
@@ -2593,6 +2603,8 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     /// The scored orders of the current unit, until all its orders are
     /// scored.
     unit_orders: Vec<UnitOrder>,
+    /// The move features of the orders of the current unit.
+    unit_features: Vec<move_policy::MoveFeatures>,
     /// [`GreedyAgent::eager_move_features`].
     #[cfg(test)]
     eager: bool,
@@ -2600,6 +2612,7 @@ struct GreedyVisitor<'a, const RECORD: bool> {
 
 /// One scored order of the unit that [`GreedyVisitor`] holds back for the
 /// move model.
+#[derive(Clone, Debug)]
 struct UnitOrder {
     order: Order,
     breakdown: GreedyScoreBreakdown,
@@ -2677,17 +2690,16 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
         let unit = first.unit().and_then(|index| self.scorer.unit(index));
         let capturer = unit.is_some_and(|unit| ruleset::profile(unit.kind).can_capture);
         self.context.prepare(self.scorer.board, capturer);
-        let features: Vec<_> = orders
-            .iter()
-            .map(|entry| {
-                let mut features = basis
-                    .as_ref()
-                    .and_then(|basis| self.move_features(basis, entry))
-                    .unwrap_or([0.0; move_policy::MOVE_FEATURE_COUNT]);
-                move_policy::set_greedy_features(best, entry.breakdown.total, &mut features);
-                features
-            })
-            .collect();
+        let mut features = std::mem::take(&mut self.unit_features);
+        features.clear();
+        features.extend(orders.iter().map(|entry| {
+            let mut features = basis
+                .as_ref()
+                .and_then(|basis| self.move_features(basis, entry))
+                .unwrap_or([0.0; move_policy::MOVE_FEATURE_COUNT]);
+            move_policy::set_greedy_features(best, entry.breakdown.total, &mut features);
+            features
+        }));
         if let Some(moves) = self.moves.as_deref_mut()
             && let Some(unit) = unit
         {
@@ -2721,6 +2733,7 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
                 }
             }
         }
+        self.unit_features = features;
         for entry in orders.drain(..) {
             self.take(entry.order, entry.breakdown);
         }
