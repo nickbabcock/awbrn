@@ -1,4 +1,5 @@
-import { coPortraitAtlas, coPortraitSheetAssetUrl } from "#/engine/asset_manifest.ts";
+import coPortraitAtlas from "../../../assets/data/co_portraits.json";
+import coPortraitSheetAssetUrl from "../../../assets/textures/co_portraits.png?url";
 import { DEFAULT_CO_PORTRAIT_KEY } from "#/co_roster.ts";
 
 export { DEFAULT_CO_PORTRAIT_KEY };
