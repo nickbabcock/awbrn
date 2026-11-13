@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { gameAssetPaths, resolveGameAssets } from "./asset_manifest";
+import { gameAssetPaths } from "./asset_manifest";
+import { resolveGameAssets } from "./resolve_game_assets";
 
 describe("gameAssetPaths", () => {
   it("lists the engine assets at root-relative paths", () => {
-    expect(gameAssetPaths.get("textures/tiles.png")).toMatch(/^\/\S+\.png$/);
+    const path = gameAssetPaths.get("textures/tiles.png");
+    expect(path?.startsWith("/")).toBe(true);
+    expect(path?.endsWith(".png")).toBe(true);
   });
 });
 

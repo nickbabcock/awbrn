@@ -9,9 +9,6 @@
 
 import coPortraitAtlas from "../../assets/data/co_portraits.json";
 
-/** Where each CO sits in the portrait sheet, along with its name and id. */
-export { coPortraitAtlas };
-
 /** The entry that stands for a seat which has chosen no CO yet. */
 export const DEFAULT_CO_PORTRAIT_KEY = "no-co";
 
