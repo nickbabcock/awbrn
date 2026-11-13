@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["numpy==2.5.4", "scipy==1.18.1"]
+# ///
 """Fit the build model to human build decisions.
 
 The inputs are the row files of `build_policy extract`. The model is a
@@ -21,8 +25,14 @@ metrics (`--summary`). See `assets/ai-diagnostics/build-policy/README.md`.
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
+
+# The result of the fit changes with the number of BLAS threads. Set the
+# number before NumPy loads. A value in the environment has priority.
+# Two threads give the values of human-v2a-model.json exactly.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
 
 import numpy as np
 from scipy.optimize import minimize
@@ -227,6 +237,28 @@ def metrics(logp, data):
     }
 
 
+def warn_if_fewer_cpus():
+    """Tell the user when the process cannot use all the BLAS threads.
+
+    OpenBLAS uses no more threads than the process has CPUs. A lower
+    thread count changes the result of the fit.
+    """
+    try:
+        threads = int(os.environ["OPENBLAS_NUM_THREADS"])
+    except ValueError:
+        return
+    # process_cpu_count obeys the CPU limits of the process. Python 3.12
+    # does not have it.
+    cpus = getattr(os, "process_cpu_count", os.cpu_count)() or 1
+    if cpus < threads:
+        print(
+            f"warning: the number of CPUs for the process is {cpus}, so "
+            f"BLAS uses fewer than {threads} threads. The fit can give "
+            "different values.",
+            file=sys.stderr,
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--names", required=True, help="the output of `build_policy names`")
@@ -239,6 +271,7 @@ def main():
     parser.add_argument("--model", required=True, help="the model file to write")
     parser.add_argument("--summary", required=True, help="the summary file to write")
     args = parser.parse_args()
+    warn_if_fewer_cpus()
     names = json.load(open(args.names))
     decision, kind_names = names["decision"], names["kind"]
 

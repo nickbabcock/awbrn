@@ -5,3 +5,4 @@ node_modules
 *.tsbuildinfo
 .dev.vars*
 !.dev.vars.example
+__pycache__/

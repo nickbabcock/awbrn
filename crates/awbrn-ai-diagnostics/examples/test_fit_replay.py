@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["numpy==2.5.4", "scipy==1.18.1"]
+# ///
 """Check the bank feature at the input to the fitter."""
 
 import json
