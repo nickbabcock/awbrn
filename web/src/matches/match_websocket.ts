@@ -24,9 +24,14 @@ export interface MatchWebSocket {
 const BASE_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 
+/**
+ * The match's socket. `isEnabled` false opens none: the server refuses a
+ * viewer who is signed out, so there is nothing to wait on or retry.
+ */
 export function useMatchWebSocket(
   matchId: string,
   onMessage: (msg: MatchWebSocketMessage) => void,
+  isEnabled = true,
 ): MatchWebSocket {
   const [status, setStatus] = useState<MatchWebSocketStatus>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
@@ -37,7 +42,7 @@ export function useMatchWebSocket(
   onMessageRef.current = onMessage;
 
   const connect = useCallback(() => {
-    if (unmountedRef.current) return;
+    if (unmountedRef.current || !isEnabled) return;
     if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -78,7 +83,7 @@ export function useMatchWebSocket(
       setStatus("error");
       // close fires after error, which triggers the reconnect
     });
-  }, [matchId]);
+  }, [isEnabled, matchId]);
 
   useEffect(() => {
     unmountedRef.current = false;

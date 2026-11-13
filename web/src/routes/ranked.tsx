@@ -1,5 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { sessionQueryOptions } from "#/auth/auth.queries.ts";
+import { mapCatalogEntryQueryOptions } from "#/maps/maps.queries.ts";
 import { RankedHubPage } from "#/matchmaking/screens/RankedHubPage.tsx";
 import {
   rankedOverviewQueryOptions,
@@ -32,10 +33,19 @@ export const Route = createFileRoute("/ranked")({
 
     // The standings are part of the first view, so they render with it rather
     // than arriving after it and pushing the panel down.
-    await Promise.all([
+    const [overview] = await Promise.all([
       context.queryClient.ensureQueryData(rankedOverviewQueryOptions()),
       context.queryClient.ensureQueryData(rankedStandingsQueryOptions(deps.pool)),
     ]);
+    // The pool's slots lead the panel, so their minimaps arrive with it.
+    const slots = overview.pools.find((entry) => entry.pool === deps.pool);
+    await Promise.all(
+      [...(slots?.pending ?? []), ...(slots?.inPlay ?? [])].map((slot) =>
+        context.queryClient
+          .ensureQueryData(mapCatalogEntryQueryOptions(slot.mapId, slot.mapRevision))
+          .catch(() => undefined),
+      ),
+    );
   },
   component: RankedRoute,
 });

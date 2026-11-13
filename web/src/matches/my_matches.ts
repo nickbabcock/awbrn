@@ -37,7 +37,7 @@ export function formatMyMatchPhaseLabel(phase: MatchPhase): string {
     case "completed":
       return "Complete";
     case "cancelled":
-      return "Cancelled";
+      return "Canceled";
   }
 }
 
@@ -90,7 +90,7 @@ export function viewerStatusLabel(match: MyMatchSummary): string {
     case "completed":
       return "Finished";
     case "cancelled":
-      return "Cancelled";
+      return "Canceled";
   }
 }
 

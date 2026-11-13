@@ -163,6 +163,16 @@ export function formatRating(rating: number, deviation: number): string {
   return isProvisional(deviation) ? `${value}?` : value;
 }
 
+/**
+ * The pairing whose Confirm key is red: the first one still owed. Red fills
+ * one key per screen, so every other owed pairing's key is quiet.
+ */
+export function leadingOwedPairingId(
+  pending: readonly { matchId: string; isReady: boolean }[],
+): string | null {
+  return pending.find((pairing) => !pairing.isReady)?.matchId ?? null;
+}
+
 export type SlotState = "in-play" | "searching" | "spare";
 
 /**

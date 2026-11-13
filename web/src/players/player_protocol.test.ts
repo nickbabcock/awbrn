@@ -12,7 +12,7 @@ describe("buildTurnDigest", () => {
   it("sends a player with one waiting match straight to it", () => {
     const digest = buildTurnDigest([{ matchId: "abc", matchName: "Sand Island" }]);
 
-    expect(digest.title).toBe("Your turn");
+    expect(digest.title).toBe("Your move");
     expect(digest.body).toBe("Sand Island");
     expect(digest.url).toBe("/matches/abc");
     expect(digest.total).toBe(1);
@@ -21,7 +21,7 @@ describe("buildTurnDigest", () => {
   it("sends a player with several to the list, because it cannot open them all", () => {
     const digest = buildTurnDigest(waiting(2));
 
-    expect(digest.title).toBe("Your turn in 2 matches");
+    expect(digest.title).toBe("Your move in 2 matches");
     expect(digest.body).toBe("Match 0, Match 1");
     expect(digest.url).toBe("/my/matches");
   });
@@ -31,7 +31,7 @@ describe("buildTurnDigest", () => {
 
     expect(digest.total).toBe(PUSH_DIGEST_LIMIT + 2);
     expect(digest.body).toBe("Match 0, Match 1, Match 2 and 2 more");
-    expect(digest.title).toBe(`Your turn in ${PUSH_DIGEST_LIMIT + 2} matches`);
+    expect(digest.title).toBe(`Your move in ${PUSH_DIGEST_LIMIT + 2} matches`);
   });
 });
 

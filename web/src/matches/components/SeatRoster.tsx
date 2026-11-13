@@ -1,51 +1,49 @@
 /*
  * THE SEAT ROSTER
  *
- * THESIS: a match against the computer should be one screen and one press. The
- *   map board already knows how many seats the chosen battlefield has, so the
- *   seats belong here rather than behind a lobby the host would open only to
- *   fill it and close it again.
- * FORM: one row for each seat the map holds, each row a choice between leaving
- *   the seat open for somebody and handing it to the computer. The host's own
- *   seat is claimed in the lobby, as it always was, which is why at least one
- *   row has to stay open.
+ * The seats of a new match in turn order: yours first, with your stamp, name
+ * and YOU (your commander is picked in the lobby), and every other seat a choice
+ * between leaving it open for somebody and handing it to the computer. A
+ * match against the computer is one screen and one press.
  */
 
-import { List, ListItem } from "@astryxdesign/core/List";
 import { Selector } from "@astryxdesign/core/Selector";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
+import { colorVars, textSizeVars } from "@astryxdesign/core/theme/tokens.stylex";
+import * as stylex from "@stylexjs/stylex";
+import { FactionLogo } from "#/components/FactionLogo.tsx";
+import { SeatStamp } from "#/play/Opponents.tsx";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { figureStyles } from "#/ui/Figure.tsx";
 import { aiProfileDisplays, DEFAULT_AI_PROFILE_ID } from "../ai_profiles.ts";
 import type { AiProfileId } from "../schemas.ts";
 
 /** The value a row carries when nobody has been put in the seat. */
 const OPEN = "open";
 
+/** The seat the host takes in the lobby: the first in turn order. */
+const HOST_SLOT = 0;
+
 export interface SeatRosterProps {
-  /** How many seats the map holds. */
-  playerCount: number;
-  /**
-   * The opponent in each seat, by slot index. A slot with no entry is open.
-   *
-   * A map keeps the roster sparse, which is what a mostly open lobby is.
-   */
+  /** Each seat's army, in turn order; its length is the number of seats. */
+  factionCodes: readonly string[];
+  /** The opponent in each seat, by slot index. A slot with no entry is open. */
   aiSeats: ReadonlyMap<number, AiProfileId>;
   onChange: (aiSeats: ReadonlyMap<number, AiProfileId>) => void;
+  /** The host's name, on the first seat. */
+  viewerName: string | null;
 }
 
 const seatOptions = [
-  { value: OPEN, label: "Open", description: "Anyone can take this seat." },
+  { value: OPEN, label: "Open" },
   ...aiProfileDisplays.map((profile) => ({
     value: profile.id,
     label: `${profile.label} CPU`,
-    description: profile.blurb,
   })),
 ];
 
-export function SeatRoster({ aiSeats, onChange, playerCount }: SeatRosterProps) {
-  const openSeats = playerCount - aiSeats.size;
-
+export function SeatRoster({ aiSeats, factionCodes, onChange, viewerName }: SeatRosterProps) {
   function setSeat(slotIndex: number, value: string): void {
     const next = new Map(aiSeats);
     if (value === OPEN) {
@@ -57,50 +55,42 @@ export function SeatRoster({ aiSeats, onChange, playerCount }: SeatRosterProps) 
   }
 
   return (
-    <VStack gap={3}>
-      <VStack gap={1}>
-        <Heading level={3}>Seats</Heading>
-        <Text color="secondary">
-          {aiSeats.size === 0
-            ? "Every seat is open. Hand one to the computer to play without waiting for anybody."
-            : `${aiSeats.size} of ${playerCount} seats are the computer's. It takes its turn the moment the board reaches it.`}
-        </Text>
-      </VStack>
-
-      <List hasDividers density="compact" header={null}>
-        {Array.from({ length: playerCount }, (_unused, slotIndex) => {
-          const seated = aiSeats.get(slotIndex);
-          // The last open seat is the one the host claims in the lobby, so it
-          // is held open rather than refused after the lobby fails to start.
-          const isLastOpenSeat = seated === undefined && openSeats <= 1;
-
-          return (
-            <ListItem
-              endContent={
-                <Selector
-                  disabledMessage="Keep one seat open for yourself."
-                  isDisabled={isLastOpenSeat}
-                  isLabelHidden
-                  label={`Who holds seat ${slotIndex + 1}`}
-                  onChange={(value) => setSeat(slotIndex, value)}
-                  options={seatOptions}
-                  size="sm"
-                  value={seated ?? OPEN}
-                  width={220}
-                />
-              }
-              key={slotIndex}
-              label={`Seat ${slotIndex + 1}`}
+    <VStack aria-label="Seats, in turn order" role="group" xstyle={styles.list}>
+      {factionCodes.map((factionCode, slotIndex) => (
+        <VStack key={slotIndex} xstyle={styles.row}>
+          <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.number]}>
+            {slotIndex + 1}
+          </Text>
+          <FactionLogo factionCode={factionCode} isFramed={false} isLabelHidden size={28} />
+          {slotIndex === HOST_SLOT ? (
+            <HStack as="span" xstyle={styles.who}>
+              <SeatStamp
+                coId={null}
+                factionCode={factionCode}
+                isYours
+                label="Your commander is picked in the lobby"
+              />
+              <b>{viewerName ?? "You"}</b>
+              {/* Signed out, the seat's name is already "You". */}
+              {viewerName !== null ? (
+                <HStack as="span" xstyle={styles.you}>
+                  YOU
+                </HStack>
+              ) : null}
+            </HStack>
+          ) : (
+            <Selector
+              isLabelHidden
+              label={`Who holds seat ${slotIndex + 1}`}
+              onChange={(value) => setSeat(slotIndex, value)}
+              options={seatOptions}
+              presentation="adaptive"
+              value={aiSeats.get(slotIndex) ?? OPEN}
+              width="100%"
             />
-          );
-        })}
-      </List>
-
-      <HStack gap={2}>
-        <Text color="secondary" type="supporting">
-          You claim your own seat in the lobby, so one seat always stays open.
-        </Text>
-      </HStack>
+          )}
+        </VStack>
+      ))}
     </VStack>
   );
 }
@@ -110,3 +100,40 @@ export const NO_AI_SEATS: ReadonlyMap<number, AiProfileId> = new Map();
 
 /** The opponent a seat takes the first time a host hands one over. */
 export { DEFAULT_AI_PROFILE_ID };
+
+const styles = stylex.create({
+  list: {
+    display: "grid",
+    gap: "8px",
+  },
+  row: {
+    display: "grid",
+    gridTemplateColumns: "16px auto minmax(0, 1fr)",
+    alignItems: "center",
+    gap: "12px",
+    minBlockSize: "44px",
+  },
+  number: {
+    color: awbrnVars.textTertiary,
+    fontSize: textSizeVars["--font-size-sm"],
+  },
+  who: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    minInlineSize: 0,
+    color: colorVars["--color-text-primary"],
+  },
+  you: {
+    display: "inline-flex",
+    alignItems: "center",
+    blockSize: "18px",
+    paddingInline: "6px",
+    borderRadius: "4px",
+    backgroundColor: awbrnVars.ink100,
+    color: colorVars["--color-text-secondary"],
+    fontSize: awbrnVars.textMicro,
+    fontWeight: 750,
+    letterSpacing: "0.14em",
+  },
+});
