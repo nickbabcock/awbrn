@@ -2595,11 +2595,14 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
     fn consider(&mut self, order: Order, forecast: Option<&Forecast>) {
         let breakdown = self.scorer.score_breakdown(order, forecast);
         if self.features {
-            if self
-                .unit_orders
-                .first()
-                .is_some_and(|first| first.order.unit() != order.unit())
-            {
+            // The orders of one unit are one choice group. The unload orders
+            // of a transport are a separate group: the legal orders give them
+            // after the orders of all units, so they follow the other orders
+            // of the transport that the legal orders give last.
+            let unload = |order: Order| matches!(order.kind(), OrderKind::Unload(_));
+            if self.unit_orders.first().is_some_and(|first| {
+                first.order.unit() != order.unit() || unload(first.order) != unload(order)
+            }) {
                 self.flush();
             }
             if self.scorer.has_move_features(order) {
@@ -4968,6 +4971,98 @@ mod tests {
             game(blend, true),
             "the fog move model changes a fog game"
         );
+    }
+
+    /// A loaded transport next to a neutral city, as the last unit of the
+    /// acting seat in the roster. The legal orders give its unload orders
+    /// immediately after its other orders.
+    fn transport_by_a_city() -> Option<State> {
+        let mut state = amber_valley(false, 1);
+        let ours = state.players.seat(&state.turn.active_player)?;
+        state.player_mut(ours).funds = 0;
+        let free = |state: &State, position: Pos| {
+            !state
+                .units
+                .iter()
+                .any(|unit| unit.location == Location::Board { position })
+        };
+        let stand = state.board.iter().find_map(|(city, tile)| {
+            if tile.terrain != Terrain::City || tile.owner != TileOwner::Neutral {
+                return None;
+            }
+            let stand = city.orthogonal().into_iter().find(|next| {
+                state
+                    .board
+                    .get(*next)
+                    .is_some_and(|tile| matches!(tile.terrain, Terrain::Plain | Terrain::Road))
+                    && free(&state, *next)
+            })?;
+            free(&state, city).then_some(stand)
+        })?;
+        let mut transport = test_unit(UnitKind::Apc, stand, ours);
+        transport.id = UnitId::new(50);
+        let mut cargo = test_unit(UnitKind::Infantry, stand, ours);
+        cargo.id = UnitId::new(51);
+        cargo.location = Location::Cargo {
+            transport: transport.id,
+            slot: 0,
+        };
+        state.units.push(transport);
+        state.units.push(cargo);
+        state.next_unit_id = Some(52);
+        Some(state)
+    }
+
+    /// The unload orders of the transport that the legal orders give last
+    /// are their own choice group, so the move model can choose one.
+    #[test]
+    fn the_unloads_of_the_last_transport_are_their_own_choice_group() {
+        use move_policy::MOVE_FEATURES;
+        let state = transport_by_a_city().expect("the setup");
+        let view = observe(&AwbwVisibility, &state, &state.turn.active_player).unwrap();
+        let top = MOVE_FEATURES
+            .iter()
+            .position(|name| *name == "greedy_top")
+            .unwrap();
+        let candidates = crate::profile::V8_MOVE_GREEDY_CONFIG
+            .build_greedy(1)
+            .move_candidates(&view)
+            .unwrap();
+        let transport = UnitId::new(50);
+        let best = |unload: bool| {
+            candidates
+                .iter()
+                .filter(|candidate| {
+                    candidate.unit == transport
+                        && matches!(candidate.order.kind(), OrderKind::Unload(_)) == unload
+                })
+                .map(|candidate| candidate.features[top])
+                .fold(f64::NEG_INFINITY, f64::max)
+        };
+        assert_eq!(best(true), 1.0, "the best unload is the top of its group");
+        assert_eq!(best(false), 1.0, "the best move is the top of its group");
+
+        // In play, the policy with the move model unloads the infantry.
+        let mut session = Session::new(state);
+        let mut agent = crate::profile::V8_MOVE_GREEDY_CONFIG.build_greedy(1);
+        let mut entropy = Rng::from_seed(7);
+        let mut unloaded = false;
+        for _ in 0..8 {
+            let state = session.state();
+            let view = observe(&AwbwVisibility, state, &state.turn.active_player).unwrap();
+            let Some(play) = agent.act(&view, NodeBudget::FOUR) else {
+                break;
+            };
+            if matches!(play.kind(), OrderKind::EndTurn) {
+                break;
+            }
+            unloaded |= matches!(play.kind(), OrderKind::Unload(_));
+            let command = play.command(&session).unwrap();
+            session
+                .apply_command::<()>(command, &mut entropy, &mut ())
+                .unwrap();
+        }
+        assert!(unloaded, "the transport unloads");
     }
 
     #[test]
