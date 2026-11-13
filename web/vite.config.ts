@@ -19,6 +19,12 @@ export default defineConfig({
         "#/*": `${srcDir}/*`,
       },
       useCSSLayers: true,
+      // Astryx ships its own precompiled atomic classes ("x" + hash). StyleX
+      // hashes by property and value, so an app rule identical to one of them
+      // would share its class name, land in the app's later layers and outrank
+      // the theme's component overrides. A distinct prefix keeps the two sets
+      // of classes apart.
+      classNamePrefix: "a",
       dev: process.env.NODE_ENV === "development",
       runtimeInjection: false,
     }),
