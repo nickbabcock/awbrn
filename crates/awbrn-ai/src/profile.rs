@@ -62,46 +62,18 @@ pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
 };
 
 /// The [`V8_GREEDY_CONFIG`] scoring with the move model fitted to human unit
-/// orders at strength 0.5 ([`crate::agents::Weights::move_policy`]).
+/// orders at strength 0.5 ([`crate::agents::Weights::move_policy`]). In fog
+/// games, the policy uses the fog model with the known map.
 ///
 /// [`PlannerConfig::V8_MOVE`] uses it for its seed plan, its fallback and its
 /// simulated replies.
 pub const V8_MOVE_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
-    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move",
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move-fog-map",
     weights: Weights {
         move_policy: 0.5,
         ..V8_GREEDY_CONFIG.weights
     },
     ..V8_GREEDY_CONFIG
-};
-
-/// The [`V8_MOVE_GREEDY_CONFIG`] scoring with the fog move model
-/// ([`crate::agents::move_policy::fog_model`]) in fog games
-/// ([`crate::agents::Weights::move_policy_fog`]). In games without fog, the
-/// play is the same as [`V8_MOVE_GREEDY_CONFIG`].
-///
-/// [`PlannerConfig::V8_MOVE_FOG`] uses it for its seed plan, its fallback and
-/// its simulated replies.
-pub const V8_MOVE_FOG_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
-    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move-fog",
-    weights: Weights {
-        move_policy_fog: 0.5,
-        ..V8_MOVE_GREEDY_CONFIG.weights
-    },
-    ..V8_MOVE_GREEDY_CONFIG
-};
-
-/// The [`V8_MOVE_FOG_GREEDY_CONFIG`] scoring with the known map in the fog
-/// move features ([`crate::agents::Weights::move_fog_map`]) and the second
-/// fog move model. In games without fog, the play is the same as
-/// [`V8_MOVE_GREEDY_CONFIG`].
-pub const V8_MOVE_FOG_MAP_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
-    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move-fog-map",
-    weights: Weights {
-        move_fog_map: true,
-        ..V8_MOVE_FOG_GREEDY_CONFIG.weights
-    },
-    ..V8_MOVE_FOG_GREEDY_CONFIG
 };
 
 /// How hard an opponent is meant to be, as a player reads it.
@@ -462,48 +434,6 @@ mod tests {
             PlannerConfig::V8_MOVE.fingerprint(),
             PlannerConfig::V8.fingerprint()
         );
-    }
-
-    /// `planner-v8-move-fog` is `planner-v8-move` with the fog move model in
-    /// fog games, and nothing else.
-    #[test]
-    fn the_v8_move_fog_planner_adds_only_the_fog_move_model() {
-        let expected = PlannerConfig {
-            identifier: "planner-v8-move-fog",
-            baseline: BaselineConfig {
-                identifier: V8_MOVE_FOG_GREEDY_CONFIG.identifier,
-                weights: Weights {
-                    move_policy_fog: 0.5,
-                    ..V8_MOVE_GREEDY_CONFIG.weights
-                },
-                ..V8_MOVE_GREEDY_CONFIG
-            },
-            ..PlannerConfig::V8_MOVE
-        };
-        assert_eq!(PlannerConfig::V8_MOVE_FOG, expected);
-        assert_ne!(
-            PlannerConfig::V8_MOVE_FOG.fingerprint(),
-            PlannerConfig::V8_MOVE.fingerprint()
-        );
-    }
-
-    /// `planner-v8-move-fog-map` is `planner-v8-move-fog` with the known map
-    /// in the fog move features, and nothing else.
-    #[test]
-    fn the_v8_move_fog_map_planner_adds_only_the_known_map() {
-        let expected = PlannerConfig {
-            identifier: "planner-v8-move-fog-map",
-            baseline: BaselineConfig {
-                identifier: V8_MOVE_FOG_MAP_GREEDY_CONFIG.identifier,
-                weights: Weights {
-                    move_fog_map: true,
-                    ..V8_MOVE_FOG_GREEDY_CONFIG.weights
-                },
-                ..V8_MOVE_FOG_GREEDY_CONFIG
-            },
-            ..PlannerConfig::V8_MOVE_FOG
-        };
-        assert_eq!(PlannerConfig::V8_MOVE_FOG_MAP, expected);
     }
 
     #[test]

@@ -355,30 +355,12 @@ impl PlannerConfig {
     /// strength 0.5 in its greedy policy
     /// ([`crate::profile::V8_MOVE_GREEDY_CONFIG`]). The greedy policy with
     /// the model plays the seed plan, completes the other own lines, makes
-    /// the fallback and plays the simulated replies.
+    /// the fallback and plays the simulated replies. In fog games, the
+    /// greedy policy uses the fog model with the known map.
     pub const V8_MOVE: Self = Self {
         identifier: "planner-v8-move",
         baseline: crate::profile::V8_MOVE_GREEDY_CONFIG,
         ..Self::V8
-    };
-
-    /// planner-v8-move with the fog move model in fog games
-    /// ([`crate::profile::V8_MOVE_FOG_GREEDY_CONFIG`]). In games without fog
-    /// it plays the same as planner-v8-move.
-    pub const V8_MOVE_FOG: Self = Self {
-        identifier: "planner-v8-move-fog",
-        baseline: crate::profile::V8_MOVE_FOG_GREEDY_CONFIG,
-        ..Self::V8_MOVE
-    };
-
-    /// planner-v8-move-fog with the known map in the fog move features and
-    /// the second fog move model
-    /// ([`crate::profile::V8_MOVE_FOG_MAP_GREEDY_CONFIG`]). In games without
-    /// fog it plays the same as planner-v8-move.
-    pub const V8_MOVE_FOG_MAP: Self = Self {
-        identifier: "planner-v8-move-fog-map",
-        baseline: crate::profile::V8_MOVE_FOG_MAP_GREEDY_CONFIG,
-        ..Self::V8_MOVE_FOG
     };
 
     /// planner-v6 with the fog memory.

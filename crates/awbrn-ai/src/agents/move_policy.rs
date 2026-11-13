@@ -291,15 +291,16 @@ impl MoveContext {
         self.headquarters.clear();
         self.factories.clear();
         self.properties.clear();
-        // In fog, a tile out of sight has no owner in the observation. With
-        // `move_fog_map`, the features read the map that the player knows:
-        // the properties of this player are always in sight, so a property
-        // in fog is an enemy or neutral property, and a headquarters in fog
-        // is an enemy headquarters. This is true only for the seat that owns
-        // the observation. For a simulated reply of the other seat, a tile
-        // in fog can be its own, so the features read only the tiles in
+        // In fog, a tile out of sight has no owner in the observation. The
+        // features read the map that the player knows: the properties of
+        // this player are always in sight, so a property in fog is an enemy
+        // or neutral property, and a headquarters in fog is an enemy
+        // headquarters. A factory or a lab in fog does not become a goal,
+        // because it can be neutral. This is true only for the seat that
+        // owns the observation. For a simulated reply of the other seat, a
+        // tile in fog can be its own, so the features read only the tiles in
         // sight.
-        let fog_map = state.settings.fog && board.weights.move_fog_map && self.viewer;
+        let fog_map = state.settings.fog && self.viewer;
         for (position, tile) in state.board.iter() {
             if !ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
                 continue;
@@ -875,9 +876,9 @@ pub fn model() -> &'static MoveModel {
 const MODEL_JSON: &str =
     include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-v1-blend.json");
 
-/// The move model of this crate for games with fog (`human-move-fog-v1.json`).
+/// The move model of this crate for games with fog (`human-move-fog.json`).
 /// The fit read the decisions of games with fog, with the features of the
-/// observation of the acting player.
+/// observation of the acting player and the known map.
 pub fn fog_model() -> &'static MoveModel {
     static MODEL: LazyLock<MoveModel> = LazyLock::new(|| {
         MoveModel::from_json(FOG_MODEL_JSON).expect("the fog move model is valid")
@@ -886,20 +887,7 @@ pub fn fog_model() -> &'static MoveModel {
 }
 
 const FOG_MODEL_JSON: &str =
-    include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-fog-v1.json");
-
-/// The move model of this crate for games with fog when the features read
-/// the map that the player knows ([`super::Weights::move_fog_map`])
-/// (`human-move-fog-v2.json`).
-pub fn fog_map_model() -> &'static MoveModel {
-    static MODEL: LazyLock<MoveModel> = LazyLock::new(|| {
-        MoveModel::from_json(FOG_MAP_MODEL_JSON).expect("the fog map move model is valid")
-    });
-    &MODEL
-}
-
-const FOG_MAP_MODEL_JSON: &str =
-    include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-fog-v2.json");
+    include_str!("../../../../assets/ai-diagnostics/move-policy/human-move-fog.json");
 
 // Each feature index agrees with its name in `MOVE_FEATURES`.
 const _: () = assert!(Feature::ActCapture as usize == OWN_START);
@@ -911,7 +899,6 @@ const _: () = assert!(Feature::UnitHp as usize == MOVE_FEATURE_COUNT - 1);
 mod tests {
     use super::*;
 
-    use crate::agents::{GreedyAgent, Weights};
     use awvm::semantic::{AwbwVisibility, State, observe};
     use awvm::session::Session;
 
@@ -945,11 +932,9 @@ mod tests {
     }
 
     /// The goals and capture targets of the move context for `state`.
-    fn targets(state: &State, map: bool, viewer: bool) -> (Vec<Pos>, Vec<Pos>, MoveContext) {
-        let weights = Weights {
-            move_fog_map: map,
-            ..crate::profile::V8_GREEDY_CONFIG.weights
-        };
+    /// `viewer` tells whether the acting seat owns the observation.
+    fn targets(state: &State, viewer: bool) -> (Vec<Pos>, Vec<Pos>, MoveContext) {
+        let weights = crate::profile::V8_MOVE_GREEDY_CONFIG.weights;
         let seat = state.players.seat(&state.turn.active_player).expect("seat");
         let board = Board {
             state,
@@ -975,9 +960,11 @@ mod tests {
 
     /// For the seat that owns the observation, the enemy headquarters in
     /// fog is a goal of the distance feature, and a city in fog is a
-    /// capture target.
+    /// capture target. The tiles in sight do not change. A simulated reply
+    /// of the other seat reads only the tiles in sight, because a tile in
+    /// fog can be its own.
     #[test]
-    fn the_known_map_adds_the_fogged_headquarters_and_cities_for_the_viewer() {
+    fn only_the_viewer_reads_the_known_map_in_fog() {
         let (truth, state, _) = fog_view();
         let seat = truth.players.seat(&truth.turn.active_player).expect("seat");
         let hq = truth
@@ -999,12 +986,10 @@ mod tests {
             .map(|(position, _)| position)
             .expect("a city in fog");
 
-        let (goals_off, properties_off, off) = targets(&state, false, true);
-        let (goals_on, properties_on, on) = targets(&state, true, true);
-        assert!(!goals_off.contains(&hq));
-        assert!(goals_on.contains(&hq));
-        assert!(properties_on.contains(&city));
-        assert!(!properties_off.contains(&city));
+        let (goals_reply, properties_reply, reply) = targets(&state, false);
+        let (goals_viewer, properties_viewer, viewer) = targets(&state, true);
+        assert!(goals_viewer.contains(&hq));
+        assert!(properties_viewer.contains(&city));
         let cell = |position: Pos| {
             usize::from(
                 state
@@ -1015,40 +1000,40 @@ mod tests {
                     .get(),
             )
         };
-        assert_eq!(on.hq_distance[cell(hq)], 0);
-        assert_ne!(off.hq_distance[cell(hq)], 0);
-        assert_eq!(on.property_distance[cell(city)], 0);
-        assert_ne!(off.property_distance[cell(city)], 0);
+        assert_eq!(viewer.hq_distance[cell(hq)], 0);
+        assert_eq!(viewer.property_distance[cell(city)], 0);
 
-        // The tiles in sight do not change: the rule adds only tiles in fog.
+        // The reply reads no tile in fog.
+        assert!(
+            goals_reply
+                .iter()
+                .all(|position| !fogged(&state, *position))
+        );
+        assert!(
+            properties_reply
+                .iter()
+                .all(|position| !fogged(&state, *position))
+        );
+        assert_ne!(reply.hq_distance[cell(hq)], 0);
+        assert_ne!(reply.property_distance[cell(city)], 0);
+
+        // The rule adds only tiles in fog: the tiles in sight are the same.
         let visible = |list: &[Pos]| -> Vec<Pos> {
             list.iter()
                 .copied()
                 .filter(|position| !fogged(&state, *position))
                 .collect()
         };
-        assert_eq!(visible(&goals_on), goals_off);
-        assert_eq!(visible(&properties_on), properties_off);
+        assert_eq!(visible(&goals_viewer), goals_reply);
+        assert_eq!(visible(&properties_viewer), properties_reply);
     }
 
-    /// A simulated reply of the other seat does not read the known map: a
-    /// tile in fog can be its own.
+    /// The policy gives the reply mark to the move features.
     #[test]
-    fn a_simulated_reply_does_not_read_the_known_map() {
-        let (_, state, view) = fog_view();
-        let (goals_off, properties_off, _) = targets(&state, false, true);
-        let (goals_reply, properties_reply, _) = targets(&state, true, false);
-        assert_eq!(goals_reply, goals_off);
-        assert_eq!(properties_reply, properties_off);
-
-        // The same through the policy: the features of a reply with the
-        // known map are the features without it.
-        let features = |map: bool, reply: bool| {
-            let weights = Weights {
-                move_fog_map: map,
-                ..crate::profile::V8_GREEDY_CONFIG.weights
-            };
-            let mut agent = GreedyAgent::with_generic_tactical_policy(1, weights);
+    fn a_simulated_reply_changes_the_fog_move_features() {
+        let (_, _, view) = fog_view();
+        let features = |reply: bool| {
+            let mut agent = crate::profile::V8_MOVE_GREEDY_CONFIG.build_greedy(1);
             agent.set_simulated_reply(reply);
             agent
                 .move_candidates(&view)
@@ -1057,14 +1042,18 @@ mod tests {
                 .map(|candidate| candidate.features)
                 .collect::<Vec<_>>()
         };
-        let plain = features(false, false);
-        assert!(!plain.is_empty());
-        assert_eq!(features(true, true), plain);
-        assert_ne!(features(true, false), plain);
+        let viewer = features(false);
+        assert!(!viewer.is_empty());
+        assert_ne!(features(true), viewer);
     }
 
-    /// The distance field is the capped Manhattan distance to the nearest
-    /// target.
+    /// The move model reads the fog model in fog games and the other model
+    /// in games without fog.
+    #[test]
+    fn fog_games_use_the_fog_model() {
+        assert_ne!(fog_model(), model());
+    }
+
     #[test]
     fn the_distance_field_is_the_capped_distance_to_the_nearest_target() {
         type Grid = (usize, usize, &'static [(u8, u8)]);

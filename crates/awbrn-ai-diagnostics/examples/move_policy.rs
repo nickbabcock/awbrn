@@ -4,17 +4,14 @@
 //! the order. The choices are all the legal orders of that unit. The features
 //! come from [`awbrn_ai::agents::GreedyAgent::move_candidates`], the function
 //! that the greedy policy uses in play, with the greedy weights of
-//! `planner-v8`. The tool reads the board that the player sees: in a game
-//! with fog, the features come from the observation of the acting player
-//! (the same observation that the agent gets in play). The replay adapter
-//! keeps the true state, and the tool compares it with the state snapshot
-//! at the start of each turn of the archive.
+//! `planner-v8`. The tool reads the board that the player sees. In a game
+//! with fog, this is the observation of the acting player with the known
+//! map, as in play.
 //!
-//! A transport that moves and then unloads gives two decisions: a `wait`
-//! order of the transport (`before_unload` is true) and an `unload` decision.
-//! The choices of the unload decision are the unload orders of the
-//! transport, because in play the unload orders of a transport are a
-//! separate choice group.
+//! The tool does not read the unloads of a transport or the move of a
+//! transport immediately before an unload. The choices of a decision do not
+//! include the unload orders, because in play the unload orders of a
+//! transport are a separate choice group.
 //!
 //! The command writes two files:
 //!
@@ -32,7 +29,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use awbrn_ai::agents::move_policy::{self, MOVE_FEATURE_COUNT, MOVE_FEATURES, MoveCandidate};
 use awbrn_map::AwbwMapData;
-use awbw_replay::game_models::AwbwGame;
 use awbw_replay::turn_models::{Action, MoveAction, TargetedPlayer};
 use awbw_replay::{AwbwReplay, ReplayParser};
 use awvm::semantic::{AwbwVisibility, Location, Match, Pos, State, UnitAction, UnitId, observe};
@@ -53,16 +49,10 @@ struct Row {
     /// The unit kind.
     kind: &'static str,
     /// The unit group of the coefficients in play
-    /// ([`awbrn_ai::agents::move_policy::group_name`]).
+    /// ([`move_policy::group_name`]).
     group: &'static str,
     /// Whether the game has fog.
     fog: bool,
-    /// Whether this is the move of a transport immediately before an unload.
-    before_unload: bool,
-    /// The enemy units on the board in the true state, and the number that
-    /// the acting player sees.
-    enemies: u32,
-    enemies_seen: u32,
     /// The index of the first order of this decision in the feature file.
     offset: u64,
     /// The number of legal orders of the unit.
@@ -77,19 +67,6 @@ struct Row {
 struct Coverage {
     archives: usize,
     fog: usize,
-    /// The unit rows of the turn snapshots that the tool compared with the
-    /// true state of the adapter.
-    snapshot_units: usize,
-    /// Snapshot units that the adapter does not have on the board.
-    snapshot_missing: usize,
-    /// Snapshot units that the adapter has on a different tile.
-    snapshot_moved: usize,
-    /// Snapshot units that the adapter has with different displayed health.
-    snapshot_hp: usize,
-    /// Units on the board of the adapter that the snapshot does not have.
-    snapshot_extra: usize,
-    /// Turn snapshots that the tool could not align with a turn.
-    snapshot_unaligned: usize,
     failed: usize,
     decisions: usize,
     unmatched: usize,
@@ -106,10 +83,7 @@ fn main() -> Result<()> {
         .as_slice()
     {
         ["extract", maps, output, divisions @ ..] if !divisions.is_empty() => {
-            extract(divisions, Path::new(maps), Path::new(output), false)
-        }
-        ["extract-fog-map", maps, output, divisions @ ..] if !divisions.is_empty() => {
-            extract(divisions, Path::new(maps), Path::new(output), true)
+            extract(divisions, Path::new(maps), Path::new(output))
         }
         ["score", strength, prefix] => score(strength.parse()?, prefix),
         ["names", output] => Ok(fs::write(
@@ -117,8 +91,7 @@ fn main() -> Result<()> {
             serde_json::to_vec_pretty(&MOVE_FEATURES.as_slice())?,
         )?),
         _ => bail!(
-            "usage: move_policy extract|extract-fog-map <maps> <output> <division>... \
-             | names <output> \
+            "usage: move_policy extract <maps> <output> <division>... | names <output> \
              | score <strength> <prefix>"
         ),
     }
@@ -128,7 +101,6 @@ fn main() -> Result<()> {
 /// of one row file, as the policy reads the model in play.
 fn score(strength: f64, prefix: &str) -> Result<()> {
     use std::io::BufRead;
-    let model = awbrn_ai::agents::move_policy::model();
     let bytes = fs::read(format!("{prefix}.f32"))?;
     let values: Vec<f32> = bytes
         .as_chunks::<4>()
@@ -143,6 +115,11 @@ fn score(strength: f64, prefix: &str) -> Result<()> {
         let count = row["count"].as_u64().context("count")? as usize;
         let chosen = row["chosen"].as_u64().context("chosen")? as usize;
         let kind: awvm::ruleset::UnitKind = serde_json::from_value(row["kind"].clone())?;
+        let model = if row["fog"].as_bool() == Some(true) {
+            move_policy::fog_model()
+        } else {
+            move_policy::model()
+        };
         let utility: Vec<f64> = (0..count)
             .map(|index| {
                 let start = (offset + index) * MOVE_FEATURE_COUNT;
@@ -179,9 +156,7 @@ fn score(strength: f64, prefix: &str) -> Result<()> {
     Ok(())
 }
 
-/// Extract the rows of the divisions. With `fog_map`, the features read the
-/// map that the player knows in fog ([`awbrn_ai::agents::Weights::move_fog_map`]).
-fn extract(divisions: &[&str], maps: &Path, output: &Path, fog_map: bool) -> Result<()> {
+fn extract(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
     let mut paths = Vec::new();
     for division in divisions {
         for entry in fs::read_dir(division).with_context(|| format!("read {division}"))? {
@@ -207,7 +182,7 @@ fn extract(divisions: &[&str], maps: &Path, output: &Path, fog_map: bool) -> Res
     for path in &paths {
         coverage.archives += 1;
         let mut game = Game::default();
-        if let Err(error) = game_rows(path, maps, fog_map, &mut game, &mut coverage)? {
+        if let Err(error) = game_rows(path, maps, &mut game, &mut coverage)? {
             coverage.failed += 1;
             eprintln!("{}: {error:#}", path.display());
         }
@@ -231,21 +206,14 @@ fn extract(divisions: &[&str], maps: &Path, output: &Path, fog_map: bool) -> Res
         serde_json::to_vec_pretty(&coverage)?,
     )?;
     println!(
-        "{} archives; {} fog; {} incomplete; {} decisions; {} unmatched; {} trapped; {} orders; \
-         snapshot units {} (missing {}, moved {}, hp {}, extra {}, unaligned turns {})",
+        "{} archives; {} fog; {} incomplete; {} decisions; {} unmatched; {} trapped; {} orders",
         coverage.archives,
         coverage.fog,
         coverage.failed,
         coverage.decisions,
         coverage.unmatched,
         coverage.trapped,
-        offset,
-        coverage.snapshot_units,
-        coverage.snapshot_missing,
-        coverage.snapshot_moved,
-        coverage.snapshot_hp,
-        coverage.snapshot_extra,
-        coverage.snapshot_unaligned,
+        offset
     );
     Ok(())
 }
@@ -262,7 +230,6 @@ struct Game {
 fn game_rows(
     path: &Path,
     maps: &Path,
-    fog_map: bool,
     game: &mut Game,
     coverage: &mut Coverage,
 ) -> Result<Result<()>> {
@@ -288,9 +255,7 @@ fn game_rows(
         &fs::read(&map_path).with_context(|| format!("read {}", map_path.display()))?,
     )
     .with_context(|| format!("parse {}", map_path.display()))?;
-    Ok(replay_rows(
-        &replay, &map, game_id, map_id, fog_map, game, coverage,
-    ))
+    Ok(replay_rows(&replay, &map, game_id, map_id, game, coverage))
 }
 
 /// The order kind of a replay action of one unit, or `None` for an action
@@ -307,7 +272,6 @@ fn order_kind(action: &Action) -> Option<&'static str> {
         Action::Unhide { .. } => "reveal",
         Action::Repair { .. } => "repair",
         Action::Explode { .. } => "explode",
-        Action::Unload { .. } => "unload",
         _ => return None,
     })
 }
@@ -325,7 +289,6 @@ fn same_kind(name: &str, kind: OrderKind) -> bool {
             | ("reveal", OrderKind::Reveal)
             | ("repair", OrderKind::Repair(_))
             | ("explode", OrderKind::Explode)
-            | ("unload", OrderKind::Unload(_))
     )
 }
 
@@ -379,7 +342,6 @@ fn replay_rows(
     map: &AwbwMapData,
     game_id: u64,
     map_id: u32,
-    fog_map: bool,
     game: &mut Game,
     coverage: &mut Coverage,
 ) -> Result<()> {
@@ -388,18 +350,9 @@ fn replay_rows(
     if fog {
         coverage.fog += 1;
     }
-    let config = awbrn_ai::profile::V8_GREEDY_CONFIG;
-    let mut agent = awbrn_ai::baseline::BaselineConfig {
-        weights: awbrn_ai::agents::Weights {
-            move_fog_map: fog_map,
-            ..config.weights
-        },
-        ..config
-    }
-    .build_greedy(0x6d6f_7665_5f70_6f6c);
+    let mut agent = awbrn_ai::profile::V8_GREEDY_CONFIG.build_greedy(0x6d6f_7665_5f70_6f6c);
     let mut step = 0_u32;
     let mut turn_owner = None;
-    let mut turn_index = 0_usize;
     for (index, action) in replay.turns.iter().enumerate() {
         let next = replay.turns.get(index + 1);
         if is_join_setup(action, next) {
@@ -409,35 +362,26 @@ fn replay_rows(
         let player = state.turn.active_player.clone();
         let key = (player.clone(), state.turn.day);
         if turn_owner.as_ref() != Some(&key) {
-            if turn_owner.is_some() {
-                turn_index += 1;
-            }
             turn_owner = Some(key);
             step = 0;
-            compare_snapshot(replay.games.get(turn_index), state, coverage);
         }
-        let before_unload =
-            matches!(action, Action::Move(_)) && matches!(next, Some(Action::Unload { .. }));
-        let kind = order_kind(action);
+        // A move before an unload is half of the unload, which the tool
+        // does not read.
+        let kind = order_kind(action).filter(|_| {
+            !matches!(next, Some(Action::Unload { .. })) || !matches!(action, Action::Move(_))
+        });
         let pending = match kind {
             Some(kind) if matches!(state.match_state, Match::Active { .. }) => {
                 let view = observe(&AwbwVisibility, state, &player)?;
                 let candidates = agent.move_candidates(&view).unwrap_or_default();
-                let enemies_seen = view
-                    .units
-                    .iter()
-                    .filter(|unit| {
-                        unit.owner != player && matches!(unit.location, Location::Board { .. })
-                    })
-                    .count();
-                Some((kind, state.clone(), candidates, enemies_seen))
+                Some((kind, state.clone(), candidates))
             }
             _ => None,
         };
         let transition = adapter
             .advance(action)
             .with_context(|| format!("action {index} ({})", action.kind_name()))?;
-        let Some((kind, before, candidates, enemies_seen)) = pending else {
+        let Some((kind, before, candidates)) = pending else {
             continue;
         };
         let seat = before
@@ -450,63 +394,28 @@ fn replay_rows(
             coverage.trapped += 1;
             continue;
         }
-        let dimensions = before.board.dimensions();
-        // The actor, the destination and, for an unload, the cargo.
-        let (actor, destination, cargo) = if let Action::Unload {
-            unit, transport_id, ..
-        } = action
-        {
-            let Some(cargo) = unit.values().find_map(|unit| unit.get_value()) else {
-                coverage.unmatched += 1;
-                continue;
-            };
-            let cargo = UnitId::new(cargo.units_id.as_u32());
-            let Some(Location::Board { position }) =
-                after.units.get(cargo).map(|unit| unit.location)
-            else {
-                coverage.unmatched += 1;
-                continue;
-            };
-            (UnitId::new(transport_id.as_u32()), position, Some(cargo))
-        } else {
-            let payload = movement.and_then(moved_unit);
-            let actor = match payload {
-                Some((id, _)) => Some(id),
-                None => changed_unit(&before, after, seat),
-            };
-            let Some(actor) = actor else {
-                coverage.unmatched += 1;
-                continue;
-            };
-            let Some(Location::Board { position: origin }) =
-                before.units.get(actor).map(|unit| unit.location)
-            else {
-                if before.units.get(actor).is_some() {
-                    coverage.skipped += 1;
-                } else {
-                    coverage.unmatched += 1;
-                }
-                continue;
-            };
-            let destination = match after.units.get(actor).map(|unit| unit.location) {
-                Some(Location::Board { position }) if !matches!(kind, "load" | "join") => position,
-                _ => payload.and_then(|(_, position)| position).unwrap_or(origin),
-            };
-            (actor, destination, None)
+        let payload = movement.and_then(moved_unit);
+        let actor = match payload {
+            Some((id, _)) => Some(id),
+            None => changed_unit(&before, after, seat),
+        };
+        let Some(actor) = actor else {
+            coverage.unmatched += 1;
+            continue;
         };
         let Some(unit) = before.units.get(actor) else {
             coverage.unmatched += 1;
             continue;
         };
-        if !matches!(unit.location, Location::Board { .. }) {
+        let Location::Board { position: origin } = unit.location else {
             coverage.skipped += 1;
             continue;
-        }
-        // The slot of the cargo, for an unload.
-        let slot = cargo.and_then(|cargo| match before.units.get(cargo)?.location {
-            Location::Cargo { slot, .. } => u8::try_from(slot).ok(),
-            Location::Board { .. } => None,
-        });
+        };
+        let destination = match after.units.get(actor).map(|unit| unit.location) {
+            Some(Location::Board { position }) if !matches!(kind, "load" | "join") => position,
+            _ => payload.and_then(|(_, position)| position).unwrap_or(origin),
+        };
+        let dimensions = before.board.dimensions();
         let target = match kind {
             "attack" => fire_target(action).and_then(|position| dimensions.cell_index(position)),
             _ => None,
@@ -515,14 +424,10 @@ fn replay_rows(
             coverage.unmatched += 1;
             continue;
         };
-        // An unload is a separate choice group in play: its choices are the
-        // unload orders of the transport. The other orders of a unit do not
-        // include its unload orders.
         let own: Vec<&MoveCandidate> = candidates
             .iter()
             .filter(|candidate| {
-                candidate.unit == actor
-                    && matches!(candidate.order.kind(), OrderKind::Unload(_)) == (kind == "unload")
+                candidate.unit == actor && !matches!(candidate.order.kind(), OrderKind::Unload(_))
             })
             .collect();
         let chosen = own.iter().position(|candidate| {
@@ -531,7 +436,6 @@ fn replay_rows(
                 && match (candidate.order.kind(), target) {
                     (OrderKind::Attack(cell), Some(target)) => cell == target,
                     (OrderKind::Attack(_), None) => false,
-                    (OrderKind::Unload(order_slot), _) => Some(order_slot) == slot,
                     _ => true,
                 }
         });
@@ -539,11 +443,6 @@ fn replay_rows(
             coverage.unmatched += 1;
             continue;
         };
-        let enemies = before
-            .units
-            .iter()
-            .filter(|enemy| enemy.owner != seat && matches!(enemy.location, Location::Board { .. }))
-            .count();
         game.rows.push((
             Row {
                 game: game_id,
@@ -555,9 +454,6 @@ fn replay_rows(
                 kind: unit.kind.as_str(),
                 group: move_policy::group_name(unit.kind),
                 fog,
-                before_unload,
-                enemies: u32::try_from(enemies)?,
-                enemies_seen: u32::try_from(enemies_seen)?,
                 offset: 0,
                 count: u32::try_from(own.len())?,
                 chosen: u32::try_from(chosen)?,
@@ -573,41 +469,6 @@ fn replay_rows(
         step += 1;
     }
     Ok(())
-}
-
-/// Compare the true state of the adapter at the start of a turn with the
-/// state snapshot of the archive for that turn.
-fn compare_snapshot(snapshot: Option<&AwbwGame>, state: &State, coverage: &mut Coverage) {
-    let Some(snapshot) = snapshot.filter(|snapshot| u64::from(snapshot.day) == state.turn.day)
-    else {
-        coverage.snapshot_unaligned += 1;
-        return;
-    };
-    let mut ids = std::collections::HashSet::new();
-    for row in snapshot.units.iter().filter(|row| !row.carried) {
-        coverage.snapshot_units += 1;
-        let id = UnitId::new(row.id.as_u32());
-        ids.insert(id);
-        let Some(unit) = state.units.get(id) else {
-            coverage.snapshot_missing += 1;
-            continue;
-        };
-        let Location::Board { position } = unit.location else {
-            coverage.snapshot_missing += 1;
-            continue;
-        };
-        if (u32::from(position.x), u32::from(position.y)) != (row.x, row.y) {
-            coverage.snapshot_moved += 1;
-        }
-        if u32::from(unit.hp.div_ceil(10)) != row.hit_points.ceil() as u32 {
-            coverage.snapshot_hp += 1;
-        }
-    }
-    coverage.snapshot_extra += state
-        .units
-        .iter()
-        .filter(|unit| matches!(unit.location, Location::Board { .. }) && !ids.contains(&unit.id))
-        .count();
 }
 
 /// Whether `action` is the move half of a join, which the next action
