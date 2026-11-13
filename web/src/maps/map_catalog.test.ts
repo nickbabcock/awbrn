@@ -8,7 +8,7 @@ import {
 } from "./map_catalog.ts";
 
 describe("map catalog paging", () => {
-  const cursor = { createdAt: "2026-08-25T12:00:00.000Z", mapId: "abc123def456" };
+  const cursor = { rankPlace: 1, createdAt: "2026-08-25T12:00:00.000Z", mapId: "abc123def456" };
 
   it("reads back a cursor it wrote", () => {
     expect(decodeMapCatalogCursor(encodeMapCatalogCursor(cursor))).toEqual(cursor);
@@ -18,6 +18,11 @@ describe("map catalog paging", () => {
     expect(decodeMapCatalogCursor(undefined)).toBeNull();
     expect(decodeMapCatalogCursor("not json")).toBeNull();
     expect(decodeMapCatalogCursor(JSON.stringify({ createdAt: cursor.createdAt }))).toBeNull();
+  });
+
+  it("refuses a cursor from before the board sorted by rank", () => {
+    const { rankPlace: _, ...ageOnly } = cursor;
+    expect(decodeMapCatalogCursor(JSON.stringify(ageOnly))).toBeNull();
   });
 
   it("refuses a cursor whose map id could not exist", () => {

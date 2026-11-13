@@ -1,22 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
-import { AspectRatio } from "@astryxdesign/core/AspectRatio";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { borderVars, colorVars, radiusVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { Stack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
-import { MapPicture } from "#/maps/components/MapPicture.tsx";
-import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
+import { useQuery } from "@tanstack/react-query";
 import { mapCatalogEntryQueryOptions } from "#/maps/maps.queries.ts";
-
-/** The edge of a thumbnail in a row, in px, which the row's text aligns against. */
-const THUMB_SIZES = { sm: 48, md: 72 } as const;
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
 /**
- * A map at the size of a row: the small picture in a square tan well.
+ * A map at the size of a row: the 1x minimap (4px a tile), cropped to the
+ * middle, in an ink square with 6px corners (Whole Scale Or Crop).
  *
- * A row in a list of matches is recognized by its map before its name, the
- * same way a plate on the catalog is. The picture is read from the map's
- * catalog entry, which is cached for good, so a list that names one map ten
- * times reads it once.
+ * - `sm` 48px: docks and ranked slots.
+ * - `md` 56px: a compact row or a summary.
+ * - `lg` 80px, 64px on a phone: lobby, match and picker rows.
+ *
+ * The picture is read from the map's catalog entry, which is cached for good,
+ * so a list that names one map ten times reads it once.
  */
 export function MapThumb({
   mapId,
@@ -25,44 +24,48 @@ export function MapThumb({
 }: {
   mapId: string;
   revision: number;
-  size?: keyof typeof THUMB_SIZES;
+  size?: "sm" | "md" | "lg";
 }) {
   const { data: map } = useQuery(mapCatalogEntryQueryOptions(mapId, revision));
-  const edge = THUMB_SIZES[size];
 
-  if (!map) {
-    return (
-      <AspectRatio ratio={1} xstyle={[styles.well, size === "sm" ? styles.sm : styles.md]}>
-        <Skeleton height="100%" width="100%" />
-      </AspectRatio>
-    );
-  }
-
-  const picture = mapScreenshotSize("small", map.width, map.height);
   return (
-    <AspectRatio ratio={1} xstyle={[styles.well, size === "sm" ? styles.sm : styles.md]}>
-      <MapPicture
-        alt=""
-        ratio={1}
-        scaleFrom={{ width: Math.max(picture.width, edge), height: Math.max(picture.height, edge) }}
-        sourceHeight={picture.height}
-        sourceWidth={picture.width}
-        src={map.screenshot.small}
-      />
-    </AspectRatio>
+    <Stack as="span" xstyle={[styles.thumb, sizes[size]]}>
+      {map ? (
+        // The minimap crops to the middle at its own pixels, which no Astryx image does.
+        <img alt="" decoding="async" src={map.screenshot.small} {...stylex.props(styles.picture)} />
+      ) : (
+        <Skeleton height="100%" width="100%" />
+      )}
+    </Stack>
   );
 }
 
 const styles = stylex.create({
-  well: {
+  thumb: {
+    display: "block",
     flexShrink: 0,
     overflow: "hidden",
-    backgroundColor: colorVars["--color-background-muted"],
-    borderColor: colorVars["--color-border-emphasized"],
-    borderStyle: "solid",
-    borderWidth: borderVars["--border-width"],
-    borderRadius: radiusVars["--radius-element"],
+    borderRadius: "6px",
+    backgroundColor: awbrnVars.ink900,
+    boxShadow: `inset 0 0 0 1px ${awbrnVars.ink700}`,
   },
-  sm: { inlineSize: `${THUMB_SIZES.sm}px` },
-  md: { inlineSize: `${THUMB_SIZES.md}px` },
+  // `object-fit: none` keeps the minimap at its own pixels and crops it to
+  // the middle of the square.
+  picture: {
+    display: "block",
+    inlineSize: "100%",
+    blockSize: "100%",
+    objectFit: "none",
+    objectPosition: "50% 50%",
+    imageRendering: "pixelated",
+  },
+});
+
+const sizes = stylex.create({
+  sm: { inlineSize: "48px", blockSize: "48px" },
+  md: { inlineSize: "56px", blockSize: "56px" },
+  lg: {
+    inlineSize: { default: "80px", [pageLayout.phoneMedia]: "64px" },
+    blockSize: { default: "80px", [pageLayout.phoneMedia]: "64px" },
+  },
 });

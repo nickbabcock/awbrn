@@ -1,52 +1,43 @@
 /*
- * THE MAP CATALOG
+ * MAPS: the catalog.
  *
- * THESIS: the maps AWBRN holds are a place, not a step inside creating a
- *   match. A player who wants to know what can be played here, or a moderator
- *   who wants to find the maps nobody has graded yet, arrives at a board and
- *   presses on it. Every board it can be narrowed to has its own address, so
- *   "the unranked two-player fog maps" is a link somebody can send.
- * OWN-WORLD: the same board of outlined cream plates on the open sky the
- *   create screen deals, with each map's grade stamped on its corner the way
- *   the game stamps a battle report.
- * STORY: a player reads the console, presses the keys that describe the game
- *   they want, and opens the map that looks right.
- * FIRST VIEWPORT: the title, the console, then plates.
+ * The title and Import a map, then search, the Filters key and the count on
+ * one line, then the cards (three across, two below 1180px, one on a phone).
+ * Every narrowing lives in the address, so a filtered set is a link somebody
+ * can send.
  */
 
+import { Icon } from "@astryxdesign/core/Icon";
+import { Stack } from "@astryxdesign/core/Stack";
+import * as stylex from "@stylexjs/stylex";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Banner } from "@astryxdesign/core/Banner";
-import { Card } from "@astryxdesign/core/Card";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Grid } from "@astryxdesign/core/Grid";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "#/ui/Button.tsx";
-import { RouterButton } from "#/ui/astryx-links.tsx";
+import { useActor } from "#/auth/useActor.ts";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
-import { MapLinkPlate, MapLoadingPlate } from "#/maps/components/MapPlate.tsx";
+import { MapImportKey } from "#/maps/components/MapImportSheet.tsx";
+import { MapCardGrid, MapLinkPlate, MapLoadingPlate } from "#/maps/components/MapPlate.tsx";
+import { MAP_BOARD_LOADING_PLATES, useMapBoardSummary } from "#/maps/map_board.ts";
 import {
   mapBoardAddress,
   mapBoardFilters,
   mapBoardSearchText,
   type MapBoardSearch,
 } from "#/maps/map_board_search.ts";
-import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
-import {
-  MAP_BOARD_COLUMNS,
-  MAP_BOARD_LOADING_PLATES,
-  useMapBoardSummary,
-} from "#/maps/map_board.ts";
+import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import type { MapCatalogFilter } from "#/maps/schemas.ts";
+import { Button } from "#/ui/Button.tsx";
+import { EmptySheet, ProblemBanner } from "#/ui/EmptySheet.tsx";
+import { IconRefresh } from "#/ui/icons.tsx";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 
-/** How long the console waits after a keystroke before it writes the address. */
+/** How long the search waits after a keystroke before it writes the address. */
 const SEARCH_DEBOUNCE_MS = 250;
 
 export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
   const navigate = useNavigate();
+  const actor = useActor();
 
   const text = mapBoardSearchText(search);
   const filters = useMemo(() => mapBoardFilters(search), [search]);
@@ -76,98 +67,99 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
 
   const filterCount = countMapCatalogFilters(filters);
   const isNarrowed = text.length > 0 || filterCount > 0;
-  // A failed read holds nothing, which is not the same as a board that holds
-  // nothing. The banner above says why, so the empty state stays out of it.
-  const isBoardEmpty = !catalogQuery.isPending && !catalogQuery.isError && maps.length === 0;
+  // A failed read holds nothing, which is not the same as a catalog that
+  // holds nothing. The banner says why, so the empty state stays out of it.
+  const isEmpty = !catalogQuery.isPending && !catalogQuery.isError && maps.length === 0;
   const summary = useMapBoardSummary({
     count: maps.length,
     filters,
     hasMore: catalogQuery.hasNextPage,
     isError: catalogQuery.isError,
-    isNarrowed,
     isPending: catalogQuery.isPending,
     search: text,
   });
 
+  const mayImport = actor?.can({ map: ["import"] }) ?? false;
+
   return (
     <Page>
-      <VStack gap={6}>
-        <PageHeader
-          actions={<RouterButton label="New match" to="/matches/new" variant="primary" />}
-          description="Every battlefield AWBRN holds. Open one to read its record, or start a match on it."
-          title="Maps"
+      {/* The filters sit under the head at the head's own 16px, not the page's 24px. */}
+      <Stack xstyle={styles.flow}>
+        <PageHeader actions={mayImport ? <MapImportKey /> : undefined} title="Maps" />
+        <MapFilterBar
+          filterCount={filterCount}
+          filters={filters}
+          onFiltersChange={handleFiltersChange}
+          onSearchChange={setTyped}
+          search={typed}
+          summary={summary}
         />
+      </Stack>
 
-        <VStack gap={4}>
-          <Card padding={4}>
-            <MapFilterBar
-              filterCount={filterCount}
-              filters={filters}
-              onFiltersChange={handleFiltersChange}
-              onSearchChange={setTyped}
-              search={typed}
-              summary={summary}
+      {catalogQuery.isError ? (
+        <ProblemBanner
+          action={
+            <Button
+              clickAction={async () => {
+                await catalogQuery.refetch();
+              }}
+              icon={<Icon icon={IconRefresh} />}
+              label="Retry"
+              size="sm"
             />
-          </Card>
+          }
+          title="Maps failed to load"
+        />
+      ) : null}
 
-          {catalogQuery.isError ? (
-            <Banner
-              description="The map catalog could not be read. Try again in a moment."
-              role="alert"
-              status="error"
-              title="Catalog unavailable"
-            />
-          ) : null}
-
-          {isBoardEmpty ? null : (
-            <Grid columns={MAP_BOARD_COLUMNS} gap={4}>
-              {catalogQuery.isPending
-                ? Array.from({ length: MAP_BOARD_LOADING_PLATES }, (_, index) => (
-                    <MapLoadingPlate index={index} key={index} />
-                  ))
-                : maps.map((map) => <MapLinkPlate key={map.mapId} map={map} />)}
-            </Grid>
-          )}
-
-          {isBoardEmpty ? (
-            <EmptyState
-              actions={
-                isNarrowed ? (
-                  <Button
-                    clickAction={() => void navigate({ search: {}, to: "/maps" })}
-                    label="Clear the board"
-                    size="sm"
-                    variant="secondary"
-                  />
-                ) : (
-                  <RouterButton label="Import a map" to="/matches/new" variant="primary" />
-                )
-              }
-              description={
-                isNarrowed
-                  ? "No map the catalog holds answers all of it. Widen the console, or bring the map over from AWBW."
-                  : "Every map AWBRN plays is imported once and then held for everybody. The board fills as maps arrive."
-              }
-              headingLevel={2}
-              title={isNarrowed ? "No map fits that brief" : "The catalog is empty"}
-            />
-          ) : null}
-
-          {catalogQuery.hasNextPage ? (
-            <HStack justify="center">
+      {isEmpty ? (
+        isNarrowed ? (
+          <EmptySheet
+            action={
               <Button
-                clickAction={async () => {
-                  await catalogQuery.fetchNextPage();
-                }}
-                isLoading={catalogQuery.isFetchingNextPage}
-                label="More maps"
-                size="sm"
+                label="Clear"
+                onClick={() => void navigate({ search: {}, to: "/maps" })}
                 variant="secondary"
               />
-            </HStack>
-          ) : null}
-        </VStack>
-      </VStack>
+            }
+            title="No maps match"
+          />
+        ) : (
+          <EmptySheet title="No maps yet" />
+        )
+      ) : (
+        <MapCardGrid>
+          {catalogQuery.isPending
+            ? Array.from({ length: MAP_BOARD_LOADING_PLATES }, (_, index) => (
+                <MapLoadingPlate index={index} key={index} />
+              ))
+            : maps.map((map) => <MapLinkPlate key={map.mapId} map={map} />)}
+        </MapCardGrid>
+      )}
+
+      {catalogQuery.hasNextPage ? (
+        <Stack direction="horizontal" xstyle={styles.more}>
+          <Button
+            clickAction={async () => {
+              await catalogQuery.fetchNextPage();
+            }}
+            isLoading={catalogQuery.isFetchingNextPage}
+            label="More maps"
+            variant="secondary"
+          />
+        </Stack>
+      ) : null}
     </Page>
   );
 }
+
+const styles = stylex.create({
+  // The head and the filters, in block flow.
+  flow: {
+    display: "block",
+  },
+  more: {
+    display: "flex",
+    justifyContent: "center",
+  },
+});
