@@ -538,6 +538,7 @@ impl AgentSpec {
                     "v6-canonical" => PlannerConfig::V6_CANONICAL,
                     "v7" => PlannerConfig::V7,
                     "v8" => PlannerConfig::V8,
+                    "v8-move" => PlannerConfig::V8_MOVE,
                     "v6-fog" => PlannerConfig::V6_FOG,
                     other => {
                         return Err(PlanError::Configuration(format!(

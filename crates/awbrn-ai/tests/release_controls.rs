@@ -1,11 +1,11 @@
 //! Release controls for the promoted AI profile.
 
 use awbrn_ai::agent::{Agent, NodeBudget};
-use awbrn_ai::agents::StrategicAgent;
+use awbrn_ai::agents::{GreedyAgent, StrategicAgent};
 use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai::harness::{Limits, TurnResult, play_observed, run_agent_turn};
 use awbrn_ai::rng::Rng;
-use awbrn_ai::{HARD, HARD_V2, STANDARD};
+use awbrn_ai::{HARD, HARD_V2};
 use awvm::semantic::{AwbwVisibility, Pos, State, UnitId, observe};
 use awvm::session::Session;
 use awvm::transition::Command;
@@ -19,6 +19,14 @@ fn fixture(name: &str) -> State {
     let path = format!("{FIXTURE_ROOT}{name}.json");
     let bytes = std::fs::read(path).expect("release fixture exists");
     serde_json::from_slice(&bytes).expect("release fixture decodes")
+}
+
+/// The plain greedy policy, a fixed opponent for the matches here.
+fn greedy(seed: u64) -> Box<dyn Agent> {
+    Box::new(GreedyAgent::with_weights(
+        seed,
+        BaselineConfig::LOCKED.weights,
+    ))
 }
 
 fn run_fixture(name: &str, seed: u64) -> TurnResult {
@@ -129,7 +137,7 @@ fn current_hard_profile_completes_a_legal_match_in_both_seat_orders() {
         let mut session = Session::new(state.clone());
         let mut entropy = Rng::from_seed(seed ^ 0x9e37_79b9);
         let mut candidate = HARD.agent(seed ^ 0x2);
-        let mut baseline = STANDARD.agent(seed ^ 0x3);
+        let mut baseline = greedy(seed ^ 0x3);
         let mut agents: [&mut dyn Agent; 2] = if candidate_first {
             [&mut *candidate, &mut *baseline]
         } else {
@@ -181,7 +189,7 @@ fn hard_v2_standard_match_matches_the_unchanged_production_configuration() {
                     BaselineConfig::PRODUCTION,
                 ))
             };
-            let mut opponent = STANDARD.agent(seed ^ 0x3);
+            let mut opponent = greedy(seed ^ 0x3);
             let mut agents: [&mut dyn Agent; 2] = if candidate_first {
                 [&mut *hard, &mut *opponent]
             } else {
@@ -226,7 +234,7 @@ fn current_hard_profile_completes_a_legal_fog_match_in_both_seat_orders() {
         let mut session = Session::new(state.clone());
         let mut entropy = Rng::from_seed(seed ^ 0x9e37_79b9);
         let mut candidate = HARD.agent(seed ^ 0x2);
-        let mut baseline = STANDARD.agent(seed ^ 0x3);
+        let mut baseline = greedy(seed ^ 0x3);
         let mut agents: [&mut dyn Agent; 2] = if candidate_first {
             [&mut *candidate, &mut *baseline]
         } else {

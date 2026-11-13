@@ -94,7 +94,7 @@ pub use producer::{
 };
 pub use profile::{
     AiImplementation, AiProfile, AiTier, CURRENT_PROFILES as AI_CURRENT_PROFILES, EASY, HARD,
-    HARD_V2, PROFILES as AI_PROFILES, STANDARD, profile, profile_for_tier,
+    HARD_V2, MEDIUM, PROFILES as AI_PROFILES, profile, profile_for_tier,
 };
 pub use rng::Rng;
 pub use shape::{SeatShape, Shape};

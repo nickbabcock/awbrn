@@ -9,6 +9,7 @@
 //! improves one complete greedy turn with a deterministic node budget.
 
 pub mod classifier;
+pub mod move_policy;
 pub mod portfolio;
 pub mod random;
 pub mod search;

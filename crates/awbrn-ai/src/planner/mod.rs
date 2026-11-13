@@ -278,8 +278,8 @@ impl PlannerConfig {
         ..Self::V3
     };
 
-    /// planner-v4 with power plans, on the scoring of `ai-hard-v3`, which
-    /// adds a build floor.
+    /// planner-v4 with power plans, on the scoring of
+    /// [`crate::profile::HARD_V3_CONFIG`], which adds a build floor.
     ///
     /// It uses the same node budget and work threshold as planner-v4.
     pub const V5: Self = Self {
@@ -349,6 +349,18 @@ impl PlannerConfig {
         ferry: true,
         march: true,
         ..Self::V7_WIDE
+    };
+
+    /// planner-v8 with the move model fitted to human unit orders at
+    /// strength 0.5 in its greedy policy
+    /// ([`crate::profile::V8_MOVE_GREEDY_CONFIG`]). The greedy policy with
+    /// the model plays the seed plan, completes the other own lines, makes
+    /// the fallback and plays the simulated replies. In fog games, the
+    /// greedy policy uses the fog model with the known map.
+    pub const V8_MOVE: Self = Self {
+        identifier: "planner-v8-move",
+        baseline: crate::profile::V8_MOVE_GREEDY_CONFIG,
+        ..Self::V8
     };
 
     /// planner-v6 with the fog memory.
@@ -819,6 +831,8 @@ impl PlannerAgent {
                 self.stats.fallbacks += 1;
                 self.fallback.set_fog(fog);
                 self.fallback.set_power_hold(self.hold);
+                self.fallback
+                    .set_viewer(session.state().players.seat(&view.recipient));
                 let modeled = (self.config.fog_memory && session.state().settings.fog)
                     .then(|| Session::new(self.memory.planning_state(session.state())));
                 return self
@@ -1418,6 +1432,7 @@ impl TurnPlanner<'_> {
             .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
         hard.restart(Rng::mix(self.seed ^ 0x5eed));
         hard.set_fog(None);
+        hard.set_viewer(Some(self.seat));
         hard.set_power_hold(self.march.hold);
         let mut entropy = MeanLuck;
         let root = session.state().clone();
@@ -1498,6 +1513,7 @@ impl TurnPlanner<'_> {
             .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
         hard.restart(self.seed);
         hard.set_fog(self.fog.clone());
+        hard.set_viewer(Some(self.seat));
         hard.set_power_hold(self.march.hold);
         let mut plays = Vec::new();
         let mut root = None;

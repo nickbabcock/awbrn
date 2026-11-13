@@ -871,6 +871,9 @@ fn the_earlier_fingerprints_do_not_change() {
         (PlannerConfig::V7, "2b71493852d42c91"),
         (PlannerConfig::V7_WIDE, "c7634e08efd41e91"),
         (PlannerConfig::V6_FOG, "3aac2b950e552bab"),
+        // The value of origin/master before the move model.
+        (PlannerConfig::V8, "6534db27e716693b"),
+        (PlannerConfig::V8_MOVE, "879c2d92802bcffb"),
     ] {
         assert_eq!(config.fingerprint(), expected, "{}", config.identifier);
     }
@@ -879,6 +882,9 @@ fn the_earlier_fingerprints_do_not_change() {
         (BaselineConfig::PRODUCTION, "af672904643d966c"),
         (crate::profile::HARD_V2_CONFIG, "1be508294d967fa6"),
         (crate::profile::HARD_V3_CONFIG, "12bfc85325aa3cdc"),
+        // The value of origin/master before the move model.
+        (crate::profile::V8_GREEDY_CONFIG, "16c3ec8e4b5cca64"),
+        (crate::profile::V8_MOVE_GREEDY_CONFIG, "c11e04679320dc84"),
     ] {
         assert_eq!(config.fingerprint(), expected, "{}", config.identifier);
     }
@@ -2659,4 +2665,85 @@ fn the_placement_keeps_the_swing_power_first_and_once() {
     assert_eq!(owned, 3);
     assert_eq!(agent.stats().swing_fired, 1);
     assert_eq!(agent.stats().swing_expected, 3);
+}
+
+/// In fog, the own lines of the planner read the known map of the move
+/// features, and the simulated enemy reply does not: the reply plays the
+/// other seat on the observation of the planning seat.
+#[test]
+fn only_the_own_lines_read_the_known_map_in_fog() {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{AwbwVisibility, Location, Pos, TileOwner, UnitAction, UnitId, observe};
+
+    let mut truth = arena(true, 1);
+    let ours = truth.players.seat(&truth.turn.active_player).unwrap();
+    let theirs = truth
+        .players
+        .seats()
+        .map(|(seat, _)| seat)
+        .find(|seat| *seat != ours)
+        .unwrap();
+    let home = truth
+        .board
+        .iter()
+        .find(|(_, tile)| tile.terrain == Terrain::Hq && tile.owner == TileOwner::Owned(ours))
+        .map(|(position, _)| position)
+        .unwrap();
+    // One infantry of each seat on plains next to the headquarters of the
+    // planning seat, in its sight.
+    let plain = |position: &Pos| {
+        truth
+            .board
+            .get(*position)
+            .is_some_and(|tile| tile.terrain == Terrain::Plain)
+    };
+    let own = home.orthogonal().into_iter().find(plain).unwrap();
+    let enemy = own
+        .orthogonal()
+        .into_iter()
+        .find(|position| plain(position) && *position != home)
+        .unwrap();
+    let template = *truth.units.iter().next().unwrap();
+    for (id, owner, position) in [(9_998, ours, own), (9_999, theirs, enemy)] {
+        let mut unit = template;
+        unit.id = UnitId::new(id);
+        unit.kind = UnitKind::Infantry;
+        unit.owner = owner;
+        unit.hp = 100;
+        unit.action = UnitAction::Ready;
+        unit.location = Location::Board { position };
+        truth.units.push(unit);
+    }
+    truth.next_unit_id = Some(10_000);
+    let view = observe(&AwbwVisibility, &truth, &truth.turn.active_player).unwrap();
+    // The planner plays its lines on a session of the observed state.
+    let observed = Session::from_observation(&view).unwrap();
+    let mut session = Session::new(observed.state().clone());
+
+    let config = PlannerConfig::V8_MOVE;
+    let mut evaluator = Evaluator::new(config.eval_weights);
+    let mut planner = TurnPlanner {
+        rollout: None,
+        config: &config,
+        seed: 7,
+        seat: ours,
+        evaluator: &mut evaluator,
+        replay: None,
+        candidates: 0,
+        work: 0,
+        work_left: None,
+        nodes_left: 256,
+        fog: None,
+        march: MarchTurn::default(),
+    };
+    let line = planner.line(&mut session, Generator::Seed, &[]).unwrap();
+    let (known, plain) = planner.rollout.as_ref().unwrap().fog_feature_builds();
+    assert!(known > 0, "the own line reads the known map");
+    assert_eq!(plain, 0, "the own line reads it in each position");
+
+    planner.rollout = None;
+    planner.replied_value(&mut session, &line).unwrap();
+    let (known, plain) = planner.rollout.as_ref().unwrap().fog_feature_builds();
+    assert_eq!(known, 0, "the reply does not read the known map");
+    assert!(plain > 0, "the reply has move features");
 }

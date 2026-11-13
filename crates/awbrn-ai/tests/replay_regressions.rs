@@ -6,13 +6,13 @@
 //! position, the AI played a turn that lost army value to the reply of the
 //! person. Better turns were available in each position.
 //!
-//! A test plays the Hard turn and then one reply by the fixed planner of
-//! `ai-hard-v3`. Both turns use the middle of each luck range. The test
+//! A test plays the Hard turn and then one reply by the fixed
+//! `planner-v3`. Both turns use the middle of each luck range. The test
 //! measures the change in army value of the AI seat over the two turns: the
 //! value of our units less the value of the enemy units, in funds. A turn
 //! passes when the mean change over three agent seeds reaches the threshold.
 //!
-//! Each threshold is between the result of the `ai-hard-v3` turn and the
+//! Each threshold is between the result of the `planner-v3` turn and the
 //! tenth best turn that one changed order and the Hard policy can make. The
 //! reply is a stronger opponent than the reply model of the planner, so a
 //! turn cannot pass only because it exploits that model.

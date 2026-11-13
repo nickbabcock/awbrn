@@ -5,7 +5,7 @@
 //! not hold. So every test here ends the same way: reconstruct the match from
 //! its stored events and compare.
 
-use awbrn_ai::{AiTier, HARD, STANDARD, profile, profile_for_tier};
+use awbrn_ai::{AiTier, EASY, HARD, profile, profile_for_tier};
 use awbrn_map::{AwbrnMap, Dimensions, Pos};
 use awbrn_server::{
     AiSeat, Co, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, StoredActionEvent,
@@ -111,7 +111,7 @@ fn a_played_turn_ends_the_turn() {
     let mut server = GameServer::new(setup).expect("the setup is valid");
     let mut events = Vec::new();
 
-    let played = play_ai_turn(&mut server, &mut events, p1(), "ai-standard-v1", 1);
+    let played = play_ai_turn(&mut server, &mut events, p1(), EASY.id, 1);
 
     assert_eq!(
         played.last(),
@@ -132,7 +132,7 @@ fn a_played_match_replays_from_its_own_log() {
 
     for day in 0..6 {
         for (slot, player) in [(0usize, p1()), (1, p2())] {
-            let profile = if slot == 0 { STANDARD } else { HARD };
+            let profile = if slot == 0 { EASY } else { HARD };
             play_ai_turn(
                 &mut server,
                 &mut events,
@@ -194,17 +194,17 @@ fn a_seat_plays_the_same_way_from_the_same_seed() {
     let play_once = || {
         let mut server = GameServer::new(setup.clone()).expect("the setup is valid");
         let mut events = Vec::new();
-        play_ai_turn(&mut server, &mut events, p1(), "ai-hard-v3", 99)
+        play_ai_turn(&mut server, &mut events, p1(), HARD.id, 99)
     };
 
     assert_eq!(play_once(), play_once());
 }
 
 #[test]
-fn current_hard_tier_seats_v3_and_plays_in_fog() {
+fn current_hard_tier_seats_v4_and_plays_in_fog() {
     let current = profile_for_tier(AiTier::Hard);
-    assert_eq!(current.id, "ai-hard-v3");
-    assert_eq!(profile("ai-hard-v3"), Some(&HARD));
+    assert_eq!(current.id, "ai-hard-v4");
+    assert_eq!(profile("ai-hard-v4"), Some(&HARD));
 
     let mut setup = contested_setup();
     setup.fog_enabled = true;
@@ -223,7 +223,7 @@ fn a_seat_that_cannot_see_the_board_still_ends_its_turn() {
     let mut server = GameServer::new(setup).expect("the setup is valid");
     let mut events = Vec::new();
 
-    let played = play_ai_turn(&mut server, &mut events, p1(), "ai-easy-v1", 3);
+    let played = play_ai_turn(&mut server, &mut events, p1(), EASY.id, 3);
 
     assert_eq!(played.last(), Some(&GameCommand::EndTurn));
 }
