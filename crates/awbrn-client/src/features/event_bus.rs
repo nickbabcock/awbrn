@@ -540,6 +540,52 @@ pub struct MapDimensions {
     pub height: f32,
 }
 
+/// What the camera shows of the board, and how far it may zoom.
+///
+/// Emitted at most once a frame, and only when one of these values moved, so
+/// the page can draw the scale readout, the zoom limits, the edge fades, the
+/// locator and the whole-map outline from it without polling.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct BoardView {
+    /// Logical pixels per map pixel: a tile is `16 * scale` CSS pixels wide.
+    pub scale: f32,
+    /// The scale that shows the whole map in the canvas, which is also the
+    /// smallest the board zooms out to.
+    pub fit_scale: f32,
+    pub max_scale: f32,
+    /// The scale below which a tap is too small to commit an order.
+    pub touch_floor_scale: f32,
+    /// The canvas, in tiles from the top-left corner of tile (0, 0), y down.
+    ///
+    /// It is not bounded by the map. The row of terrain overhang above the
+    /// first tile row reads as `y` in `[-1, 0)`.
+    pub view: TileRect,
+    /// The map, in tiles.
+    pub map: TileSize,
+}
+
+/// A rectangle on the tile grid, in fractional tiles.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct TileRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// A size on the tile grid, in whole tiles.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct TileSize {
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
 #[serde(rename_all = "camelCase")]

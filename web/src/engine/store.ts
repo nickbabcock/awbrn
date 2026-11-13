@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AreaStrikesPreviewed,
   AttackPreviewChanged,
+  BoardView,
   PlannerSelectedUnit,
   ReplayPositionChanged,
   ReplayViewpointChanged,
@@ -38,6 +39,8 @@ interface GameState {
   areaStrikes: AreaStrikesPreviewed | null;
   /** The unit selected on a move planner board, or null without one. */
   plannerSelection: PlannerSelectedUnit | null;
+  /** What the camera shows of the board, or null before a board has drawn. */
+  boardView: BoardView | null;
 }
 
 interface GameActions {
@@ -53,6 +56,7 @@ interface GameActions {
   setReplayViewpoint: (replayViewpoint: ReplayViewpointChanged | null) => void;
   setAreaStrikes: (areaStrikes: AreaStrikesPreviewed | null) => void;
   setPlannerSelection: (plannerSelection: PlannerSelectedUnit | null) => void;
+  setBoardView: (boardView: BoardView | null) => void;
   reset: () => void;
 }
 
@@ -69,6 +73,7 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
   replayViewpoint: null,
   areaStrikes: null,
   plannerSelection: null,
+  boardView: null,
   actions: {
     setCurrentDay: (day) => set({ currentDay: day }),
     setPlayerRoster: (playerRoster) => set({ playerRoster }),
@@ -82,6 +87,7 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
     setReplayViewpoint: (replayViewpoint) => set({ replayViewpoint }),
     setAreaStrikes: (areaStrikes) => set({ areaStrikes }),
     setPlannerSelection: (plannerSelection) => set({ plannerSelection }),
+    setBoardView: (boardView) => set({ boardView }),
     reset: () =>
       set({
         currentDay: 1,
@@ -96,6 +102,7 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
         replayViewpoint: null,
         areaStrikes: null,
         plannerSelection: null,
+        boardView: null,
       }),
   },
 }));
