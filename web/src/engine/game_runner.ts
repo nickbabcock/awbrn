@@ -22,7 +22,7 @@ import type {
 } from "#/wasm/awbrn_wasm.js";
 import type { PlayerCommand } from "#/matches/match_protocol.ts";
 import type { LiveMatchPlayer, PlannerLuck } from "./worker_module";
-import { createGameAssetConfig } from "./asset_manifest";
+import { gameAssetPaths } from "./asset_manifest";
 import { useGameStore } from "./store";
 import type { GameWorker } from "./worker_types";
 
@@ -280,7 +280,7 @@ export class GameRunner {
         .createGame(
           transfer(surface.offscreen, [surface.offscreen]),
           size,
-          createGameAssetConfig(),
+          gameAssetPaths,
           inputConfig,
           proxy((event: GameEvent) => {
             if (version === this.surfaceVersion) this.handleGameEvent(event);

@@ -1,6 +1,5 @@
-import coPortraitAtlas from "../../../assets/data/co_portraits.json";
 import coPortraitSheetAssetUrl from "../../../assets/textures/co_portraits.png?url";
-import { DEFAULT_CO_PORTRAIT_KEY } from "#/co_roster.ts";
+import { coPortraitAtlas, DEFAULT_CO_PORTRAIT_KEY } from "#/co_roster.ts";
 
 export { DEFAULT_CO_PORTRAIT_KEY };
 
@@ -13,18 +12,6 @@ interface CoPortraitAtlasEntry {
   y: number;
   width: number;
   height: number;
-}
-
-interface CoPortraitAtlasData {
-  size: {
-    width: number;
-    height: number;
-  };
-  cellWidth: number;
-  cellHeight: number;
-  columns: number;
-  rows: number;
-  portraits: CoPortraitAtlasEntry[];
 }
 
 export interface CoPortraitEntry extends CoPortraitAtlasEntry {
@@ -40,12 +27,11 @@ let catalogByAwbwId: Map<number, CoPortraitEntry> | undefined;
 
 export function loadCoPortraitCatalog(): CoPortraitCatalog {
   if (!catalog) {
-    const atlas = coPortraitAtlas as CoPortraitAtlasData;
-    const portraits = atlas.portraits.map((portrait) => ({
+    const portraits = coPortraitAtlas.portraits.map((portrait) => ({
       ...portrait,
       sheetUrl: coPortraitSheetAssetUrl,
-      sheetWidth: atlas.size.width,
-      sheetHeight: atlas.size.height,
+      sheetWidth: coPortraitAtlas.size.width,
+      sheetHeight: coPortraitAtlas.size.height,
     }));
     catalog = new Map(portraits.map((portrait) => [portrait.key, portrait]));
     catalogByAwbwId = new Map(portraits.map((portrait) => [portrait.awbwId, portrait]));

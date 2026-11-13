@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import { GameRunner } from "./game_runner.ts";
@@ -8,13 +8,7 @@ import type { GameEvent } from "#/wasm/awbrn_wasm.js";
 
 type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
 function surfaceFixture() {
-  // The game's asset URLs resolve against the page, which a browser has.
-  vi.stubGlobal("location", { href: "https://example.com/" });
   const runner = new GameRunner();
   const createGame = vi.fn<GameWorker["createGame"]>();
   const internals = runner as unknown as {

@@ -1,25 +1,21 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createGameAssetConfig } from "./asset_manifest";
+import { describe, expect, it } from "vitest";
+import { gameAssetPaths, resolveGameAssets } from "./asset_manifest";
 
-afterEach(() => {
-  vi.unstubAllGlobals();
+describe("gameAssetPaths", () => {
+  it("lists the engine assets at root-relative paths", () => {
+    expect(gameAssetPaths.get("textures/tiles.png")).toMatch(/^\/\S+\.png$/);
+  });
 });
 
-describe("createGameAssetConfig", () => {
-  it("resolves the game assets against the given base URL", () => {
-    const config = createGameAssetConfig("https://example.com/matches/12");
-
-    expect(config.staticAssetUrls.get("textures/tiles.png")).toMatch(
-      /^https:\/\/example\.com\/\S+\.png$/,
+describe("resolveGameAssets", () => {
+  it("resolves each path against the base URL", () => {
+    const config = resolveGameAssets(
+      new Map([["textures/tiles.png", "/assets/tiles-abc.png"]]),
+      "https://cdn.example.com/assets/worker-123.js",
     );
-    for (const url of config.staticAssetUrls.values()) {
-      expect(url.startsWith("https://example.com/")).toBe(true);
-    }
-  });
 
-  it("explains that it needs the browser when there is no page URL", () => {
-    vi.stubGlobal("location", undefined);
-
-    expect(() => createGameAssetConfig()).toThrow(/must be created in the browser/);
+    expect(config.staticAssetUrls).toEqual(
+      new Map([["textures/tiles.png", "https://cdn.example.com/assets/tiles-abc.png"]]),
+    );
   });
 });
