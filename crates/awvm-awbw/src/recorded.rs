@@ -14,9 +14,9 @@ use awbw_replay::AwbwReplay;
 use indexmap::IndexMap;
 
 use awbw_replay::turn_models::{
-    Action, CombatUnit, EliminatedInfo, EndInfo, FireAction, GameOverAction, HpEffect, MoveAction,
-    PowerAction, RepairedUnit, TargetedPlayer, UnitChange, UnitMap, UnitProperty, UpdatedInfo,
-    WeatherCode,
+    Action, CombatUnit, Coordinate, EliminatedInfo, EndInfo, FireAction, GameOverAction, HpEffect,
+    MoveAction, PowerAction, RepairedUnit, TargetedPlayer, UnitChange, UnitMap, UnitProperty,
+    UpdatedInfo, WeatherCode,
 };
 use awvm::commander::{self, PowerLevel};
 use awvm::event::Event;
@@ -706,16 +706,21 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
         .iter()
         .position(|commander| commander.active)
         .ok_or(RecordedAdapterError::Missing("active commander"))?;
-    player.power_state = match action.co_power.as_str() {
-        "Y" | "Power" => PowerState::Cop {
-            commander_slot: slot as u8,
-        },
-        "S" | "Super" => PowerState::Scop {
-            commander_slot: slot as u8,
-        },
+    let level = match action.co_power.as_str() {
+        "Y" | "Power" => PowerLevel::Cop,
+        "S" | "Super" => PowerLevel::Scop,
         _ => return Err(RecordedAdapterError::Missing("known power level")),
     };
+    player.power_state = match level {
+        PowerLevel::Cop => PowerState::Cop {
+            commander_slot: slot as u8,
+        },
+        PowerLevel::Scop => PowerState::Scop {
+            commander_slot: slot as u8,
+        },
+    };
     let commander = &mut player.commanders[slot];
+    let commander_kind = commander.id;
     commander.power_charge = awbw_power_charge(action.players_cop);
     commander.power_uses = commander.power_uses.saturating_add(1);
 
@@ -730,17 +735,24 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
             apply_hp_effect(state, effect);
         }
     }
+    let mut replaced = HashSet::new();
     if let Some(groups) = &action.unit_replace {
-        let mut seen = HashSet::new();
         for change in groups
             .values()
             .filter_map(|group| group.units.as_ref())
             .flatten()
         {
-            if seen.insert(change.units_id) {
+            if replaced.insert(unit_id(change.units_id)) {
                 apply_unit_change(state, change)?;
             }
         }
+    }
+    if let Some(strike) = commander::power_immobilizing_strike(commander_kind, level) {
+        let centers = action
+            .missile_coords
+            .as_deref()
+            .ok_or(RecordedAdapterError::Missing("immobilizing strike center"))?;
+        apply_immobilizing_strike(state, &owner, strike, centers, &replaced)?;
     }
     // AWBW omits loaded units from Jess power recipient rows even though
     // Turbo Charge and Overdrive resupply their internal cargo state. The
@@ -977,7 +989,7 @@ fn apply_end(state: &mut State, updated: &UpdatedInfo) -> Result<(), RecordedAda
     let next_seat = state.player_index(&next);
     for unit in &mut state.units {
         if Some(unit.owner) == next_seat {
-            unit.action = UnitAction::Ready;
+            unit.action = unit.action.at_owner_turn_start();
         }
     }
     if let Some(funds) = targeted_hidden(&updated.next_funds)
@@ -1240,6 +1252,50 @@ fn set_player_funds(
         .find_player_mut(&player_id(player))
         .ok_or(RecordedAdapterError::UnknownPlayer(player))?
         .funds = u64::from(funds);
+    Ok(())
+}
+
+/// Ex Machina damages and immobilizes every enemy unit in its area, but AWBW
+/// lists only the units the activating player can see. The listed units keep
+/// the HP that AWBW recorded; the ruleset gives the damage for the rest.
+fn apply_immobilizing_strike(
+    state: &mut State,
+    owner: &PlayerId,
+    strike: commander::ImmobilizingStrike,
+    centers: &[Coordinate],
+    listed: &HashSet<UnitId>,
+) -> Result<(), RecordedAdapterError> {
+    let seat = state
+        .player_index(owner)
+        .ok_or(RecordedAdapterError::Missing("activating player"))?;
+    let enemies: HashSet<_> = state
+        .players
+        .seats_off_team(&state.player(seat).team)
+        .collect();
+    let centers = centers
+        .iter()
+        .map(|center| pos(center.x, center.y))
+        .collect::<Result<Vec<_>, _>>()?;
+    for unit in &mut state.units {
+        let Location::Board { position } = unit.location else {
+            continue;
+        };
+        if !enemies.contains(&unit.owner)
+            || !centers
+                .iter()
+                .any(|center| strike.area.covers(*center, position))
+        {
+            continue;
+        }
+        if !listed.contains(&unit.id) {
+            let hp = unit
+                .hp
+                .saturating_sub(strike.area.damage)
+                .max(strike.minimum_hp);
+            unit.hp = display_hp(hp.div_ceil(10));
+        }
+        unit.action = UnitAction::Immobilized;
+    }
     Ok(())
 }
 

@@ -14,3 +14,4 @@ mod masked_hp;
 mod move_planner;
 mod recorded_outcomes;
 mod visual_attacker_hp;
+mod von_bolt;

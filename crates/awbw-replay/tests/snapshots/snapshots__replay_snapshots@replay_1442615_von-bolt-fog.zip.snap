@@ -1,0 +1,289 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_1442615_von-bolt-fog.zip
+---
+{
+  "checksum": "0x0e65b21fe39732bdf01b513a94d2a0c9da4d57ebed2a20c2e3d51ccfd29fd315",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 52
+        }
+      },
+      "file_path": "1442615",
+      "file_size": 182258
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 6,
+              "player_id": 3386075
+            },
+            {
+              "day": 1,
+              "elements": 7,
+              "player_id": 3375609
+            },
+            {
+              "day": 2,
+              "elements": 7,
+              "player_id": 3386075
+            },
+            {
+              "day": 2,
+              "elements": 11,
+              "player_id": 3375609
+            },
+            {
+              "day": 3,
+              "elements": 9,
+              "player_id": 3386075
+            },
+            {
+              "day": 3,
+              "elements": 11,
+              "player_id": 3375609
+            },
+            {
+              "day": 4,
+              "elements": 11,
+              "player_id": 3386075
+            },
+            {
+              "day": 4,
+              "elements": 15,
+              "player_id": 3375609
+            },
+            {
+              "day": 5,
+              "elements": 15,
+              "player_id": 3386075
+            },
+            {
+              "day": 5,
+              "elements": 15,
+              "player_id": 3375609
+            },
+            {
+              "day": 6,
+              "elements": 15,
+              "player_id": 3386075
+            },
+            {
+              "day": 6,
+              "elements": 19,
+              "player_id": 3375609
+            },
+            {
+              "day": 7,
+              "elements": 21,
+              "player_id": 3386075
+            },
+            {
+              "day": 7,
+              "elements": 23,
+              "player_id": 3375609
+            },
+            {
+              "day": 8,
+              "elements": 24,
+              "player_id": 3386075
+            },
+            {
+              "day": 8,
+              "elements": 26,
+              "player_id": 3375609
+            },
+            {
+              "day": 9,
+              "elements": 26,
+              "player_id": 3386075
+            },
+            {
+              "day": 9,
+              "elements": 29,
+              "player_id": 3375609
+            },
+            {
+              "day": 10,
+              "elements": 31,
+              "player_id": 3386075
+            },
+            {
+              "day": 10,
+              "elements": 28,
+              "player_id": 3375609
+            },
+            {
+              "day": 11,
+              "elements": 27,
+              "player_id": 3386075
+            },
+            {
+              "day": 11,
+              "elements": 32,
+              "player_id": 3375609
+            },
+            {
+              "day": 12,
+              "elements": 32,
+              "player_id": 3386075
+            },
+            {
+              "day": 12,
+              "elements": 29,
+              "player_id": 3375609
+            },
+            {
+              "day": 13,
+              "elements": 37,
+              "player_id": 3386075
+            },
+            {
+              "day": 13,
+              "elements": 32,
+              "player_id": 3375609
+            },
+            {
+              "day": 14,
+              "elements": 33,
+              "player_id": 3386075
+            },
+            {
+              "day": 14,
+              "elements": 29,
+              "player_id": 3375609
+            },
+            {
+              "day": 15,
+              "elements": 40,
+              "player_id": 3386075
+            },
+            {
+              "day": 15,
+              "elements": 58,
+              "player_id": 3375609
+            },
+            {
+              "day": 16,
+              "elements": 32,
+              "player_id": 3386075
+            },
+            {
+              "day": 16,
+              "elements": 29,
+              "player_id": 3375609
+            },
+            {
+              "day": 17,
+              "elements": 32,
+              "player_id": 3386075
+            },
+            {
+              "day": 17,
+              "elements": 33,
+              "player_id": 3375609
+            },
+            {
+              "day": 18,
+              "elements": 33,
+              "player_id": 3386075
+            },
+            {
+              "day": 18,
+              "elements": 34,
+              "player_id": 3375609
+            },
+            {
+              "day": 19,
+              "elements": 34,
+              "player_id": 3386075
+            },
+            {
+              "day": 19,
+              "elements": 34,
+              "player_id": 3375609
+            },
+            {
+              "day": 20,
+              "elements": 37,
+              "player_id": 3386075
+            },
+            {
+              "day": 20,
+              "elements": 58,
+              "player_id": 3375609
+            },
+            {
+              "day": 21,
+              "elements": 29,
+              "player_id": 3386075
+            },
+            {
+              "day": 21,
+              "elements": 26,
+              "player_id": 3375609
+            },
+            {
+              "day": 22,
+              "elements": 35,
+              "player_id": 3386075
+            },
+            {
+              "day": 22,
+              "elements": 32,
+              "player_id": 3375609
+            },
+            {
+              "day": 23,
+              "elements": 36,
+              "player_id": 3386075
+            },
+            {
+              "day": 23,
+              "elements": 38,
+              "player_id": 3375609
+            },
+            {
+              "day": 24,
+              "elements": 32,
+              "player_id": 3386075
+            },
+            {
+              "day": 24,
+              "elements": 40,
+              "player_id": 3375609
+            },
+            {
+              "day": 25,
+              "elements": 36,
+              "player_id": 3386075
+            },
+            {
+              "day": 25,
+              "elements": 38,
+              "player_id": 3375609
+            },
+            {
+              "day": 26,
+              "elements": 41,
+              "player_id": 3386075
+            },
+            {
+              "day": 26,
+              "elements": 40,
+              "player_id": 3375609
+            }
+          ]
+        }
+      },
+      "file_path": "a1442615",
+      "file_size": 142199
+    }
+  ]
+}

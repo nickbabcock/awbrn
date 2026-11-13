@@ -1,0 +1,6 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+expression: snapshot
+input_file: assets/replays/replay_1442615_von-bolt-fog.zip
+---
+map=174768 size=22x22 players=2 units=9 state=bdd9bfb8c04fd7f2 observations=7b8d456ac9f44e09

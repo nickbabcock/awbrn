@@ -886,11 +886,7 @@ fn normalize_actions(next: &mut State, incoming: &Incoming, events: &mut Vec<Eve
     unit_indices.sort_by_key(|left| left.0);
     for (unit_id, index) in unit_indices {
         let from = next.units[index].action;
-        next.units[index].action = if from == UnitAction::Immobilized {
-            UnitAction::Spent
-        } else {
-            UnitAction::Ready
-        };
+        next.units[index].action = from.at_owner_turn_start();
         events.push(Event::UnitActionChanged {
             unit: unit_id,
             from,
