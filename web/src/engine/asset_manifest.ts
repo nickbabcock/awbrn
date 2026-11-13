@@ -6,18 +6,27 @@ import tilesTextureUrl from "../../../assets/textures/tiles.png?url";
 import uiTextureUrl from "../../../assets/textures/ui.png?url";
 import unitsTextureUrl from "../../../assets/textures/units.png?url";
 
-const toAbsoluteAssetUrl = (assetUrl: string) => new URL(assetUrl, import.meta.url).toString();
+const staticAssets: [key: string, url: string][] = [
+  ["textures/tiles.png", tilesTextureUrl],
+  ["textures/units.png", unitsTextureUrl],
+  ["textures/ui.png", uiTextureUrl],
+  ["data/ui_atlas.json", uiAtlasUrl],
+];
 
-export const staticAssetUrls = new Map<string, string>([
-  ["textures/tiles.png", toAbsoluteAssetUrl(tilesTextureUrl)],
-  ["textures/units.png", toAbsoluteAssetUrl(unitsTextureUrl)],
-  ["textures/ui.png", toAbsoluteAssetUrl(uiTextureUrl)],
-  ["data/ui_atlas.json", toAbsoluteAssetUrl(uiAtlasUrl)],
-]);
-
-export const gameAssetConfig: GameAssetConfig = {
-  staticAssetUrls,
-};
+/**
+ * The engine's assets, with each URL made absolute against `baseUrl`.
+ *
+ * Call it from the browser only. The server bundle has no usable
+ * import.meta.url, so resolving these when the module loads would fail every
+ * server-rendered page that imports it.
+ */
+export function createGameAssetConfig(baseUrl: string | URL = import.meta.url): GameAssetConfig {
+  return {
+    staticAssetUrls: new Map(
+      staticAssets.map(([key, url]) => [key, new URL(url, baseUrl).toString()]),
+    ),
+  };
+}
 
 export const coPortraitAtlas = coPortraitAtlasData;
 export const coPortraitSheetAssetUrl = coPortraitSheetUrl;
