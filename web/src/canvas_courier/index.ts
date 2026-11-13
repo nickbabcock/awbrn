@@ -47,3 +47,4 @@ export { CanvasCourierHost } from "./host";
 export { useCanvasCourierSurface } from "./useCanvasCourierSurface";
 export type { GameFullscreenMode } from "./useGameFullscreen";
 export type { CanvasCourierSurface } from "./types";
+export { pressBoardKey } from "./press_key";

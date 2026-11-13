@@ -27,7 +27,7 @@ describe("formatBracket", () => {
 });
 
 describe("engagementLabel", () => {
-  it("names the army in full rather than by the code the sprite colours", () => {
+  it("names the army in full rather than by the code the sprite colors", () => {
     expect(engagementLabel("Fire", forecast())).toBe(
       "Fire Blue Moon Tank at 7 HP, dealing 65 – 75%, taking 18 – 22% back",
     );

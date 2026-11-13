@@ -1,6 +1,6 @@
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Icon } from "@astryxdesign/core/Icon";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack, Stack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import {
@@ -20,11 +20,13 @@ import type {
 } from "#/wasm/awbrn_wasm.js";
 import {
   terrainSpriteStyle,
+  terrainTileStyle,
   uiAtlasSpriteStyle,
   unitSpriteStyle,
 } from "#/components/game_sprites.ts";
 import { useGameStore } from "#/engine/store.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
 const TERRAIN_STAR = uiAtlasSpriteStyle("TerrainStar.png");
 const HP = uiAtlasSpriteStyle("HP.png");
@@ -113,7 +115,7 @@ export function TileInfoBar() {
  * on the left, readings stacked beside it — because the two rows are the same
  * kind of object and the window is narrower for holding one shape rather than
  * two. The name says the terrain alone; the army holding a property is read
- * from the colours the tile is drawn in, so the owner is named in the
+ * from the colors the tile is drawn in, so the owner is named in the
  * description of the sprite rather than spent on a line.
  */
 function TerrainLines({ tile }: { tile: HoveredTile }) {
@@ -166,7 +168,7 @@ function TerrainLines({ tile }: { tile: HoveredTile }) {
  * The unit standing there: the sprite, and what it has left.
  *
  * The sprite names the unit — it is the same art the player is already reading
- * on the board, in the army's own colours — so the readout spends its width on
+ * on the board, in the army's own colors — so the readout spends its width on
  * the three numbers instead. Those numbers stack in one column with their icons
  * aligned, which is the game's own status window: three short lines a player
  * can read the shape of without reading the digits.
@@ -212,12 +214,12 @@ function UnitLines({ unit }: { unit: HoveredUnit }) {
  * The three lines are the legend for the three fields painted on the board, and
  * each carries the mark its field is drawn with: a filled square for the
  * movement glass, a solid outline for the firing band, a dashed outline for
- * sight. A player who cannot separate the fields by colour separates them here
+ * sight. A player who cannot separate the fields by color separates them here
  * by form, and the same marks tell them which field is which on the board.
  *
  * They are also the answer on their own. "How far does a Rocket move" is
  * usually the whole question, and a player who only wanted the number should
- * not have to read a field of colour to get it.
+ * not have to read a field of color to get it.
  *
  * The block names the unit it answers for, which the two blocks above it never
  * have to do. Those report the tile under the pointer; this one reports the
@@ -333,7 +335,7 @@ type ShiftDirection = "down" | "up";
 /**
  * The mark on a reading the board has moved off its base.
  *
- * It wears the colour of the line it sits on rather than a colour of its own,
+ * It wears the color of the line it sits on rather than a color of its own,
  * because the three hues in this window already spend themselves naming the
  * three fields, and a fourth would read as a fourth field. The direction is
  * what carries the meaning: rain closing a Recon's eyes and a mountain opening
@@ -358,7 +360,7 @@ function ShiftMark({ direction }: { direction: ShiftDirection }) {
 /** Which of the three fields a mark stands for. */
 type FieldMark = "glass" | "band" | "sight";
 
-/** The colour a mark wears, matching the field it names on the board. */
+/** The color a mark wears, matching the field it names on the board. */
 function glyphColor(mark: FieldMark) {
   switch (mark) {
     case "band":
@@ -373,7 +375,7 @@ function glyphColor(mark: FieldMark) {
 /**
  * The mark a field is drawn with, at the size of a line of the HUD face.
  *
- * These are the board's own forms rather than three coloured dots: the fill,
+ * These are the board's own forms rather than three colored dots: the fill,
  * the solid outline, and the dashed outline are exactly what the tiles wear,
  * so the legend teaches the board and the board teaches the legend.
  */
@@ -670,7 +672,7 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   // Health that a single shot can end is the one number in the readout that
-  // changes a decision, so it is the one number that changes colour.
+  // changes a decision, so it is the one number that changes color.
   critical: {
     color: colorVars["--color-text-red"],
   },
@@ -695,7 +697,7 @@ const styles = stylex.create({
     display: "block",
     flex: "0 0 auto",
   },
-  // Each mark wears its own field's colour, so the legend and the board agree
+  // Each mark wears its own field's color, so the legend and the board agree
   // on both counts: the same form and the same hue.
   glyphGlass: {
     color: colorVars["--color-icon-cyan"],
@@ -716,5 +718,587 @@ const styles = stylex.create({
   sprite: {
     display: "block",
     flex: "0 0 auto",
+  },
+});
+
+/* ------------------------------------------------------------------------ */
+/* Docked readouts: the tile window beside the board, the one-line tile row, */
+/* and the tile sheet a phone opens from it.                                 */
+/* ------------------------------------------------------------------------ */
+
+/** The reach of the unit being read, as three short figures. */
+function reachFigures(reach: InspectedUnitReadout) {
+  const range =
+    reach.rangeMinimum === undefined || reach.rangeMaximum === undefined
+      ? "—"
+      : reach.rangeMinimum === reach.rangeMaximum
+        ? `${reach.rangeMaximum}`
+        : `${reach.rangeMinimum}–${reach.rangeMaximum}`;
+  return [
+    { label: "Move", value: `${reach.movement}` },
+    { label: "Range", value: range },
+    ...(reach.sight === undefined ? [] : [{ label: "Sight", value: `${reach.sight.tiles}` }]),
+  ];
+}
+
+function TerrainArt({ tile }: { tile: HoveredTile }) {
+  const label =
+    tile.terrainOwner === undefined ? tile.terrainName : `${tile.terrainOwner} ${tile.terrainName}`;
+  // Raw span: an inline atlas crop, which no Astryx component takes.
+  return (
+    <span
+      aria-label={label}
+      role="img"
+      style={terrainTileStyle(tile.terrainSpriteIndex, 2)}
+      {...stylex.props(docked.art)}
+    />
+  );
+}
+
+function UnitArt({ unit, factionCode }: { unit: HoveredUnit["unit"]; factionCode: string }) {
+  // Raw span: an inline atlas crop, which no Astryx component takes.
+  return (
+    <span
+      aria-hidden="true"
+      style={unitSpriteStyle(unit, factionCode, 2) ?? undefined}
+      {...stylex.props(docked.art)}
+    />
+  );
+}
+
+function Figure({
+  icon,
+  label,
+  value,
+  isCritical = false,
+}: {
+  icon: ReturnType<typeof uiAtlasSpriteStyle>;
+  label: string;
+  value: string;
+  isCritical?: boolean;
+}) {
+  return (
+    <HStack as="span" aria-label={`${label} ${value}`} role="img" xstyle={docked.figure}>
+      {/* Raw span: an inline atlas crop, which no Astryx component takes. */}
+      <span aria-hidden="true" style={icon ?? undefined} {...stylex.props(docked.figureIcon)} />
+      <Text
+        color="inherit"
+        type="inherit"
+        aria-hidden="true"
+        xstyle={isCritical && docked.critical}
+      >
+        {value}
+      </Text>
+    </HStack>
+  );
+}
+
+function unitFigures(unit: HoveredUnit) {
+  return [
+    {
+      icon: HP,
+      label: "HP",
+      value: unit.health === undefined ? "—" : `${unit.health}`,
+      isCritical: unit.health !== undefined && unit.health <= 3,
+    },
+    ...(unit.ammoDisplay === "none"
+      ? []
+      : [
+          {
+            icon: AMMO,
+            label: "Ammo",
+            value:
+              unit.ammoDisplay === "unlimited"
+                ? "∞"
+                : unit.ammo === undefined
+                  ? "—"
+                  : `${unit.ammo}`,
+            isCritical: false,
+          },
+        ]),
+    {
+      icon: FUEL,
+      label: "Fuel",
+      value: unit.fuel === undefined ? "—" : `${unit.fuel}`,
+      isCritical: false,
+    },
+  ];
+}
+
+/**
+ * The tile window, docked beside the board in its column (184px): the
+ * terrain (art, name, defense, coordinates), the unit on it (art, name, HP,
+ * ammo, fuel), and the reach of the unit being read (Move, Range, Sight).
+ * With nothing under the cursor it draws nothing. It changes with the
+ * selection in two frames (90ms, stepped); hovering only rewrites it.
+ */
+export function TileWindow() {
+  const tile = useGameStore((state) => state.hoveredTile);
+  const reach = useGameStore((state) => state.inspectedUnit);
+  if (tile === null && reach === null) return null;
+
+  return (
+    <section
+      aria-label="Tile under the cursor"
+      key={selectionKey(reach)}
+      {...stylex.props(docked.window, docked.lands)}
+    >
+      {tile === null ? null : (
+        <HStack as="span" xstyle={docked.windowLine}>
+          <TerrainArt tile={tile} />
+          <Stack as="span" xstyle={docked.stack}>
+            <Text color="inherit" type="inherit" xstyle={docked.name}>
+              {tile.terrainName}
+            </Text>
+            <HStack as="span" xstyle={docked.figures}>
+              <Figure icon={TERRAIN_STAR} label="Defense" value={`${tile.defenseStars}`} />
+              {tile.captureRemaining === undefined ? null : (
+                <Figure icon={CAPTURE} label="Capture left" value={`${tile.captureRemaining}`} />
+              )}
+              <Text color="inherit" type="inherit" xstyle={docked.coordinate}>
+                {tile.x + 1},{tile.y + 1}
+              </Text>
+            </HStack>
+          </Stack>
+        </HStack>
+      )}
+      {tile?.unit === undefined ? null : (
+        <HStack as="span" xstyle={[docked.windowLine, docked.ruled]}>
+          <UnitArt factionCode={tile.unit.factionCode} unit={tile.unit.unit} />
+          <Stack as="span" xstyle={docked.stack}>
+            <Text color="inherit" type="inherit" xstyle={docked.name}>
+              {tile.unit.name}
+            </Text>
+            <HStack as="span" xstyle={docked.figures}>
+              {unitFigures(tile.unit).map((figure) => (
+                <Figure key={figure.label} {...figure} />
+              ))}
+            </HStack>
+          </Stack>
+        </HStack>
+      )}
+      {reach === null ? null : (
+        <Stack as="span" xstyle={docked.reach}>
+          {reachFigures(reach).map((figure) => (
+            <Stack as="span" key={figure.label} xstyle={docked.reachCell}>
+              <Text color="inherit" type="inherit" xstyle={docked.reachLabel}>
+                {figure.label}
+              </Text>
+              <Text color="inherit" type="inherit" xstyle={docked.reachValue}>
+                {figure.value}
+              </Text>
+            </Stack>
+          ))}
+        </Stack>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The tile as one 44px line.
+ *
+ * Desktop (the rail's View block, `hasNames`): sprites, names and figures, no
+ * coordinates. Phone: terrain art and defense, a rule, the unit art, then HP,
+ * ammo and fuel in 40px tabular cells; the terrain is named only on an empty
+ * tile. With a unit selected the line shows that unit's Move, Range and Sight.
+ * `onOpen` makes the whole line the key to the tile sheet.
+ */
+export function TileLine({
+  hasNames = false,
+  onOpen,
+}: {
+  hasNames?: boolean;
+  onOpen?: () => void;
+}) {
+  const tile = useGameStore((state) => state.hoveredTile);
+  const reach = useGameStore((state) => state.inspectedUnit);
+  if (tile === null && reach === null) return null;
+
+  const content =
+    reach !== null && !hasNames ? (
+      <>
+        {/* Raw span: an inline atlas crop, which no Astryx component takes. */}
+        <span
+          aria-hidden="true"
+          style={unitSpriteStyle(reach.unit, reach.factionCode, 2) ?? undefined}
+          {...stylex.props(docked.art)}
+        />
+        <Text color="inherit" type="inherit" xstyle={docked.name}>
+          {reach.name}
+        </Text>
+        <HStack as="span" xstyle={docked.lineReach}>
+          {reachFigures(reach).map((figure) => (
+            <HStack as="span" key={figure.label} xstyle={docked.lineReachItem}>
+              <Text color="inherit" type="inherit" xstyle={docked.reachLabel}>
+                {figure.label}
+              </Text>
+              <Text color="inherit" type="inherit" xstyle={docked.reachValue}>
+                {figure.value}
+              </Text>
+            </HStack>
+          ))}
+        </HStack>
+      </>
+    ) : tile === null ? null : (
+      <>
+        <HStack as="span" xstyle={docked.lineGroup}>
+          <TerrainArt tile={tile} />
+          {hasNames || tile.unit === undefined ? (
+            <Text color="inherit" type="inherit" xstyle={docked.name}>
+              {tile.terrainName}
+            </Text>
+          ) : null}
+          <Figure icon={TERRAIN_STAR} label="Defense" value={`${tile.defenseStars}`} />
+          {tile.captureRemaining === undefined ? null : (
+            <Figure icon={CAPTURE} label="Capture left" value={`${tile.captureRemaining}`} />
+          )}
+        </HStack>
+        {tile.unit === undefined ? null : (
+          <HStack as="span" xstyle={[docked.lineGroup, docked.lineUnit]}>
+            <UnitArt factionCode={tile.unit.factionCode} unit={tile.unit.unit} />
+            {hasNames ? (
+              <Text color="inherit" type="inherit" xstyle={docked.name}>
+                {tile.unit.name}
+              </Text>
+            ) : null}
+            {unitFigures(tile.unit).map((figure) => (
+              <Text
+                color="inherit"
+                type="inherit"
+                key={figure.label}
+                xstyle={!hasNames && docked.cell}
+              >
+                <Figure {...figure} />
+              </Text>
+            ))}
+          </HStack>
+        )}
+      </>
+    );
+
+  if (onOpen) {
+    return (
+      <button
+        aria-haspopup="dialog"
+        aria-label={tileLineLabel(tile, reach)}
+        key={selectionKey(reach)}
+        onClick={onOpen}
+        type="button"
+        {...stylex.props(docked.line, docked.lineKey, docked.lands)}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <HStack
+      as="span"
+      aria-label={tileLineLabel(tile, reach)}
+      key={selectionKey(reach)}
+      role="group"
+      xstyle={[docked.line, docked.lands]}
+    >
+      {content}
+    </HStack>
+  );
+}
+
+/** Which unit is selected, as far as the readout tells one from another. */
+function selectionKey(reach: InspectedUnitReadout | null): string {
+  if (reach === null) return "none";
+  return `${reach.factionCode}:${reach.unit}:${reach.name}:${reach.movement}`;
+}
+
+function tileLineLabel(tile: HoveredTile | null, reach: InspectedUnitReadout | null): string {
+  if (reach !== null) return `${reach.name}: tile details`;
+  if (tile === null) return "Tile details";
+  return tile.unit === undefined
+    ? `${tile.terrainName}: tile details`
+    : `${tile.unit.name} on ${tile.terrainName}: tile details`;
+}
+
+/** The tile sheet's body: names, every stat, and the reach. */
+export function TileDetails() {
+  const tile = useGameStore((state) => state.hoveredTile);
+  const reach = useGameStore((state) => state.inspectedUnit);
+
+  return (
+    <VStack gap={0}>
+      {tile === null ? null : (
+        <HStack as="span" xstyle={docked.sheetLine}>
+          <TerrainArt tile={tile} />
+          <Stack as="span" xstyle={docked.stack}>
+            <Text color="inherit" type="inherit" xstyle={docked.name}>
+              {tile.terrainOwner === undefined
+                ? tile.terrainName
+                : `${tile.terrainName} · ${tile.terrainOwner}`}
+            </Text>
+            <HStack as="span" xstyle={docked.figures}>
+              <Figure icon={TERRAIN_STAR} label="Defense" value={`${tile.defenseStars}`} />
+              {tile.captureRemaining === undefined ? null : (
+                <Figure
+                  icon={CAPTURE}
+                  label="Capture left"
+                  value={`${tile.captureRemaining} / ${CAPTURE_POINTS}`}
+                />
+              )}
+              <Text color="inherit" type="inherit" xstyle={docked.coordinate}>
+                {tile.x + 1},{tile.y + 1}
+              </Text>
+            </HStack>
+          </Stack>
+        </HStack>
+      )}
+      {tile?.unit === undefined ? null : (
+        <HStack as="span" xstyle={docked.sheetLine}>
+          <UnitArt factionCode={tile.unit.factionCode} unit={tile.unit.unit} />
+          <Stack as="span" xstyle={docked.stack}>
+            <Text color="inherit" type="inherit" xstyle={docked.name}>
+              {tile.unit.name}
+            </Text>
+            <HStack as="span" xstyle={docked.figures}>
+              <Figure
+                icon={HP}
+                isCritical={tile.unit.health !== undefined && tile.unit.health <= 3}
+                label="HP"
+                value={tile.unit.health === undefined ? "—" : `${tile.unit.health} / 10`}
+              />
+              {tile.unit.ammoDisplay === "none" ? null : (
+                <Figure
+                  icon={AMMO}
+                  label="Ammo"
+                  value={
+                    tile.unit.ammoDisplay === "unlimited"
+                      ? "∞"
+                      : `${tile.unit.ammo ?? "—"} / ${tile.unit.maxAmmo}`
+                  }
+                />
+              )}
+              <Figure
+                icon={FUEL}
+                label="Fuel"
+                value={`${tile.unit.fuel ?? "—"} / ${tile.unit.maxFuel}`}
+              />
+            </HStack>
+            {tile.unit.loadedUnits.length === 0 ? null : (
+              <HStack as="span" xstyle={docked.figures}>
+                <Cargo units={tile.unit.loadedUnits} />
+              </HStack>
+            )}
+          </Stack>
+        </HStack>
+      )}
+      {reach === null ? null : (
+        <Stack as="span" xstyle={[docked.reach, docked.sheetReach]}>
+          {reachFigures(reach).map((figure) => (
+            <Stack as="span" key={figure.label} xstyle={docked.reachCell}>
+              <Text color="inherit" type="inherit" xstyle={docked.reachLabel}>
+                {figure.label}
+              </Text>
+              <Text color="inherit" type="inherit" xstyle={docked.reachValue}>
+                {figure.value}
+              </Text>
+            </Stack>
+          ))}
+        </Stack>
+      )}
+    </VStack>
+  );
+}
+
+/** Two visible frames: halfway, then there. */
+const land = stylex.keyframes({
+  from: { opacity: 0 },
+  to: { opacity: 1 },
+});
+
+const docked = stylex.create({
+  lands: {
+    animationName: {
+      default: land,
+      [pageLayout.reducedMotionMedia]: "none",
+    },
+    animationDuration: "90ms",
+    animationTimingFunction: awbrnVars.easeStep,
+  },
+  window: {
+    display: "flex",
+    flexDirection: "column",
+    flexShrink: 0,
+    inlineSize: "184px",
+    minInlineSize: "184px",
+    maxInlineSize: "100%",
+    overflow: "hidden",
+    borderRadius: radiusVars["--radius-element"],
+    backgroundColor: awbrnVars.sheet,
+    boxShadow: awbrnVars.shadowSheet,
+    color: colorVars["--color-text-primary"],
+    userSelect: "none",
+  },
+  windowLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: awbrnVars.spacing2_5,
+    paddingBlock: spacingVars["--spacing-2"],
+    paddingInlineStart: spacingVars["--spacing-2"],
+    paddingInlineEnd: spacingVars["--spacing-3"],
+    minInlineSize: 0,
+  },
+  ruled: {
+    borderBlockStartColor: awbrnVars.rule,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: borderVars["--border-width"],
+  },
+  art: {
+    display: "block",
+    flexShrink: 0,
+  },
+  stack: {
+    display: "grid",
+    gap: spacingVars["--spacing-1"],
+    minInlineSize: 0,
+  },
+  name: {
+    minInlineSize: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: awbrnVars.text14,
+    fontWeight: 750,
+    lineHeight: 1.15,
+  },
+  figures: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: `${spacingVars["--spacing-1"]} ${awbrnVars.spacing2_5}`,
+  },
+  figure: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-1"],
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: awbrnVars.text12_5,
+    fontStretch: "87.5%",
+    fontVariantNumeric: "tabular-nums",
+    fontWeight: 600,
+    lineHeight: 1,
+    whiteSpace: "nowrap",
+  },
+  figureIcon: {
+    display: "block",
+    flexShrink: 0,
+  },
+  critical: {
+    color: awbrnVars.danger,
+  },
+  coordinate: {
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: awbrnVars.text11_5,
+    fontStretch: "87.5%",
+    fontWeight: 500,
+    lineHeight: 1,
+    color: awbrnVars.textTertiary,
+  },
+  reach: {
+    display: "grid",
+    gridAutoFlow: "column",
+    gridAutoColumns: "minmax(0, 1fr)",
+    borderBlockStartColor: awbrnVars.rule,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: borderVars["--border-width"],
+  },
+  reachCell: {
+    display: "grid",
+    gap: spacingVars["--spacing-1"],
+    paddingBlock: spacingVars["--spacing-2"],
+    paddingInline: awbrnVars.spacing2_5,
+    borderInlineStartColor: awbrnVars.rule,
+    borderInlineStartStyle: "solid",
+    borderInlineStartWidth: {
+      default: borderVars["--border-width"],
+      ":first-child": 0,
+    },
+  },
+  reachLabel: {
+    fontSize: awbrnVars.textMicro,
+    fontWeight: 650,
+    fontStretch: "85%",
+    letterSpacing: "0.06em",
+    lineHeight: 1,
+    textTransform: "uppercase",
+    color: colorVars["--color-text-secondary"],
+  },
+  reachValue: {
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: awbrnVars.text15,
+    fontStretch: "87.5%",
+    fontVariantNumeric: "tabular-nums",
+    fontWeight: 600,
+    lineHeight: 1,
+  },
+  line: {
+    display: "flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-3"],
+    minInlineSize: 0,
+    blockSize: "44px",
+    paddingInlineStart: spacingVars["--spacing-1"],
+    paddingInlineEnd: spacingVars["--spacing-3"],
+    overflow: "hidden",
+    borderRadius: radiusVars["--radius-element"],
+    backgroundColor: awbrnVars.sheet,
+    color: colorVars["--color-text-primary"],
+    whiteSpace: "nowrap",
+  },
+  lineKey: {
+    flexGrow: 1,
+    borderStyle: "none",
+    fontFamily: "inherit",
+    textAlign: "start",
+    cursor: "pointer",
+  },
+  lineGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-2"],
+    minInlineSize: 0,
+  },
+  lineUnit: {
+    paddingInlineStart: spacingVars["--spacing-3"],
+    borderInlineStartColor: awbrnVars.rule,
+    borderInlineStartStyle: "solid",
+    borderInlineStartWidth: borderVars["--border-width"],
+  },
+  cell: {
+    display: "inline-flex",
+    minInlineSize: "40px",
+  },
+  lineReach: {
+    display: "inline-flex",
+    alignItems: "baseline",
+    gap: spacingVars["--spacing-3"],
+    marginInlineStart: "auto",
+  },
+  lineReachItem: {
+    display: "inline-flex",
+    alignItems: "baseline",
+    gap: spacingVars["--spacing-1"],
+  },
+  sheetLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-3"],
+    minBlockSize: "64px",
+    paddingBlock: awbrnVars.spacing2_5,
+    paddingInline: spacingVars["--spacing-4"],
+    borderBlockEndColor: awbrnVars.rule,
+    borderBlockEndStyle: "solid",
+    borderBlockEndWidth: borderVars["--border-width"],
+  },
+  sheetReach: {
+    borderBlockStartWidth: 0,
   },
 });

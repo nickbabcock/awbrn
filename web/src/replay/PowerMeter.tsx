@@ -183,7 +183,7 @@ function Zone({
         <HStack align="end" gap={0} key={index} xstyle={styles.cell}>
           <HStack
             gap={0}
-            style={{ inlineSize: `${clamp(charged - offset - index) * 100}%` }}
+            width={`${clamp(charged - offset - index) * 100}%`}
             xstyle={[styles.fill, isReady && styles.fillReady]}
           />
         </HStack>

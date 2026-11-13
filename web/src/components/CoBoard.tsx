@@ -33,6 +33,7 @@ import { CoPortrait } from "#/components/CoPortrait.tsx";
 import { loadCoPortraitCatalog } from "#/components/co_portraits.ts";
 import { findableRef, useFindableLabels } from "#/components/useFindableLabels.ts";
 import { Button } from "#/ui/Button.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
 /**
  * How wide a tile runs and how many screen pixels its portrait takes.
@@ -44,9 +45,6 @@ const BOARD_SIZES = {
   md: { portrait: 64, tile: 66 },
   sm: { portrait: 64, tile: 68 },
 } as const;
-
-/** A device whose pointer can rest on a face without pressing it. */
-const HOVER_MEDIA = "@media (hover: hover) and (pointer: fine)";
 
 /** How many screen pixels a portrait takes in the banned strip. */
 const STRIP_PORTRAIT_SIZE = 32;
@@ -204,17 +202,19 @@ export function CoBoard(props: CoBoardProps) {
                     {/* The name shows only when find in page lands on it. It
                         has no box of its own while hidden, and the tile's
                         label already names the face to a screen reader. */}
-                    <span
+                    <Text
+                      color="inherit"
+                      type="inherit"
                       aria-hidden
                       data-find-label={co.awbwId}
                       hidden
                       ref={findableRef}
-                      {...stylex.props(styles.findLabel)}
+                      xstyle={styles.findLabel}
                     >
                       <Text color="inherit" type="label">
                         {co.displayName}
                       </Text>
-                    </span>
+                    </Text>
                   </SelectableCard>
                 );
               })}
@@ -323,7 +323,7 @@ const styles = stylex.create({
   briefingSlot: {
     order: {
       default: -1,
-      [HOVER_MEDIA]: 0,
+      [pageLayout.hoverMedia]: 0,
     },
     // One height for every CO, so neither the faces above nor Ready below
     // moves as the readout changes.

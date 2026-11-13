@@ -20,7 +20,7 @@ export function formatBracket(bracket: DamageBracket): string {
  *
  * The visible row spends its width on numbers a player scans between; a screen
  * reader needs the same facts as prose, including the army spelled out rather
- * than left as the two letters whose colour the sprite is carrying.
+ * than left as the two letters whose color the sprite is carrying.
  *
  * It carries the whole load now that the row itself is wordless: the visible
  * key says direction with a drawn arrow, which a reader who cannot see it needs
