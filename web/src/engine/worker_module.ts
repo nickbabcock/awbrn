@@ -13,6 +13,7 @@ import init, {
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import type { PlayerCommand } from "#/matches/match_protocol.ts";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
+import { resolveGameAssets } from "./resolve_game_assets";
 import { proxy } from "comlink";
 import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 import {
@@ -215,11 +216,14 @@ export const loadBattleCatalog = async (): Promise<BattleCatalog> => {
 export const createGame = async (
   canvas: OffscreenCanvas,
   display: CanvasDisplay,
-  assetConfig: ConstructorParameters<typeof BevyApp>[2],
+  assetPaths: ReadonlyMap<string, string>,
   inputConfig: SharedCanvasInputConfig,
   eventCallback: ConstructorParameters<typeof BevyApp>[3],
 ) => {
   await initialized;
+  // The engine needs absolute URLs. Vite gives the assets root-relative paths,
+  // so resolving them against this module uses only its origin.
+  const assetConfig = resolveGameAssets(assetPaths, import.meta.url);
   const app = new BevyApp(canvas, display, assetConfig, eventCallback);
   const inputBridge = new WorkerInputBridge(inputConfig, app);
 
