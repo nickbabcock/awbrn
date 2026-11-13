@@ -532,15 +532,15 @@ fn terrain_name(terrain: Terrain) -> &'static str {
 
 /// The tile the picker draws for one terrain kind.
 ///
-/// Most terrain the board draws is shaped by its neighbours: a road bends, a
+/// Most terrain the board draws is shaped by its neighbors: a road bends, a
 /// river forks, a sea tile takes its coastline from four directions at once. A
-/// picker has no neighbours, so each kind is shown in its standalone form —
+/// picker has no neighbors, so each kind is shown in its standalone form —
 /// the straight run, the open water, the unowned building. It is the same art
-/// the map uses, which is the point: a player picks the ground by recognising
+/// the map uses, which is the point: a player picks the ground by recognizing
 /// it rather than by reading its name.
 ///
 /// A property is drawn unowned. The army holding a building changes only its
-/// colours, and the defense it grants is the same for whoever stands on it.
+/// colors, and the defense it grants is the same for whoever stands on it.
 fn tile_art(terrain: Terrain) -> GraphicalTerrain {
     match terrain {
         Terrain::Airport => GraphicalTerrain::Property(Property::Airport(Faction::Neutral)),
@@ -573,7 +573,7 @@ fn tile_art(terrain: Terrain) -> GraphicalTerrain {
 /// Commander display names, taken from the same table that names the portraits.
 ///
 /// Keeping one source means the picker cannot say "Von Bolt" beside a portrait
-/// labelled "von-bolt".
+/// labeled "von-bolt".
 fn commander_name(commander: CommanderKind) -> &'static str {
     awbrn_content::co_portraits()
         .iter()
