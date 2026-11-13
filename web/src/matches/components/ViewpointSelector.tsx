@@ -30,8 +30,8 @@ export function ViewpointSelector({
   viewpoint: ReplayViewpointChanged | null;
 }) {
   const options = [
-    { value: EVERYONE, label: "Everyone", description: "The whole board, fog lifted" },
-    { value: TURN_HOLDER, label: "Turn holder", description: "Follows the seat that is playing" },
+    { value: EVERYONE, label: "Everyone" },
+    { value: TURN_HOLDER, label: "Turn holder" },
     ...armies.map((army) => ({
       value: String(army.entry.playerId),
       label: army.name,

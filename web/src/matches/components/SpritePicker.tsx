@@ -1,18 +1,22 @@
 import { inputWrapperStyles } from "@astryxdesign/core/Field";
 import { Grid } from "@astryxdesign/core/Grid";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Popover } from "@astryxdesign/core/Popover";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 import {
   borderVars,
   colorVars,
+  focusVars,
   radiusVars,
   spacingVars,
   textSizeVars,
   typographyVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown as ChevronDownIcon } from "pixelarticons/react/ChevronDown";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { IconChevronDown } from "#/ui/icons.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
 /**
  * Four columns, sized to the cells rather than to the room a desk has: a
@@ -24,16 +28,16 @@ const PANEL_INLINE_SIZE = "min(calc(100vw - var(--spacing-6)), 30rem)";
 /**
  * A choice made from the art the game already draws.
  *
- * A unit, a commander and a tile are things a player recognises before they
+ * A unit, a commander and a tile are things a player recognizes before they
  * read: an Advance Wars player knows the Mega Tank silhouette and the mountain
  * cell without either being named, and has known them since long before they
  * opened this panel. A dropdown throws that away and asks them to read
  * twenty-five names in one column instead, which is the slowest way to answer
  * a question they could have answered by looking.
  *
- * So the choice is a grid of the real sprites, in the army's own colours, the
+ * So the choice is a grid of the real sprites, in the army's own colors, the
  * way the game's own build menu asks it. The names stay under the art rather
- * than being replaced by it, because a grid of unlabelled sprites is a memory
+ * than being replaced by it, because a grid of unlabeled sprites is a memory
  * test, and the figure that decides the choice — what a unit costs, what a
  * tile shelters — is on the cell beside them.
  */
@@ -125,9 +129,13 @@ export function SpritePicker({
           type="button"
           {...stylex.props(inputWrapperStyles.base, styles.trigger, triggerXstyle)}
         >
-          <span {...stylex.props(styles.triggerArt)}>{triggerArt}</span>
-          <span {...stylex.props(styles.triggerLabel)}>{name}</span>
-          <ChevronDownIcon aria-hidden height={14} width={14} />
+          <HStack as="span" xstyle={styles.triggerArt}>
+            {triggerArt}
+          </HStack>
+          <Text color="inherit" type="inherit" xstyle={styles.triggerLabel}>
+            {name}
+          </Text>
+          <Icon icon={IconChevronDown} size="sm" />
         </button>
       )}
     </Popover>
@@ -138,7 +146,7 @@ export function SpritePicker({
  * The open grid.
  *
  * It is one listbox however many headings divide it, so the arrow keys walk
- * the whole catalogue: a player moving right off the last ground unit lands on
+ * the whole catalog: a player moving right off the last ground unit lands on
  * the first air unit rather than stopping at a heading they did not put there.
  */
 function SpriteGrid({
@@ -425,14 +433,14 @@ const styles = stylex.create({
     borderRadius: radiusVars["--radius-element"],
     backgroundColor: {
       default: colorVars["--color-background-surface"],
-      ":hover": { "@media (hover: hover)": colorVars["--color-background-muted"] },
+      ":hover": { default: null, [pageLayout.hoverMedia]: colorVars["--color-background-muted"] },
     },
     color: colorVars["--color-text-primary"],
     cursor: "pointer",
     // The cursor moves onto a key; the key does not move under the cursor.
     outline: {
       default: null,
-      ":focus-visible": `2px solid ${colorVars["--color-accent"]}`,
+      ":focus-visible": `2px solid ${focusVars["--focus-outline-color"]}`,
     },
     outlineOffset: { default: null, ":focus-visible": "2px" },
   },
@@ -440,7 +448,7 @@ const styles = stylex.create({
   cellSelected: {
     backgroundColor: {
       default: colorVars["--color-accent"],
-      ":hover": { "@media (hover: hover)": colorVars["--color-accent"] },
+      ":hover": { default: null, [pageLayout.hoverMedia]: colorVars["--color-accent"] },
     },
   },
   cellArt: {
@@ -476,7 +484,7 @@ const styles = stylex.create({
 });
 
 /**
- * How tall a cell's art is, per catalogue.
+ * How tall a cell's art is, per catalog.
  *
  * A terrain cell is twice the height of a unit cell because a tile carries
  * what rises above it — a mountain peak, an HQ roof — and cropping that away

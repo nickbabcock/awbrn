@@ -116,7 +116,7 @@ export function buildTurnDigest(waiting: WaitingMatch[]): PushDigestPayload {
 
   return {
     type: "turnDigest",
-    title: waiting.length === 1 ? "Your turn" : `Your turn in ${waiting.length} matches`,
+    title: waiting.length === 1 ? "Your move" : `Your move in ${waiting.length} matches`,
     body: remaining > 0 ? `${names.join(", ")} and ${remaining} more` : names.join(", "),
     url:
       waiting.length === 1 && waiting[0] !== undefined

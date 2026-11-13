@@ -7,6 +7,7 @@ import {
   isListedOnLadder,
   isProvisional,
   isRankedPoolOpen,
+  leadingOwedPairingId,
   ladderScore,
   readTimeDeviation,
   seekStatusLine,
@@ -238,5 +239,21 @@ describe("the ladder place", () => {
 
   it("counts nothing against a rating nobody doubts", () => {
     expect(ladderScore(1800, 0)).toBe(1800);
+  });
+});
+
+describe("leadingOwedPairingId", () => {
+  it("gives the red key to the first owed pairing only", () => {
+    const pending = [
+      { matchId: "ready", isReady: true },
+      { matchId: "first-owed", isReady: false },
+      { matchId: "second-owed", isReady: false },
+    ];
+    expect(leadingOwedPairingId(pending)).toBe("first-owed");
+  });
+
+  it("gives no red key when every pairing is ready", () => {
+    expect(leadingOwedPairingId([{ matchId: "ready", isReady: true }])).toBeNull();
+    expect(leadingOwedPairingId([])).toBeNull();
   });
 });
