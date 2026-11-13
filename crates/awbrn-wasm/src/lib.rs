@@ -7,7 +7,8 @@ use awbrn_client::{
     ReplayLoaded, ReplayPositionChanged, ReplayToLoad, ReplayViewpointChanged,
     StaticAssetPathResolver, TileHoverChanged, TileSelected, TurnReadinessChanged,
     UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved, UnloadCommandRequested,
-    core::coords::LogicalPx, features::CameraCommand,
+    core::coords::LogicalPx,
+    features::{CameraCommand, ReducedMotion},
 };
 use awbrn_map::Pos;
 use awbrn_map::ValidatedMapDocument;
@@ -500,6 +501,14 @@ impl BevyApp {
             tile: Pos::new(tile_x, tile_y),
             ease,
         });
+    }
+
+    /// Land every camera move at once rather than sliding, for a viewer who
+    /// asked for less motion. This covers the board's own framing of a
+    /// selection as well as [`Self::center_on`].
+    #[wasm_bindgen]
+    pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.app.world_mut().insert_resource(ReducedMotion(reduced));
     }
 
     /// Paint the canvas outside the map in this sRGB color, with `alpha`

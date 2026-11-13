@@ -36,6 +36,13 @@ type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;
 
 export interface GameSurface extends CanvasCourierSurface {}
 
+/** The viewer's motion preference, when this page can read one. */
+function reducedMotionQuery(): MediaQueryList | undefined {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-reduced-motion: reduce)")
+    : undefined;
+}
+
 export class GameRunner {
   readonly host = new CanvasCourierHost("", (surface, transport) => {
     this.startSurface(surface, transport);
@@ -51,6 +58,15 @@ export class GameRunner {
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
   private worker: GameWorker | undefined;
+  private readonly motionQuery = reducedMotionQuery();
+  /** Tell the engine when the viewer changes their motion preference mid-session. */
+  private readonly forwardMotionPreference = (event: MediaQueryListEvent) => {
+    void this.game?.setReducedMotion(event.matches);
+  };
+
+  constructor() {
+    this.motionQuery?.addEventListener?.("change", this.forwardMotionPreference);
+  }
 
   private startSurface(surface: GameSurface, transport: CanvasCourierTransport): void {
     if (this.surfaceVersion > 0) {
@@ -262,6 +278,7 @@ export class GameRunner {
     this.liveCommandHandler = undefined;
     this.endTurnRequestHandler = undefined;
     this.host.dispose();
+    this.motionQuery?.removeEventListener?.("change", this.forwardMotionPreference);
     this.game = undefined;
     this.pendingLiveTransitions = [];
     this.liveBaselinePending = true;
@@ -292,7 +309,10 @@ export class GameRunner {
             if (version === this.surfaceVersion) this.handleGameEvent(event);
           }),
         )
-        .then((game) => {
+        .then(async (game) => {
+          // The engine eases the camera itself when it frames a selection, so
+          // it holds the preference rather than each call that moves it.
+          await game.setReducedMotion(this.motionQuery?.matches ?? false);
           if (version === this.surfaceVersion) this.game = game;
           return game;
         })
@@ -526,6 +546,11 @@ export class GameRunner {
   /**
    * Zoom to exactly `scale`, centered on `tile` when one is given.
    * {@link restoreView} goes back to the view this left.
+   *
+   * No screen calls this yet. The whole map's "tap to jump" is the engine's
+   * own: a tap below the touch floor returns to the floor at the tapped tile,
+   * which the page could only repeat after the engine had already read the
+   * tap. Kept as the one way to ask for an exact scale.
    */
   async zoomTo(scale: number, tile?: BoardTile): Promise<void> {
     const game = await this.requireGame();
@@ -538,13 +563,20 @@ export class GameRunner {
     await game.restoreView();
   }
 
-  /** Move the view to `tile` at the same scale, sliding there unless `ease` is false. */
+  /**
+   * Move the view to `tile` at the same scale, sliding there unless `ease` is
+   * false. Under `prefers-reduced-motion` the engine always jumps.
+   */
   async centerOn(tile: BoardTile, ease = true): Promise<void> {
     const game = await this.requireGame();
     await game.centerOn(tile, ease);
   }
 
-  /** Paint the canvas outside the map in this color. The engine opens on `#0a1128`. */
+  /**
+   * Paint the canvas outside the map in this color. The engine opens on
+   * `#0a1128` (ink 950), the table every screen sets the board on, so no
+   * screen calls this yet.
+   */
   async setClearColor(color: BoardColor): Promise<void> {
     const game = await this.requireGame();
     await game.setClearColor(color);
