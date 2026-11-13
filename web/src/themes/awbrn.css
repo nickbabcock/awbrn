@@ -308,7 +308,6 @@
       --color-ink-700: #283d78;
       --color-ink-600: #3b5299;
       --color-ink-300: #9eacd6;
-      --color-ink-200: #c9d2ef;
       --color-ink-100: #e4e9f8;
       --color-paper: #e6edf7;
       --color-paper-well: #d9e3f1;
@@ -320,7 +319,6 @@
       --color-text-on-ink-secondary: #a9b6de;
       --color-text-on-ink-strong: #ffffff;
       --color-airmail-red: #d42a3c;
-      --color-airmail-red-hover: #b81f31;
       --color-airmail-red-wash: #fbe3e6;
       --color-airmail-blue: #2747b0;
       --color-airmail-blue-on-ink: #9db2ff;
@@ -335,7 +333,6 @@
       --color-power-gold-dim: rgba(246, 197, 68, 0.22);
       --color-power-gold-on-paper: #e2a400;
       --color-power-gold-track-on-paper: #d6deec;
-      --color-danger-tag: #ffd6db;
       --airmail-band: repeating-linear-gradient(
         -45deg,
         #d42a3c 0 10px,
@@ -344,8 +341,6 @@
         #ffffff 25px 30px
       );
       --shadow-sheet: 0 1px 2px rgba(16, 27, 58, 0.06), 0 6px 16px -10px rgba(16, 27, 58, 0.28);
-      --shadow-owed: 0 1px 2px rgba(16, 27, 58, 0.08), 0 14px 32px -14px rgba(16, 27, 58, 0.42);
-      --shadow-float: 0 2px 6px rgba(6, 10, 26, 0.22), 0 22px 48px -16px rgba(6, 10, 26, 0.55);
       --shadow-board: 0 0 0 2px #283d78, 0 24px 60px -20px rgba(0, 0, 0, 0.8);
       --shadow-board-picture: drop-shadow(0 24px 40px rgba(0, 0, 0, 0.65));
       --hatch-well: repeating-linear-gradient(
@@ -382,9 +377,6 @@
       --text-17-size: 17px;
       --text-26-size: 26px;
       --size-current-mark: 3px;
-      --color-border-disabled: #c7d2e5;
-      --color-border-soft: #c7d2e5;
-      --offset-control-pressed: 0px;
       --color-faction-os-accent: #ff4f4e;
       --color-faction-os-soft: #ff4f4e33;
       --color-faction-os-text: #8a1420;

@@ -23,11 +23,6 @@ import { overlayMotion } from "#/ui/overlayMotion.ts";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { useCompactTouch } from "#/ui/useCompactTouch.ts";
 
-/**
- * The account key (44px): the player's initial, and on a wide screen their name.
- * It holds Turn alerts and Sign out, as a popover on desktop and a bottom
- * sheet on a phone.
- */
 export function AccountMenu({ session }: { session: Session }) {
   const navigate = useNavigate();
   const router = useRouter();
@@ -113,7 +108,6 @@ export function AccountMenu({ session }: { session: Session }) {
     </button>
   );
 
-  // A phone gets a bottom sheet that hugs the menu; a desktop a popover.
   if (isCompactTouch) {
     return (
       <>
@@ -205,7 +199,6 @@ const styles = stylex.create({
   menu: {
     minInlineSize: 0,
   },
-  // A long name holds one line and ends in an ellipsis.
   oneLine: {
     overflow: "hidden",
     textOverflow: "ellipsis",

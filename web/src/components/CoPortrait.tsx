@@ -16,14 +16,7 @@ interface CoPortraitProps {
   size?: number;
 }
 
-/**
- * A commander's portrait at any size.
- *
- * New work should use `CoStamp` (`#/components/CoStamp.tsx`), which draws the
- * portrait at a whole scale (32, 64 or 96px) on the army's field. This
- * component stays for screens that size a portrait freely; framed, it wears
- * the stamp's own perforated margin (`StampFrame`) so it still reads as a stamp.
- */
+/** A commander's portrait at any size. Prefer `CoStamp`, which keeps whole pixels. */
 export function CoPortrait({
   catalog,
   coKey,

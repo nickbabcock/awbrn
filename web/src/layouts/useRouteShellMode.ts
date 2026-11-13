@@ -4,14 +4,9 @@ import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 
 /**
  * The shell mode a route implies, so a match and the task screens get their
- * frame in the first paint without each screen having to remember it. A
- * screen can still state its own mode with `<ShellMode>`; the replay viewer
- * does so once an archive is loaded (its upload page is a Replays section page
- * with the tab bar).
- *
- * A match's address holds four screens, so its phase decides: an active or a
- * finished match is pushed (the board), a lobby or a ranked pairing is a task.
- * The route loader has the match in the query cache before this renders.
+ * frame in the first paint. A match's address holds several screens, so its
+ * phase decides. The route loader has the match in the query cache before
+ * this renders.
  */
 export function useRouteShellMode(): "pushed" | "task" | null {
   const location = useRouterState({

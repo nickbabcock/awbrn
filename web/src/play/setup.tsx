@@ -14,11 +14,7 @@ import { AirmailBand } from "#/ui/AirmailBand.tsx";
 import { IconChevronDown, IconChevronUp } from "#/ui/icons.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
-/**
- * The parts match setup is built from (a lobby and a ranked pairing): a
- * 380px side column of sheets beside the tier picker, which stack on a phone
- * with the picker between the briefing and the rest.
- */
+/** The parts match setup (a lobby and a ranked pairing) is built from. */
 export const setupStyles = stylex.create({
   head: {
     display: "flex",
@@ -73,12 +69,6 @@ export const setupStyles = stylex.create({
     order: {
       default: null,
       [pageLayout.phoneMedia]: 3,
-    },
-  },
-  desktopOnly: {
-    display: {
-      default: null,
-      [pageLayout.phoneMedia]: "none",
     },
   },
   phoneHidden: {
@@ -191,7 +181,6 @@ export function BattlefieldPicture({ mapId, revision }: { mapId: string; revisio
         sourceHeight={picture.height}
         sourceWidth={picture.width}
         src={map.screenshot.full}
-        tone="bare"
       />
     </VStack>
   );
@@ -200,7 +189,6 @@ export function BattlefieldPicture({ mapId, revision }: { mapId: string; revisio
 const styles = stylex.create({
   clock: {
     position: "relative",
-    display: "flex",
     alignItems: "center",
     gap: awbrnVars.spacing3_5,
     paddingBlockStart: awbrnVars.spacing4_5,
@@ -264,7 +252,6 @@ const styles = stylex.create({
     marginInline: `calc(${awbrnVars.spacing2_5} * -1)`,
   },
   facts: {
-    display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     columnGap: spacingVars["--spacing-4"],

@@ -1,10 +1,6 @@
 /*
- * THE PAIRING
- *
- * The one moment in ranked play a player can walk away at no cost, so it is a
- * briefing rather than a form: the map is the subject, the window is the only
- * urgent thing on it, and Ready is the one red key. The server chose the map,
- * the army and the turn order; the player chooses a commander.
+ * A ranked pairing to confirm. The server chose the map, the army and the
+ * turn order; the player chooses a commander.
  *
  * The pairing shows the match and not the person. The server withholds the
  * other player's name, rating and commander until both are ready, so nobody
@@ -293,12 +289,7 @@ export function RankedPendingPage({
                   <>
                     <Fact isStrong>
                       {faction ? (
-                        <FactionLogo
-                          factionCode={faction.code}
-                          isFramed={false}
-                          isLabelHidden
-                          size={14}
-                        />
+                        <FactionLogo factionCode={faction.code} isLabelHidden size={14} />
                       ) : null}
                       {faction?.displayName ?? "Unknown army"}
                     </Fact>
@@ -333,7 +324,7 @@ export function RankedPendingPage({
               )}
             </Sheet>
           </VStack>
-          <VStack xstyle={[setupStyles.after, setupStyles.desktopOnly]}>
+          <VStack xstyle={[setupStyles.after, setupStyles.phoneHidden]}>
             <Sheet aria-label="Battlefield">
               <SheetBody xstyle={setupStyles.pickerBody}>
                 <BattlefieldPicture mapId={match.mapId} revision={match.mapRevision} />

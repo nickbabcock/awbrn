@@ -1,29 +1,14 @@
 import { Icon } from "@astryxdesign/core/Icon";
-import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { borderVars, spacingVars, typeScaleVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
-import { CountBadge } from "#/ui/CountBadge.tsx";
-import { IconHome, type DrawnIcon } from "#/ui/icons.tsx";
+import { AwaitingCount } from "#/ui/CountBadge.tsx";
+import { IconHome } from "#/ui/icons.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { shellVars } from "#/ui/shell.stylex.ts";
 import { SITE_SECTIONS, sectionForPath } from "#/ui/site_sections.ts";
 
-interface Tab {
-  id: string;
-  label: string;
-  icon: DrawnIcon;
-  to: string;
-  isCurrent: boolean;
-  count: number;
-}
-
-/**
- * The phone's 64px bottom tab bar: Home, Play, My games, Maps, Replays
- * (signed out: Play, Maps, Replays). It is fixed to the bottom edge, pads the
- * home indicator, and steps aside on pushed and task screens.
- */
 export function TabBar({
   awaiting,
   isSignedIn,
@@ -35,27 +20,11 @@ export function TabBar({
 }) {
   const current = sectionForPath(pathname);
   const sections = SITE_SECTIONS.filter((section) => isSignedIn || !section.requiresSession);
-  const tabs: Tab[] = [
+  const tabs = [
     ...(isSignedIn
-      ? [
-          {
-            id: "home",
-            label: "Home",
-            icon: IconHome,
-            to: "/",
-            isCurrent: pathname === "/",
-            count: 0,
-          },
-        ]
+      ? [{ id: "home", label: "Home", icon: IconHome, to: "/", isCurrent: pathname === "/" }]
       : []),
-    ...sections.map((section) => ({
-      id: section.id,
-      label: section.label,
-      icon: section.icon,
-      to: section.to,
-      isCurrent: current?.id === section.id,
-      count: section.id === "mine" ? awaiting : 0,
-    })),
+    ...sections.map((section) => ({ ...section, isCurrent: current?.id === section.id })),
   ];
 
   return (
@@ -69,14 +38,7 @@ export function TabBar({
         >
           <Icon icon={tab.icon} size="lg" xstyle={styles.icon} />
           {tab.label}
-          {tab.count > 0 ? (
-            <>
-              <CountBadge count={tab.count} xstyle={styles.count} />
-              <VisuallyHidden>
-                {tab.count === 1 ? "1 match waits on you" : `${tab.count} matches wait on you`}
-              </VisuallyHidden>
-            </>
-          ) : null}
+          {tab.id === "mine" ? <AwaitingCount count={awaiting} xstyle={styles.count} /> : null}
         </Link>
       ))}
     </nav>

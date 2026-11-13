@@ -17,9 +17,8 @@ import {
  *
  * The DOM sizes the box (`useTableLayout`): `min(table, map at 2x)` per axis.
  * The engine fills the box and centers the map in it. On an axis the map fits,
- * a 2px ink frame sits on the map edge from the first tile row; on a cropped
- * axis the box runs edge to edge and fades into the table while more map lies
- * that way.
+ * a frame sits on the map edge from the first tile row; on a cropped axis the
+ * box fades into the table while more map lies that way.
  *
  * Desktop modes place the docked columns: `dock` puts `side` left of the board
  * and `locator` right of it; `gather` puts both in one column against the rail;
@@ -115,10 +114,7 @@ export function BoardTable({
       {mode === "pending" && notice !== null ? (
         <Stack xstyle={styles.notice}>{notice}</Stack>
       ) : waiting !== null && bv === null ? (
-        <HStack as="span" role="status" xstyle={styles.waiting}>
-          <Stack as="span" aria-hidden="true" xstyle={styles.waitingDot} />
-          {waiting}
-        </HStack>
+        <Waiting label={waiting} xstyle={styles.waiting} />
       ) : null}
       {floating}
     </Stack>
@@ -133,8 +129,12 @@ export function BoardTable({
 export function WaitingLine({ label }: { label: string }) {
   const { bv } = useBoardView();
   if (bv !== null) return null;
+  return <Waiting label={label} xstyle={styles.waitingLine} />;
+}
+
+function Waiting({ label, xstyle }: { label: string; xstyle: stylex.StyleXStyles }) {
   return (
-    <HStack as="span" role="status" xstyle={styles.waitingLine}>
+    <HStack as="span" role="status" xstyle={xstyle}>
       <Stack as="span" aria-hidden="true" xstyle={styles.waitingDot} />
       {label}
     </HStack>
@@ -233,17 +233,10 @@ function BoardFades({
     bottom: view.y + view.height < rect.map.height - 0.05,
   };
 
-  return (
-    <>
-      {more.left ? <i aria-hidden="true" {...stylex.props(styles.fade, styles.fadeLeft)} /> : null}
-      {more.right ? (
-        <i aria-hidden="true" {...stylex.props(styles.fade, styles.fadeRight)} />
-      ) : null}
-      {more.top ? <i aria-hidden="true" {...stylex.props(styles.fade, styles.fadeTop)} /> : null}
-      {more.bottom ? (
-        <i aria-hidden="true" {...stylex.props(styles.fade, styles.fadeBottom)} />
-      ) : null}
-    </>
+  return (["left", "right", "top", "bottom"] as const).map((side) =>
+    more[side] ? (
+      <i aria-hidden="true" key={side} {...stylex.props(styles.fade, fadeSides[side])} />
+    ) : null,
   );
 }
 
@@ -428,25 +421,28 @@ const styles = stylex.create({
     zIndex: 1,
     pointerEvents: "none",
   },
-  fadeLeft: {
+});
+
+const fadeSides = stylex.create({
+  left: {
     insetBlock: 0,
     insetInlineStart: 0,
     inlineSize: matchLayout.fadeDepth,
     backgroundImage: `linear-gradient(90deg, ${FADE}, transparent)`,
   },
-  fadeRight: {
+  right: {
     insetBlock: 0,
     insetInlineEnd: 0,
     inlineSize: matchLayout.fadeDepth,
     backgroundImage: `linear-gradient(-90deg, ${FADE}, transparent)`,
   },
-  fadeTop: {
+  top: {
     insetInline: 0,
     insetBlockStart: 0,
     blockSize: matchLayout.fadeDepth,
     backgroundImage: `linear-gradient(180deg, ${FADE}, transparent)`,
   },
-  fadeBottom: {
+  bottom: {
     insetInline: 0,
     insetBlockEnd: 0,
     blockSize: matchLayout.fadeDepth,

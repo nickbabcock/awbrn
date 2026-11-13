@@ -7,13 +7,10 @@ import { AirmailBand } from "#/ui/AirmailBand.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
 /**
- * The task dock (phone only): the choice so far and the one red key stay under
- * the thumb while a long form scrolls. A task screen renders
+ * The task dock (phone only) keeps the choice so far and its key under the
+ * thumb while a long form scrolls. A task screen renders
  * `<ShellMode mode="task" />` so the tab bar steps aside for it, and puts the
  * dock last in its page so it sticks to the bottom of the screen.
- *
- * `isOwed` runs the airmail band along its top (a pairing to confirm).
- * `keys` are one key, or two side by side (Decline | Ready).
  */
 export function TaskDock({
   isOwed = false,
@@ -50,8 +47,7 @@ const styles = stylex.create({
     gap: awbrnVars.spacing2_5,
     marginInline: `calc(${pageLayout.gutterPhone} * -1)`,
     // At the end of the page the dock meets the footer: it takes the paper
-    // page's 40px phone foot (Page's frame) rather than leaving a band of
-    // empty paper between them.
+    // page's phone foot rather than leaving a band of empty paper between them.
     marginBlockEnd: `calc(${PAGE_FOOT_PHONE} * -1)`,
     paddingBlockStart: spacingVars["--spacing-3"],
     paddingInline: pageLayout.gutterPhone,
@@ -68,13 +64,11 @@ const styles = stylex.create({
     inlineSize: "auto",
   },
   line: {
-    display: "flex",
     alignItems: "center",
     gap: awbrnVars.spacing2_5,
     minInlineSize: 0,
   },
   keys: {
-    display: "flex",
     gap: spacingVars["--spacing-2"],
   },
 });

@@ -1,11 +1,6 @@
 /*
- * THE RANKED HUB
- *
  * Async ranked play is a standing arrangement, not a queue: the player says
- * how many games ranked may hold, and the server keeps that many running. The
- * pool is the page. Its head carries the season; each game is a slot (the
- * game in play, the pairing to confirm, the seek still looking); its foot is
- * how many at a time and the switch. The standings sit beside it.
+ * how many games ranked may hold, and the server keeps that many running.
  *
  * This surface describes the player, never the pool: no count of who else is
  * seeking and no estimated wait. Elapsed wait is a fact about this player.
@@ -21,7 +16,7 @@ import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
 import { getFactionById } from "#/factions.ts";
@@ -377,7 +372,7 @@ function PairingSlot({
       <VStack as="span" xstyle={styles.slotText}>
         <b {...stylex.props(styles.slotTitle)}>{pairing.mapName}</b>
         <HStack as="span" xstyle={styles.slotMap}>
-          {faction ? <FactionLogo factionCode={faction.code} isFramed={false} size={14} /> : null}
+          {faction ? <FactionLogo factionCode={faction.code} size={14} /> : null}
           {isOwed ? null : (
             <Text color="secondary" type="supporting">
               Ready
@@ -430,7 +425,7 @@ function SeekSlot({ createdAt, number }: { createdAt: string; number: number }) 
   );
 }
 
-/** The standings: place, player, rating, and rated games (a phone drops games). */
+/** A phone drops the games column. */
 function Standings({ pool }: { pool: RankedPool }) {
   const headingId = useId();
   const session = useAppSession();
@@ -468,61 +463,31 @@ function Standings({ pool }: { pool: RankedPool }) {
         </thead>
         <tbody>
           {data.entries.map((entry) => (
-            <tr key={entry.userId} {...stylex.props(entry.isViewer && styles.youRow)}>
-              <td {...stylex.props(styles.td, styles.placeCell, figureStyles.figure)}>
-                {entry.rank}
-              </td>
-              <td {...stylex.props(styles.td)}>
-                <PlayerName isViewer={entry.isViewer} name={entry.name} />
-              </td>
-              <td
-                {...stylex.props(styles.td, styles.ratingCell, figureStyles.figure, styles.rating)}
-              >
-                {Math.round(entry.rating)}
-              </td>
-              <td
-                {...stylex.props(
-                  styles.td,
-                  styles.gamesCell,
-                  figureStyles.figure,
-                  styles.games,
-                  styles.notPhoneCell,
-                )}
-              >
-                {entry.ratedMatches}
-              </td>
-            </tr>
+            <StandingRow
+              isViewer={entry.isViewer}
+              key={entry.userId}
+              name={entry.name}
+              place={entry.rank}
+              rating={entry.rating}
+              ratedMatches={entry.ratedMatches}
+            />
           ))}
           {/* A provisional rating is not listed yet; the viewer still sees theirs. */}
           {viewer && session ? (
-            <tr {...stylex.props(styles.youRow)}>
-              <td {...stylex.props(styles.td, styles.placeCell, figureStyles.figure)}>
-                {/* Unplaced: a dash keeps the place column filled. */}
-                <Text aria-hidden="true" color="inherit" type="inherit">
-                  –
-                </Text>
-                <VisuallyHidden>Not placed yet</VisuallyHidden>
-              </td>
-              <td {...stylex.props(styles.td)}>
-                <PlayerName isViewer name={session.user.name} />
-              </td>
-              <td
-                {...stylex.props(styles.td, styles.ratingCell, figureStyles.figure, styles.rating)}
-              >
-                {Math.round(viewer.rating)}
-              </td>
-              <td
-                {...stylex.props(
-                  styles.td,
-                  styles.gamesCell,
-                  figureStyles.figure,
-                  styles.games,
-                  styles.notPhoneCell,
-                )}
-              >
-                {viewer.ratedMatches}
-              </td>
-            </tr>
+            <StandingRow
+              isViewer
+              name={session.user.name}
+              place={
+                <>
+                  <Text aria-hidden="true" color="inherit" type="inherit">
+                    –
+                  </Text>
+                  <VisuallyHidden>Not placed yet</VisuallyHidden>
+                </>
+              }
+              rating={viewer.rating}
+              ratedMatches={viewer.ratedMatches}
+            />
           ) : null}
         </tbody>
       </table>
@@ -530,16 +495,47 @@ function Standings({ pool }: { pool: RankedPool }) {
   );
 }
 
-function PlayerName({ isViewer, name }: { isViewer: boolean; name: string }) {
+function StandingRow({
+  isViewer,
+  name,
+  place,
+  rating,
+  ratedMatches,
+}: {
+  isViewer: boolean;
+  name: string;
+  place: ReactNode;
+  rating: number;
+  ratedMatches: number;
+}) {
   return (
-    <HStack as="span" xstyle={styles.player}>
-      <b>{name}</b>
-      {isViewer ? (
-        <HStack as="span" xstyle={styles.you}>
-          YOU
+    <tr {...stylex.props(isViewer && styles.youRow)}>
+      <td {...stylex.props(styles.td, styles.placeCell, figureStyles.figure)}>{place}</td>
+      <td {...stylex.props(styles.td)}>
+        <HStack as="span" xstyle={styles.player}>
+          <b>{name}</b>
+          {isViewer ? (
+            <HStack as="span" xstyle={styles.you}>
+              YOU
+            </HStack>
+          ) : null}
         </HStack>
-      ) : null}
-    </HStack>
+      </td>
+      <td {...stylex.props(styles.td, styles.ratingCell, figureStyles.figure, styles.rating)}>
+        {Math.round(rating)}
+      </td>
+      <td
+        {...stylex.props(
+          styles.td,
+          styles.gamesCell,
+          figureStyles.figure,
+          styles.games,
+          styles.notPhoneCell,
+        )}
+      >
+        {ratedMatches}
+      </td>
+    </tr>
   );
 }
 
@@ -562,7 +558,6 @@ const styles = stylex.create({
     minInlineSize: 0,
   },
   poolHead: {
-    display: "flex",
     alignItems: "baseline",
     gap: "12px",
   },

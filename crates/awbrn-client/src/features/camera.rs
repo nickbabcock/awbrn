@@ -105,11 +105,9 @@ pub struct FocusBoardOn {
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 struct CameraGoal(Option<Vec2>);
 
-/// Whether the viewer asked for less motion.
-///
-/// The page reads `prefers-reduced-motion` and sets this. Every move that
-/// would slide then lands in the frame it was asked for, whether the page or
-/// the board asked for it.
+/// Whether the viewer asked for less motion (`prefers-reduced-motion`). When
+/// set, every move that would slide lands at once, whether the page or the
+/// board asked for it.
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ReducedMotion(pub bool);
 

@@ -27,14 +27,6 @@ import { Sheet, SheetRow, SheetRows } from "#/ui/Sheet.tsx";
 const monthFormat = new Intl.DateTimeFormat("en-US", { month: "short" });
 const longDateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "long" });
 
-/**
- * My games, history: every finished battle as a report, postmarked with the
- * day it ended. The title and the result say how it went; the seats carry
- * who fought with which commander and why each army's battle ended; a ranked
- * report adds the rating it moved.
- * Each report ends on the two things a finished battle is still good for:
- * watching it again and taking the replay archive away.
- */
 export function MatchHistoryPage() {
   const historyQuery = useSuspenseInfiniteQuery(myCompletedMatchesQueryOptions());
   const [paginationError, setPaginationError] = useState<string | null>(null);
@@ -181,9 +173,8 @@ function ResultTag({ isHotseat, outcome }: { isHotseat: boolean; outcome: MatchO
 }
 
 /**
- * One seat in the report: crest, stamp, the player, and why their battle
- * ended. A seat with no recorded reason says nothing, except a hotseat's
- * winner: its tag says "Hotseat", so the seat says who won.
+ * A seat with no recorded reason says nothing, except a hotseat's winner: its
+ * tag says "Hotseat", so the seat says who won.
  */
 function ReportSeat({ isHotseat, seat }: { isHotseat: boolean; seat: MatchHistorySeat }) {
   const faction = getFactionById(seat.factionId);
@@ -195,9 +186,7 @@ function ReportSeat({ isHotseat, seat }: { isHotseat: boolean; seat: MatchHistor
         : null;
   return (
     <li {...stylex.props(styles.seat)}>
-      {faction ? (
-        <FactionLogo factionCode={faction.code} isFramed={false} isLabelHidden size={14} />
-      ) : null}
+      {faction ? <FactionLogo factionCode={faction.code} isLabelHidden size={14} /> : null}
       <SeatStamp coId={seat.coId} factionCode={faction?.code ?? null} />
       <b>{seat.userName}</b>
       {reason !== null ? (

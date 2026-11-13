@@ -1,10 +1,6 @@
 /*
- * FIRST-RUN HOME: YOUR FIRST MATCH
- *
- * A player with no matches yet gets a match to play rather than an empty
- * state: an S-rank map for two at its real tiles, their commander, a CPU
- * tier, and one red key that starts the match and opens the board. Lobbies
- * they could join follow as rows.
+ * Home for a player with no matches yet: a match against the CPU to start in
+ * one press rather than an empty state.
  */
 
 import { Heading } from "@astryxdesign/core/Heading";
@@ -81,15 +77,13 @@ export function FirstMatch({
           Your first match
         </Heading>
       </SheetHead>
-      {map ? (
-        <SheetBody>
+      <SheetBody>
+        {map ? (
           <CpuCard map={map} />
-        </SheetBody>
-      ) : (
-        <SheetBody>
+        ) : (
           <RouterButton label="New match" size="lg" to="/matches/new" variant="ink" />
-        </SheetBody>
-      )}
+        )}
+      </SheetBody>
       {lobbies.length > 0 ? (
         <SheetRows>
           {lobbies.map((lobby) => (
@@ -103,11 +97,6 @@ export function FirstMatch({
   );
 }
 
-/**
- * The CPU card: the map, its postage line and funds, then the player's
- * commander (the one place this screen names it, and the key into the tier
- * picker), the CPU's tier, Other map, and Play the CPU.
- */
 function CpuCard({ map }: { map: MapCatalogEntry }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -130,12 +119,10 @@ function CpuCard({ map }: { map: MapCatalogEntry }) {
   });
 
   /**
-   * Creates the match with the CPU seated and ready, takes the other seat
-   * with the chosen commander, and readies it, which starts the match. A
-   * failure after the match exists opens its lobby, where the seat can be
-   * finished by hand, rather than leaving a second match behind a retry.
-   * When the map's terrain failed to load, the press fetches it first; if it
-   * fails again, the map's problem stays named.
+   * Creates the match with the CPU seated, then takes and readies the other
+   * seat, which starts it. A failure after the match exists opens its lobby,
+   * where the seat can be finished by hand, rather than leaving a second
+   * match behind a retry.
    */
   async function playTheCpu(): Promise<void> {
     setProblem(null);
@@ -339,11 +326,6 @@ function playerFactionFor(document: { slotFactionIds: readonly number[] } | unde
   return document?.slotFactionIds[PLAYER_SLOT] ?? defaultFactionIdForSlot(PLAYER_SLOT);
 }
 
-/**
- * An open lobby the player could join: the map, its name, the host, terms
- * and seats, and a compact Join at the row's end so the red key stays the
- * only large control.
- */
 function LobbyRow({ lobby }: { lobby: MatchBrowseSummary }) {
   const host = lobby.seats.find((seat) => seat.isHost) ?? null;
   return (
@@ -380,9 +362,6 @@ function LobbyRow({ lobby }: { lobby: MatchBrowseSummary }) {
 }
 
 const styles = stylex.create({
-  // Desktop: the map at its real tiles beside the facts, the choice under
-  // them. Phone: the 2x minimap across the card, then the facts, then the
-  // choice.
   card: {
     display: "grid",
     gridTemplateColumns: {
@@ -418,9 +397,8 @@ const styles = stylex.create({
       default: "auto",
       [pageLayout.phoneMedia]: `${PHONE_WELL}px`,
     },
-    // The full picture's top row is the terrain overhang, transparent where
-    // nothing rises into it, so it stands in for the well's top letterbox.
-    paddingBlockStart: 0,
+    // No top padding: the full picture's top row is the terrain overhang,
+    // transparent where nothing rises into it, so it stands in for it.
     paddingBlockEnd: {
       default: spacingVars["--spacing-4"],
       [pageLayout.phoneMedia]: 0,
@@ -466,7 +444,6 @@ const styles = stylex.create({
     minInlineSize: 0,
   },
   title: {
-    display: "flex",
     alignItems: "center",
     gap: spacingVars["--spacing-3"],
     maxInlineSize: "100%",
@@ -486,12 +463,9 @@ const styles = stylex.create({
     fontSize: typeScaleVars["--text-supporting-size"],
     fontWeight: fontWeightVars["--font-weight-semibold"],
   },
-  // The choice follows the funds, and the keys follow the choice.
   act: {
     gridArea: "act",
     alignSelf: "start",
-    display: "flex",
-    flexDirection: "column",
     alignItems: "stretch",
     gap: {
       default: spacingVars["--spacing-7"],
@@ -553,7 +527,6 @@ const styles = stylex.create({
     },
   },
   keys: {
-    display: "flex",
     alignItems: "center",
     gap: spacingVars["--spacing-2"],
   },
@@ -599,7 +572,6 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   lobbyMeta: {
-    display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     columnGap: awbrnVars.spacing2_5,

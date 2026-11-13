@@ -10,15 +10,10 @@ import { IconNext } from "#/ui/icons.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
 interface ListRowHostProps {
-  /** A thumbnail (56px; 80px in a match row), a stamp or a sprite. */
   media?: ReactNode;
-  /** The row's name, bold. Map names are never mono. */
   title: ReactNode;
-  /** One postage line under the title: `2P · 22×18 · cookielamb3`, terms, `1 / 2`. */
   meta?: ReactNode;
-  /** What sits at the end instead of the chevron (a time left, a medal). */
   end?: ReactNode;
-  /** The row is the link; the chevron says so. Off when `end` already does. */
   hasChevron?: boolean;
   href?: string;
   className?: string;
@@ -46,17 +41,7 @@ const ListRowHost = forwardRef<HTMLAnchorElement, ListRowHostProps>(function Lis
   );
 });
 
-/**
- * A list row that is one link: media, a bold title over one postage line, and
- * a chevron. 64px minimum, 12px by 20px padding (16px on a phone), a paper
- * hover. No dead middle: the title takes the slack.
- *
- * Put it in a `SheetRow` inside `SheetRows`. It takes TanStack Router's link
- * props (`to`, `params`, `search`).
- *
- *   <RouterListRow media={<Thumbnail ... />} meta="Live 5m +2m · 1 / 2"
- *     params={{ matchId }} title="Quick one on Normandie" to="/matches/$matchId" />
- */
+/** A list row that is one link. Put it in a `SheetRow` inside `SheetRows`. */
 export const RouterListRow = createLink(ListRowHost);
 
 const styles = stylex.create({
@@ -91,8 +76,6 @@ const styles = stylex.create({
     flexGrow: 1,
     minInlineSize: 0,
   },
-  // Long names hold one line and end in an ellipsis; the whole name stays in
-  // the text, so it is still the row's accessible name.
   title: {
     overflow: "hidden",
     fontWeight: 700,

@@ -12,13 +12,7 @@ import { UiSprite } from "#/components/UiSprite.tsx";
 import { figureStyles } from "#/ui/Figure.tsx";
 import { IconFog } from "#/ui/icons.tsx";
 
-/**
- * A match's terms as figures, said once per screen (lobbies, setup, the Match
- * menu): the clock terms in mixed-case mono (`Live 5m +2m`), Fog only when it
- * is on, and the funds on the coin (`1,000`).
- *
- *   <Terms clock="Async 7d +2d" funds={1000} hasFog />
- */
+/** A match's terms as figures: the clock, Fog only when it is on, and the funds. */
 export function Terms({
   clock,
   funds,

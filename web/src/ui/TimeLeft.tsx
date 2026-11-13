@@ -5,18 +5,8 @@ import { UiSprite } from "#/components/UiSprite.tsx";
 import { Figure, type FigureTone } from "#/ui/Figure.tsx";
 
 /**
- * Time left: the clock sprite and the figure (`3m 42s`, `2d 6h`). No words.
- *
- * - `tone="urgent"`: a live clock running low. Warn ink (warn fill on ink).
- *   A low clock is a warning, never red.
- * - `tone="theirs"`: someone else's clock. Text 2.
- * - `size`: `row` 17px (match rows), `lead` 29px (Home's lead card), `strip`
- *   20px (the turn strip on ink).
- * - `isOnInk` on the ink table and the navy rail.
- *
+ * The clock sprite and a time figure. A low clock is a warning, never red.
  * Pass `label` ("3 minutes 42 seconds left") so the figure reads as a time.
- *
- *   <TimeLeft label="3 minutes 42 seconds left" tone="urgent" value="3m 42s" />
  */
 export function TimeLeft({
   isOnInk = false,
@@ -67,7 +57,6 @@ const styles = stylex.create({
   },
 });
 
-/** The figure-lg face at the size each place sets: 17px, 29px, 20px. */
 const sizes = stylex.create({
   row: { fontSize: textSizeVars["--font-size-lg"] },
   lead: { fontSize: textSizeVars["--font-size-3xl"] },

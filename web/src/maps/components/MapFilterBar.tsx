@@ -1,12 +1,7 @@
 /**
- * The filters over a set of maps: search, one Filters key with its active
- * count, then the result count in mono on the same line (`8 maps`).
- *
- * The key opens a popover on desktop and a bottom sheet ending "Show 5 maps"
- * on a compact touch screen; Clear lives inside both. Each press narrows the
- * set at once (the address carries it), so the sheet's last key only closes
- * the sheet on the result it already counts. The three groups (armies, plays
- * as, rank) are unlabeled on screen and named for assistive tech.
+ * Search and filters over a set of maps. The filters open in a popover, or a
+ * bottom sheet on a compact touch screen. Each press narrows the set at once,
+ * so the sheet's last key only closes it on the result it already counts.
  */
 
 import { Badge } from "@astryxdesign/core/Badge";
@@ -46,7 +41,6 @@ export function MapFilterBar({
   search,
   summary,
 }: {
-  /** How many filters are on, which the Filters key carries. */
   filterCount: number;
   filters: Filters;
   onFiltersChange: (filters: Filters) => void;

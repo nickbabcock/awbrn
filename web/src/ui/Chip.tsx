@@ -8,47 +8,26 @@ import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { IconCheck } from "#/ui/icons.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
-/**
- * A chip: a pill that toggles one filter or option. 34px tall, 44px on a
- * phone or a coarse pointer. Pressed, it turns ink and shows a check, so the
- * state never rides on color alone.
- *
- * Group chips with `ChipGroup`, which wraps them and names the group for
- * assistive tech (Filters groups are unlabeled on screen).
- *
- *   <ChipGroup label="Armies">
- *     <Chip isPressed={two} label="2P" onPressedChange={setTwo} />
- *   </ChipGroup>
- *
- * For one choice out of a few (Live / Async), use Astryx `SegmentedControl`;
- * the theme draws it as the paper-well track with a white chosen key.
- */
+/** A pill that toggles one filter. Pressed, it shows a check, so the state never rides on color alone. */
 export function Chip({
-  children,
-  icon,
-  isDisabled,
   isPressed,
   label,
   onPressedChange,
 }: {
-  children?: ReactNode;
-  icon?: ReactNode;
-  isDisabled?: boolean;
   isPressed: boolean;
   label: string;
   onPressedChange: (isPressed: boolean) => void;
 }) {
   return (
     <ToggleButton
-      icon={isPressed ? <Icon icon={IconCheck} size="sm" /> : icon}
-      isDisabled={isDisabled}
+      icon={isPressed ? <Icon icon={IconCheck} size="sm" /> : undefined}
       isPressed={isPressed}
       label={label}
-      onPressedChange={(next) => onPressedChange(next)}
+      onPressedChange={onPressedChange}
       size="sm"
       xstyle={[styles.chip, isPressed && styles.pressed]}
     >
-      {children ?? label}
+      {label}
     </ToggleButton>
   );
 }

@@ -49,12 +49,7 @@ type TierPickerProps = {
     }
 );
 
-/**
- * The tier picker: no heading, rows by tier number, stamps alphabetical. The
- * chosen stamp sits on ink with a red check; a banned one is grayed under
- * violet cancellation lines and cannot be chosen. On a phone the strongest
- * three tiers show and the rest fold behind one key ("12 more").
- */
+/** Rows by tier number, stamps alphabetical. On a phone the weaker tiers fold behind one key. */
 export function TierPicker(props: TierPickerProps) {
   const bands = coTierBands(props.tierList);
   // Folded even when the pick sits in a later tier: the task dock and the
@@ -86,7 +81,7 @@ export function TierPicker(props: TierPickerProps) {
                   onClick={() => props.onSetTierBanned(bandIds, !isBandBanned)}
                   title={`${isBandBanned ? "Lift the bans on" : "Ban"} tier ${band.tier}`}
                   type="button"
-                  {...stylex.props(styles.tierNumber, styles.tierButton)}
+                  {...stylex.props(styles.tierNumber, styles.key, styles.tierButton)}
                 >
                   {band.tier}
                 </button>
@@ -108,7 +103,7 @@ export function TierPicker(props: TierPickerProps) {
                       key={co.key}
                       onClick={() => props.onToggleBan(co.awbwId)}
                       type="button"
-                      {...stylex.props(styles.pick)}
+                      {...stylex.props(styles.key, styles.pick)}
                     >
                       <CoStamp
                         coKey={co.key}
@@ -144,6 +139,7 @@ export function TierPicker(props: TierPickerProps) {
                     }}
                     type="button"
                     {...stylex.props(
+                      styles.key,
                       styles.pick,
                       isChosen && styles.picked,
                       isBanned && styles.pickBanned,
@@ -223,13 +219,11 @@ const styles = stylex.create({
     },
   },
   tierKey: {
-    display: "flex",
     paddingBlockStart: {
       default: spacingVars["--spacing-1-5"],
       [pageLayout.phoneMedia]: 0,
     },
   },
-  // The tier number: the headline size (22px on a phone), condensed.
   tierNumber: {
     fontFamily: awbrnVars.fontUi,
     fontSize: typeScaleVars["--text-heading-2-size"],
@@ -238,14 +232,7 @@ const styles = stylex.create({
     lineHeight: 1,
     color: colorVars["--color-text-primary"],
   },
-  // The tier number as a key (ban mode): the touch floor, with its label
-  // where the plain number sits.
-  tierButton: {
-    minInlineSize: sizeVars["--size-element-md"],
-    minBlockSize: sizeVars["--size-element-md"],
-    marginBlock: `calc(${spacingVars["--spacing-2"]} * -1)`,
-    marginInlineStart: `calc(${awbrnVars.spacing2_5} * -1)`,
-    paddingInline: awbrnVars.spacing2_5,
+  key: {
     borderStyle: "none",
     borderRadius: radiusVars["--radius-element"],
     // Hover tones only where a pointer hovers, so a tap leaves none behind;
@@ -260,8 +247,17 @@ const styles = stylex.create({
       ":focus-visible": `2px solid ${focusVars["--focus-outline-color"]}`,
     },
     outlineOffset: { default: null, ":focus-visible": "2px" },
-    textAlign: "start",
     cursor: "pointer",
+  },
+  // The tier number as a key (ban mode): the touch floor, with its label
+  // where the plain number sits.
+  tierButton: {
+    minInlineSize: sizeVars["--size-element-md"],
+    minBlockSize: sizeVars["--size-element-md"],
+    marginBlock: `calc(${spacingVars["--spacing-2"]} * -1)`,
+    marginInlineStart: `calc(${awbrnVars.spacing2_5} * -1)`,
+    paddingInline: awbrnVars.spacing2_5,
+    textAlign: "start",
   },
   cos: {
     display: {
@@ -288,22 +284,7 @@ const styles = stylex.create({
     paddingBlockStart: spacingVars["--spacing-1"],
     paddingBlockEnd: spacingVars["--spacing-1-5"],
     paddingInline: 0,
-    borderStyle: "none",
-    borderRadius: radiusVars["--radius-element"],
-    // Hover tones only where a pointer hovers, so a tap leaves none behind;
-    // touch gets the same tone while pressed.
-    backgroundColor: {
-      default: "transparent",
-      ":hover": { default: null, [pageLayout.hoverMedia]: awbrnVars.paper },
-      ":active": awbrnVars.paper,
-    },
-    outline: {
-      default: null,
-      ":focus-visible": `2px solid ${focusVars["--focus-outline-color"]}`,
-    },
-    outlineOffset: { default: null, ":focus-visible": "2px" },
     color: colorVars["--color-text-primary"],
-    cursor: "pointer",
     transitionProperty: "background-color",
     transitionDuration: {
       default: "90ms",
@@ -319,7 +300,6 @@ const styles = stylex.create({
     cursor: "not-allowed",
     backgroundColor: "transparent",
   },
-  // The commander's name under the stamp: the small label style.
   name: {
     fontSize: typeScaleVars["--text-heading-5-size"],
     fontWeight: typeScaleVars["--text-heading-5-weight"],

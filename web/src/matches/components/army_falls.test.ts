@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fallDayFromOutline, fallReason } from "./army_falls.ts";
+import { fallDayFromOutline } from "./army_falls.ts";
 
 /** One boundary per action: `[day after, acting seat]`, the opening first. */
 function outline(actions: [number, number][]) {
@@ -66,14 +66,5 @@ describe("fallDayFromOutline", () => {
   it("knows nothing of a seat that never acted", () => {
     expect(fallDayFromOutline(outline([[1, 0]]), 1, order)).toBeNull();
     expect(fallDayFromOutline(outline([[1, 0]]), 7, order)).toBeNull();
-  });
-});
-
-describe("fallReason", () => {
-  it("names each way out and nothing for a seat still in", () => {
-    expect(fallReason("active")).toBeNull();
-    expect(fallReason("resigned")).toBe("Resigned");
-    expect(fallReason("timed-out")).toBe("Clock ran out");
-    expect(fallReason("eliminated")).toBe("Defeated");
   });
 });

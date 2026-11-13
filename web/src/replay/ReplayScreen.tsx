@@ -63,43 +63,33 @@ const PHONE_MEDIA = "(max-width: 720px)";
 
 /**
  * A replay, read back: a finished match at its own address, or an archive
- * loaded from a file. It is the match screen without the turn's keys: the
- * strip names the map, the foot walks the archive, the rail holds the armies
- * and its foot the calculator and the archive key.
+ * loaded from a file.
  */
 export function ReplayScreen({
   archiveKey,
   back,
   error,
-  lineKeys,
   locatorSrc,
   map,
   onRetry,
-  outline = null,
+  outline,
   runner,
   title,
   viewpoint,
   views,
 }: {
   /** Download (a finished match) or Load (an archive from a file). */
-  archiveKey?: ReactNode;
+  archiveKey: ReactNode;
   back: ReactNode;
   error: string | null;
-  /** Keys at the end of the phone turn line (Load, or Download). */
-  lineKeys?: ReactNode;
   locatorSrc: string | null;
   map: { width: number; height: number } | null;
   /** Reads the archive again after it could not be read. */
   onRetry?: () => void;
-  /**
-   * The archive's outline, one boundary per moment, read from the file as it
-   * loads: the scrubber's day ticks, the rail's log and the phone's log sheet.
-   */
-  outline?: readonly LogBoundary[] | null;
+  /** The archive's outline, one boundary per moment, read from the file as it loads. */
+  outline: readonly LogBoundary[] | null;
   runner: GameRunner;
-  /** The map's name: replays are titled by map. */
   title: string;
-  /** Whose eyes the board is drawn through, where that is a choice. */
   viewpoint?: ReactNode;
   views: ArmyView[];
 }) {
@@ -128,8 +118,8 @@ export function ReplayScreen({
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isTileSheetOpen, setIsTileSheetOpen] = useState(false);
   const [isLogOpen, setIsLogOpen] = useState(false);
-  const [sheetArmyId, setSheetArmyId] = useState<number | null>(null);
   // The army stays in the sheet while it closes, so its exit can play.
+  const [sheetArmyId, setSheetArmyId] = useState<number | null>(null);
   const [isArmySheetOpen, setIsArmySheetOpen] = useState(false);
   const openArmySheet = (playerId: number) => {
     setSheetArmyId(playerId);
@@ -137,10 +127,6 @@ export function ReplayScreen({
   };
   const [stepError, setStepError] = useState<string | null>(null);
 
-  /**
-   * Walk the archive. Every step goes to the engine, which holds the archive
-   * and is the only thing that can say what the board looked like then.
-   */
   const lastStepRef = useRef<((runner: GameRunner) => Promise<void>) | null>(null);
   function stepReplay(step: (runner: GameRunner) => Promise<void>) {
     lastStepRef.current = step;
@@ -202,8 +188,7 @@ export function ReplayScreen({
   const mover = views.find((view) => view.army.isActive) ?? null;
   const locator = locatorSrc ? <Locator mapName={title} runner={runner} src={locatorSrc} /> : null;
   const shownError = error ?? stepError;
-  // Every notice carries its way out: reading the file again, or the step
-  // that failed, again.
+  // Read the file again, or retry the step that failed.
   const retry =
     error !== null
       ? onRetry
@@ -241,9 +226,9 @@ export function ReplayScreen({
       />
     ) : null;
 
-  // A notice takes the tile window's place (the View block when the table has
-  // no column), as it takes the tile row on a phone. Before the table knows
-  // its mode there is no window to stand in, so it takes the board's place.
+  // A notice takes the tile window's place, as it takes the tile row on a
+  // phone. Before the table knows its mode there is no window to stand in, so
+  // it takes the board's place.
   const tileNotice = notice ? <VStack xstyle={styles.columnNotice}>{notice}</VStack> : null;
   const rail = (
     <>
@@ -321,7 +306,7 @@ export function ReplayScreen({
       ) : whole.isWhole ? (
         <>
           <HStack as="span" xstyle={styles.wholeLine}>
-            <b {...stylex.props(styles.wholeScale)}>{formatScale(boardView.bv?.fitScale ?? 1)}</b>
+            <b {...stylex.props(styles.wholeScale)}>{formatScale(boardView.bv.fitScale)}</b>
             Tap to jump
           </HStack>
           <ViewKey runner={runner} />
@@ -337,13 +322,9 @@ export function ReplayScreen({
     </HStack>
   );
 
-  const calculatorKey = (
-    <DockKey
-      icon={IconCalculator}
-      isDisabled={isCalculatorOpen}
-      label="Calculator"
-      onPress={() => setIsCalculatorOpen(true)}
-    />
+  const openCalculator = () => setIsCalculatorOpen(true);
+  const fullscreenKey = (
+    <FullscreenKey isFullscreen={isFullscreen} onEnter={enterFullscreen} onExit={exitFullscreen} />
   );
   const sheetView = views.find((view) => view.army.entry.playerId === sheetArmyId) ?? null;
 
@@ -373,7 +354,7 @@ export function ReplayScreen({
                       icon={IconCalculator}
                       isDisabled={isCalculatorOpen}
                       label="Calculator"
-                      onPress={() => setIsCalculatorOpen(true)}
+                      onPress={openCalculator}
                     />
                   </>
                 }
@@ -396,7 +377,12 @@ export function ReplayScreen({
             </>
           ) : (
             <HStack gap={2} xstyle={styles.emptyDock}>
-              {calculatorKey}
+              <DockKey
+                icon={IconCalculator}
+                isDisabled={isCalculatorOpen}
+                label="Calculator"
+                onPress={openCalculator}
+              />
             </HStack>
           )
         }
@@ -411,7 +397,7 @@ export function ReplayScreen({
               icon={IconCalculator}
               isDisabled={isCalculatorOpen}
               label="Calculator"
-              onPress={() => setIsCalculatorOpen(true)}
+              onPress={openCalculator}
             />
             {archiveKey}
           </>
@@ -420,13 +406,7 @@ export function ReplayScreen({
           <TurnStrip
             day={day}
             isOwed={false}
-            keys={
-              <FullscreenKey
-                isFullscreen={isFullscreen}
-                onEnter={enterFullscreen}
-                onExit={exitFullscreen}
-              />
-            }
+            keys={fullscreenKey}
             sub={isImmersiveNotice ? <ImmersiveNoticeLine /> : undefined}
             title={title}
           />
@@ -458,14 +438,8 @@ export function ReplayScreen({
             day={day}
             keys={
               <>
-                {lineKeys}
-                {isFullscreenEnabled ? (
-                  <FullscreenKey
-                    isFullscreen={isFullscreen}
-                    onEnter={enterFullscreen}
-                    onExit={exitFullscreen}
-                  />
-                ) : null}
+                {archiveKey}
+                {isFullscreenEnabled ? fullscreenKey : null}
               </>
             }
             title={title}
@@ -526,9 +500,6 @@ const styles = stylex.create({
     borderBlockEndWidth: borderVars["--border-width"],
   },
   tileRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: spacingVars["--spacing-2"],
     minBlockSize: matchLayout.footHeight,
     paddingBlock: spacingVars["--spacing-1-5"],
     paddingInline: spacingVars["--spacing-2"],
@@ -537,7 +508,6 @@ const styles = stylex.create({
     borderBlockStartStyle: "solid",
     borderBlockStartWidth: borderVars["--border-width"],
   },
-  /** A notice in the tile window's place: the window's frame, on ink. */
   columnNotice: {
     overflow: "hidden",
     borderRadius: radiusVars["--radius-container"],
@@ -586,8 +556,6 @@ const styles = stylex.create({
     backgroundColor: awbrnVars.paper,
   },
   emptyDock: {
-    display: "flex",
-    gap: spacingVars["--spacing-2"],
     paddingBlock: awbrnVars.spacing2_5,
     paddingInline: spacingVars["--spacing-3"],
     paddingBlockEnd: `calc(${spacingVars["--spacing-3"]} + env(safe-area-inset-bottom, 0px))`,

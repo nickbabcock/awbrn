@@ -38,15 +38,11 @@ export function GameFullscreenButton({ onEnter }: { onEnter: () => void }) {
 
 /**
  * The one thing native full screen supplies that the fallback cannot: the
- * browser's own notice that Esc is the way out.
- *
- * Without it, a board pinned over the page by CSS alone is a screen a player
- * has to guess their way out of, and the guess most reach for first is the back
- * button, which leaves the match. It withdraws on its own, because a standing
- * instruction is a standing obstruction.
+ * browser's own notice that Esc is the way out. Without it, the way out most
+ * players reach for first is the back button, which leaves the match.
  *
  * True from the moment the board takes the screen by the fallback until the
- * notice has been up long enough to read; it then cuts, as every notice does.
+ * notice has been up long enough to read.
  */
 export function useImmersiveNotice(mode: GameFullscreenMode): boolean {
   const isImmersive = mode === "immersive";
@@ -62,25 +58,17 @@ export function useImmersiveNotice(mode: GameFullscreenMode): boolean {
   return isShowing;
 }
 
-/**
- * The immersive notice as a line of text, for a screen that has a message slot
- * to put it in (the turn strip, the tile row) rather than over the board.
- */
+/** The immersive notice as a line of text, for a screen's message slot. */
 export function ImmersiveNoticeLine({ xstyle }: { xstyle?: stylex.StyleXStyles }) {
   const hasKeyboard = useMediaQuery(KEYBOARD_MEDIA);
   return (
     <HStack align="center" as="output" gap={0} xstyle={[styles.line, xstyle]}>
-      {noticeText(hasKeyboard)}
+      {hasKeyboard ? "Press Esc to leave full screen" : "Tap the full screen key to leave"}
     </HStack>
   );
 }
 
-function noticeText(hasKeyboard: boolean): string {
-  return hasKeyboard ? "Press Esc to leave full screen" : "Tap the full screen key to leave";
-}
-
 const styles = stylex.create({
-  // The line takes the slot's own type; only the instruction is lifted.
   line: {
     color: awbrnVars.textOnInkStrong,
     fontWeight: 650,

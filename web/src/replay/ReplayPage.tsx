@@ -46,11 +46,7 @@ async function fetchAwbwMap(mapId: number): Promise<AwbwMapSummary | null> {
   };
 }
 
-/**
- * The replay viewer: an AWBW .zip or AWBRN .json archive, read on this device.
- * With no archive it is a Replays page holding one key; once an archive is
- * loaded it is the board, pushed.
- */
+/** The replay viewer for an AWBW .zip or AWBRN .json archive, read on this device. */
 export function ReplayPage() {
   const playerRoster = useGameStore((state) => state.playerRoster);
   const boardMap = useGameStore((state) => state.boardView?.map ?? null);
@@ -173,14 +169,13 @@ export function ReplayPage() {
   if (playerRoster) {
     const map =
       awbwMap && awbwMap.width > 0 ? { width: awbwMap.width, height: awbwMap.height } : boardMap;
-    const loadKey = (
-      <InkIconKey icon={IconUpload} label="Load another replay" onPress={chooseFile} />
-    );
     return (
       <>
         {fileInput}
         <ReplayScreen
-          archiveKey={loadKey}
+          archiveKey={
+            <InkIconKey icon={IconUpload} label="Load another replay" onPress={chooseFile} />
+          }
           back={
             <Button
               icon={<Icon icon={IconBack} size="lg" />}
@@ -192,7 +187,6 @@ export function ReplayPage() {
             />
           }
           error={replayError}
-          lineKeys={loadKey}
           locatorSrc={mapId ? `/api/awbw/smallmap/${mapId}` : null}
           map={map}
           outline={outline}
@@ -240,9 +234,8 @@ export function ReplayPage() {
 }
 
 /**
- * The board's canvas, held off screen while there is no archive: the engine
- * starts on a canvas, so it is ready by the time a file is chosen. The screen
- * takes the canvas over once the archive is loaded.
+ * The board's canvas, held off screen while there is no archive, so the engine
+ * is ready by the time a file is chosen.
  */
 function StandbyBoard({ runner }: { runner: ReturnType<typeof useReplayRunner> }) {
   const { canvasContainerRef } = useCanvasCourierSurface({
@@ -291,8 +284,7 @@ const styles = stylex.create({
       default: "260px",
       [pageLayout.phoneMedia]: "220px",
     },
-    // Centered in the page column: alone on a 1240px page, a 560px zone
-    // flush left reads as a stray.
+    // Centered in the page column.
     inlineSize: "100%",
     maxInlineSize: "560px",
     marginInline: "auto",
@@ -307,7 +299,6 @@ const styles = stylex.create({
     textAlign: "center",
   },
   art: {
-    display: "flex",
     alignItems: "flex-end",
     gap: spacingVars["--spacing-4"],
   },

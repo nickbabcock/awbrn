@@ -59,7 +59,6 @@ export class GameRunner {
   private surfaceVersion = 0;
   private worker: GameWorker | undefined;
   private readonly motionQuery = reducedMotionQuery();
-  /** Tell the engine when the viewer changes their motion preference mid-session. */
   private readonly forwardMotionPreference = (event: MediaQueryListEvent) => {
     void this.game?.setReducedMotion(event.matches);
   };
@@ -547,10 +546,8 @@ export class GameRunner {
    * Zoom to exactly `scale`, centered on `tile` when one is given.
    * {@link restoreView} goes back to the view this left.
    *
-   * No screen calls this yet. The whole map's "tap to jump" is the engine's
-   * own: a tap below the touch floor returns to the floor at the tapped tile,
-   * which the page could only repeat after the engine had already read the
-   * tap. Kept as the one way to ask for an exact scale.
+   * No screen calls this yet: the whole map's "tap to jump" is the engine's
+   * own, since the page would only see the tap after the engine had read it.
    */
   async zoomTo(scale: number, tile?: BoardTile): Promise<void> {
     const game = await this.requireGame();
@@ -574,8 +571,7 @@ export class GameRunner {
 
   /**
    * Paint the canvas outside the map in this color. The engine opens on
-   * `#0a1128` (ink 950), the table every screen sets the board on, so no
-   * screen calls this yet.
+   * `#0a1128` (ink 950), which every screen uses, so no screen calls this yet.
    */
   async setClearColor(color: BoardColor): Promise<void> {
     const game = await this.requireGame();

@@ -8,7 +8,6 @@ import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { IconBack } from "#/ui/icons.tsx";
 
 interface BackHostProps {
-  /** Where back goes, said in the key (`Ranked`, `Play`). */
   label: string;
   href?: string;
   className?: string;
@@ -27,12 +26,7 @@ const BackLinkHost = forwardRef<HTMLAnchorElement, BackHostProps>(function BackL
   );
 });
 
-/**
- * The way back on a paper page reached from a list: a chevron and the place it
- * returns to, above the title (`< Ranked`). 44px tall.
- *
- *   <PageHeader back={<BackLink label="Ranked" to="/ranked" />} title="1vs1 Normandie" />
- */
+/** The way back on a paper page, above the title, named for where it goes. */
 export const BackLink = createLink(BackLinkHost);
 
 const BackKeyHost = forwardRef<HTMLAnchorElement, BackHostProps>(function BackKeyHost(
@@ -46,13 +40,7 @@ const BackKeyHost = forwardRef<HTMLAnchorElement, BackHostProps>(function BackKe
   );
 });
 
-/**
- * The back key of a pushed screen on a phone (the match, a replay): a 44px
- * icon key on ink at the start of the turn line, named for where it goes
- * (`label="Back to Play"`).
- *
- *   <BackKey label="Back to Play" to="/matches" />
- */
+/** The icon-only back key of a pushed screen on a phone, on ink. */
 export const BackKey = createLink(BackKeyHost);
 
 const styles = stylex.create({

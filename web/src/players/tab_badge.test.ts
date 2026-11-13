@@ -46,12 +46,6 @@ describe("faviconDataUrl", () => {
     expect(few).toContain('font-size="13"');
   });
 
-  it("draws the count in Airmail red on the brand mark", () => {
-    const icon = decodeURIComponent(faviconDataUrl(3));
-    expect(icon).toContain('fill="#101b3a"');
-    expect(icon).toContain('<circle cx="23" cy="9" r="9" fill="#d42a3c"');
-  });
-
   it("matches the static icon the page carries before it runs", () => {
     expect(staticFavicon.trim()).toBe(brandMarkSvg());
   });

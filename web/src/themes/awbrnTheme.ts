@@ -2,25 +2,13 @@ import { defineTheme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral";
 
 /*
- * AWBRN theme: Airmail.
- *
- * What is owed wears the airmail band, a day is a postmark, a commander is a
- * stamp. The board sits on an ink table as the brightest thing on screen;
- * lists and forms lift onto paper. The only pixels are the game's sprites.
- *
- * Tonal layers carry depth: paper is the ground, a sheet is one step lighter,
- * a well one step darker. On ink, 950 is the table, 900 the panels and bars,
- * 850 a raised key.
- *
  * The theme is light only; the app pins <Theme mode="light">. The ink table of
  * the match screens is a surface inside the light theme, not a dark mode.
  *
- * Red is the next command. It fills at most one control per viewport, so the
- * accent token is ink (switches, checks, the chosen tab) and only the primary
- * button wears red.
+ * Red fills at most one control per viewport, so the accent token is ink
+ * (switches, checks, the chosen tab) and only the primary button wears red.
  */
 
-/** The palette, by the names DESIGN.md gives each value. */
 const ink = {
   950: "#0a1128",
   900: "#101b3a",
@@ -29,7 +17,6 @@ const ink = {
   700: "#283d78",
   600: "#3b5299",
   300: "#9eacd6",
-  200: "#c9d2ef",
   100: "#e4e9f8",
 } as const;
 
@@ -47,13 +34,11 @@ const text = {
   tertiary: "#5d6a92",
   onInk: "#f3f5fc",
   onInkSecondary: "#a9b6de",
-  /** The current section, a key's label and a running clock on ink. */
   onInkStrong: "#ffffff",
 } as const;
 
 const airmail = {
   red: "#d42a3c",
-  redHover: "#b81f31",
   redWash: "#fbe3e6",
   blue: "#2747b0",
   blueOnInk: "#9db2ff",
@@ -72,11 +57,8 @@ const status = {
   dangerWash: "#fdecee",
   gold: "#f6c544",
   goldDim: "rgba(246, 197, 68, 0.22)",
-  // On paper the charge reads in a deeper gold over a cool track, and an
-  // army that is out wears a pink tag.
   goldOnPaper: "#e2a400",
   goldTrackOnPaper: "#d6deec",
-  dangerTag: "#ffd6db",
 } as const;
 
 const FONT_UI = "Archivo Variable";
@@ -87,53 +69,37 @@ const FONT_FIGURE_FALLBACKS = "'Martian Mono', ui-monospace, monospace";
 /**
  * Hover and selection step in two visible frames: halfway at once, then there.
  * `jump-none` would hold the old state for the first frame and only delay a
- * cut. Nothing on this surface is eased.
+ * cut.
  */
 const STEP = "steps(2, jump-start)";
 
-/** The scrim under what floats: a desktop dialog, and a phone's sheets. */
 const SCRIM = {
   dialog: "rgba(6, 10, 26, 0.35)",
   sheet: "rgba(6, 10, 26, 0.45)",
 } as const;
 
-/** Sheet: a panel laid on paper. */
 const SHADOW_SHEET = "0 1px 2px rgba(16, 27, 58, 0.06), 0 6px 16px -10px rgba(16, 27, 58, 0.28)";
-/** The sheet that holds what waits on the viewer lifts one step higher. */
 const SHADOW_OWED = "0 1px 2px rgba(16, 27, 58, 0.08), 0 14px 32px -14px rgba(16, 27, 58, 0.42)";
-/** Dialogs, bottom sheets, popovers: the only surfaces that float. */
 const SHADOW_FLOAT = "0 2px 6px rgba(6, 10, 26, 0.22), 0 22px 48px -16px rgba(6, 10, 26, 0.55)";
-/** Float for a bottom sheet, cast upward from the screen's foot. */
 const SHADOW_FLOAT_UP = "0 -12px 40px -12px rgba(6, 10, 26, 0.6)";
-/** The board on its table, from the first tile row. */
 const SHADOW_BOARD = `0 0 0 2px ${ink[700]}, 0 24px 60px -20px rgba(0, 0, 0, 0.8)`;
 /**
- * The board's lift as a filter, for a drawn map picture: its mountains and
- * towers rise above the first tile row, so the shadow follows the sprites
- * where a box shadow would draw under the empty corners.
+ * A filter, not a box shadow: a map picture's mountains and towers rise above
+ * the first tile row, so the shadow follows the sprites rather than the box.
  */
 const SHADOW_BOARD_PICTURE = "drop-shadow(0 24px 40px rgba(0, 0, 0, 0.65))";
-/** An empty well on paper: the seeking slot's picture before a map is drawn. */
 const HATCH_WELL =
   "repeating-linear-gradient(-45deg, transparent 0 6px, rgba(16, 27, 58, 0.07) 6px 12px)";
 
-/** A stamp's white margin, and the white of the airmail band. */
 const STAMP_WHITE = "#ffffff";
-/** A hairline of ink on paper: the rule around a stamp's field. */
 const INK_HAIRLINE = "rgba(16, 27, 58, 0.14)";
-/** A hairline of light on ink: the edge of a minimap in its well. */
 const WELL_HAIRLINE = "rgba(255, 255, 255, 0.06)";
-/** The pennant's lift off a map plate, as a `filter`. */
 const SHADOW_PENNANT = "drop-shadow(0 2px 2px rgba(6, 10, 26, 0.45))";
-/** A slot on paper that holds what is owed: a soft ink lift, below it. */
 const SHADOW_SLOT = "0 10px 24px -16px rgba(16, 27, 58, 0.45)";
-/** A sheet docked at the screen's foot, cast upward onto what scrolls under it. */
 const SHADOW_DOCK = "0 -12px 24px -16px rgba(16, 27, 58, 0.5)";
 
-/** Red, white, blue, white parallelograms: the edge of an airmail envelope. */
 const AIRMAIL_BAND = `repeating-linear-gradient(-45deg, ${airmail.red} 0 10px, ${STAMP_WHITE} 10px 15px, ${airmail.blue} 15px 25px, ${STAMP_WHITE} 25px 30px)`;
 
-/** An uppercase label: table heads and stat keys only. */
 const capsLabel = {
   fontFamily: "var(--font-family-body)",
   fontSize: "var(--text-12-size)",
@@ -146,7 +112,6 @@ const capsLabel = {
   color: "var(--color-text-secondary)",
 } as const;
 
-/** A field: white, one strong rule, the system's control radius. */
 const field = {
   backgroundColor: "#ffffff",
   borderColor: paper.ruleStrong,
@@ -156,20 +121,24 @@ const field = {
   boxShadow: "none",
 } as const;
 
-/** One step of hover or selection: two frames, never a glide. */
+const sheet = {
+  backgroundColor: paper.sheet,
+  borderColor: paper.rule,
+  borderStyle: "solid",
+  borderWidth: "1px",
+  borderRadius: "var(--radius-container)",
+  boxShadow: SHADOW_SHEET,
+} as const;
+
 const stepped = {
   transitionTimingFunction: STEP,
   transitionDuration: "90ms",
 } as const;
 
 /**
- * Army colors, from AWBW's own faction palette.
- *
- * `accent` is the army's identity color, `wash` tints a whole card, plate or
- * ledger row (8 to 22%), `soft` fills a chip, `field` is the stamp's ground
- * behind the commander, and `text` is the darkened value that stays legible on
- * `soft`. Hue never carries an army alone: a crest, a stamp or a name rides
- * with it.
+ * Army colors, from AWBW's own faction palette. `wash` tints a whole card,
+ * plate or ledger row, `soft` fills a chip, `field` is the stamp's ground
+ * behind the commander, and `text` stays legible on `soft`.
  */
 const factionPalette = {
   os: {
@@ -314,10 +283,6 @@ const factionPalette = {
   },
 } as const;
 
-/**
- * An army's card wears its wash and nothing else: no colored bar, no outline in
- * the army's hue. The crest and the stamp say which army it is.
- */
 const factionCardVariants = Object.fromEntries(
   Object.entries(factionPalette).map(([code, colors]) => [
     `variant:faction-${code}`,
@@ -328,7 +293,7 @@ const factionCardVariants = Object.fromEntries(
   ]),
 );
 
-/** The same army colors as custom properties, addressable by code at runtime. */
+/** The army colors as custom properties, addressable by code at runtime. */
 const factionTokens = Object.fromEntries(
   Object.entries(factionPalette).flatMap(([code, colors]) =>
     Object.entries(colors).map(([role, value]) => [`--color-faction-${code}-${role}`, value]),
@@ -346,11 +311,7 @@ const factionTokenVariants = Object.fromEntries(
   ]),
 );
 
-/**
- * The airmail palette as named custom properties, for surfaces the Astryx
- * token set has no name for (the ink table, the band, the postmark). Read them
- * from StyleX through `awbrnVars` in `awbrnTokens.stylex.ts`.
- */
+/** Custom properties Astryx has no name for; StyleX reads them through `awbrnVars`. */
 const airmailTokens: Record<string, string> = {
   "--color-ink-950": ink[950],
   "--color-ink-900": ink[900],
@@ -359,7 +320,6 @@ const airmailTokens: Record<string, string> = {
   "--color-ink-700": ink[700],
   "--color-ink-600": ink[600],
   "--color-ink-300": ink[300],
-  "--color-ink-200": ink[200],
   "--color-ink-100": ink[100],
   "--color-paper": paper.ground,
   "--color-paper-well": paper.well,
@@ -371,7 +331,6 @@ const airmailTokens: Record<string, string> = {
   "--color-text-on-ink-secondary": text.onInkSecondary,
   "--color-text-on-ink-strong": text.onInkStrong,
   "--color-airmail-red": airmail.red,
-  "--color-airmail-red-hover": airmail.redHover,
   "--color-airmail-red-wash": airmail.redWash,
   "--color-airmail-blue": airmail.blue,
   "--color-airmail-blue-on-ink": airmail.blueOnInk,
@@ -386,11 +345,8 @@ const airmailTokens: Record<string, string> = {
   "--color-power-gold-dim": status.goldDim,
   "--color-power-gold-on-paper": status.goldOnPaper,
   "--color-power-gold-track-on-paper": status.goldTrackOnPaper,
-  "--color-danger-tag": status.dangerTag,
   "--airmail-band": AIRMAIL_BAND,
   "--shadow-sheet": SHADOW_SHEET,
-  "--shadow-owed": SHADOW_OWED,
-  "--shadow-float": SHADOW_FLOAT,
   "--shadow-board": SHADOW_BOARD,
   "--shadow-board-picture": SHADOW_BOARD_PICTURE,
   "--hatch-well": HATCH_WELL,
@@ -405,21 +361,15 @@ const airmailTokens: Record<string, string> = {
   "--ease-step": STEP,
   // Astryx eases what leaves on its own curve; here it steps like the rest.
   "--ease-exit": STEP,
-  // Menus, popovers and tooltips (Astryx layers) enter over the fast-max
-  // duration; overlays enter in 120ms.
+  // Menus, popovers and tooltips (Astryx layers) enter over the fast-max duration.
   "--duration-fast-max": "120ms",
-  // Half steps between the Astryx spacing steps, for the sheet and menu
-  // insets DESIGN.md sets at 10px, 14px, 18px and 22px.
   "--spacing-2-5": "0.625rem",
   "--spacing-3-5": "0.875rem",
   "--spacing-4-5": "1.125rem",
   "--spacing-5-5": "1.375rem",
-  // Type under the Astryx scale: the tab bar's label and the nav count, and
-  // the 11px floor DESIGN.md sets (the count on a tab).
   "--text-nav-size": "11.5px",
   "--text-micro-size": "11px",
-  // The sizes screens keep reaching for, named by their pixels. Pixels, not
-  // Astryx's rem steps, so a screen that names one keeps its size exactly.
+  // Pixels, not Astryx's rem steps, so a screen that names one keeps its size exactly.
   "--text-11-5-size": "11.5px",
   "--text-12-size": "12px",
   "--text-12-5-size": "12.5px",
@@ -432,20 +382,10 @@ const airmailTokens: Record<string, string> = {
   "--text-16-size": "16px",
   "--text-17-size": "17px",
   "--text-26-size": "26px",
-  // The current section's mark under a nav item, a tab or a page tab.
   "--size-current-mark": "3px",
-  // Kept for screens written against the old theme; both are now the rule.
-  "--color-border-disabled": paper.rule,
-  "--color-border-soft": paper.rule,
-  // The old system pressed keys into a hard shadow. Airmail keys do not move.
-  "--offset-control-pressed": "0px",
 };
 
-/**
- * The type scale, as DESIGN.md states it. Headings map to the named styles:
- * 1 display, 2 headline, 3 title, 4 a body-sized title, 5 and 6 the uppercase
- * label. Width comes from `font-stretch` on the heading component.
- */
+/** Width comes from `font-stretch` on the heading component. */
 const TYPE_TOKENS = {
   "--text-heading-1-size": "52px",
   "--text-heading-1-weight": "820",
@@ -491,7 +431,6 @@ const TYPE_TOKENS = {
   "--text-code-leading": "1.3",
 } as const;
 
-/** On a phone the display and the headline step down; nothing else moves. */
 const PHONE_TYPE_TOKENS = {
   "--text-heading-1-size": "38px",
   "--text-heading-2-size": "22px",
@@ -500,10 +439,6 @@ const PHONE_TYPE_TOKENS = {
   "--text-display-3-size": "22px",
 } as const;
 
-/**
- * Control heights: 32 (sm), 40 (md), 48 (lg). On a coarse pointer every
- * target is at least 44px, and lg takes the dock's 52px.
- */
 const ELEMENT_SIZES = {
   "--size-element-sm": "32px",
   "--size-element-md": "40px",
@@ -515,7 +450,6 @@ const COARSE_ELEMENT_SIZES = {
   "--size-element-lg": "52px",
 } as const;
 
-/** A one-line field: the coarse target height on every pointer. */
 const oneLineField = {
   ...field,
   "--size-element-md": COARSE_ELEMENT_SIZES["--size-element-md"],
@@ -561,8 +495,6 @@ export const awbrnTheme = defineTheme({
     ],
   },
 
-  // Hover and selection step in two frames at 90ms; the postmark lands in two
-  // frames at 120ms. Nothing is eased.
   motion: {
     tempo: 0.75,
     fast: 90,
@@ -581,7 +513,7 @@ export const awbrnTheme = defineTheme({
     "--color-background-muted": paper.well,
     "--color-background-inverted": ink[900],
 
-    // -- Accent: ink for selection; red lives on the primary button only ---
+    // -- Accent -------------------------------------------------------------
     "--color-accent": ink[900],
     "--color-accent-muted": ink[100],
     "--color-on-accent": "#ffffff",
@@ -589,8 +521,6 @@ export const awbrnTheme = defineTheme({
     "--focus-outline-offset": "2px",
 
     "--color-neutral": "rgba(16, 27, 58, 0.08)",
-    // The scrim under a desktop dialog; a phone's sheets take a deeper one
-    // (the phone rule below).
     "--color-overlay": SCRIM.dialog,
     "--color-overlay-hover": "rgba(16, 27, 58, 0.06)",
     "--color-overlay-pressed": "rgba(16, 27, 58, 0.12)",
@@ -674,7 +604,7 @@ export const awbrnTheme = defineTheme({
     ...TYPE_TOKENS,
     ...ELEMENT_SIZES,
 
-    // -- Shapes: 4px tags, 6px controls and wells, 10px sheets -----------------
+    // -- Shapes -------------------------------------------------------------------
     "--border-width": "1px",
     "--radius-inner": "4px",
     "--radius-element": "6px",
@@ -682,7 +612,7 @@ export const awbrnTheme = defineTheme({
     "--radius-page": "10px",
     "--radius-chat": "10px",
 
-    // -- Depth: soft and offset, never a hard block ----------------------------
+    // -- Depth --------------------------------------------------------------------
     "--shadow-low": SHADOW_SHEET,
     "--shadow-med": SHADOW_OWED,
     "--shadow-high": SHADOW_FLOAT,
@@ -701,10 +631,9 @@ export const awbrnTheme = defineTheme({
     "app-shell": {
       base: { backgroundColor: paper.ground },
     },
-    // The shell's header is the navy bar; it draws its own fill. Astryx pins it
-    // at z-index 1, under page content that stacks itself (a map card's rank
-    // pennant and chosen check sit at 2), so scrolled content painted over the
-    // bar. It sits above page content and below the phone task dock and tab bar.
+    // Astryx pins the header at z-index 1, under page content that stacks
+    // itself (a map card's rank pennant sits at 2), so scrolled content painted
+    // over the bar. It sits below the phone task dock and tab bar.
     "app-shell-header": {
       base: { backgroundColor: ink[900], zIndex: "10" },
     },
@@ -729,7 +658,6 @@ export const awbrnTheme = defineTheme({
       "size:sm": { fontSize: "var(--text-13-5-size)" },
       "size:md": { fontSize: "var(--text-14-5-size)" },
       "size:lg": { fontSize: "var(--text-16-size)" },
-      // The next command. One per viewport.
       "variant:primary": {
         backgroundColor: airmail.red,
         borderColor: airmail.red,
@@ -746,25 +674,21 @@ export const awbrnTheme = defineTheme({
         borderColor: "transparent",
         color: text.secondary,
       },
-      // Resign, Decline: outlined in danger until armed.
       "variant:destructive": {
         backgroundColor: paper.sheet,
         borderColor: `color-mix(in oklab, ${status.danger} 45%, white)`,
         color: status.danger,
       },
-      // A firm command that is not the next one (an empty state's one key).
       "variant:ink": {
         backgroundColor: ink[900],
         borderColor: ink[900],
         color: "#ffffff",
       },
-      // A key on the ink table or a navy bar.
       "variant:on-ink": {
         backgroundColor: ink[850],
         borderColor: ink[700],
         color: text.onInk,
       },
-      // A quiet key on ink: the account key, a sheet's close.
       "variant:ghost-on-ink": {
         backgroundColor: "transparent",
         borderColor: "transparent",
@@ -772,8 +696,7 @@ export const awbrnTheme = defineTheme({
       },
     },
 
-    // -- Placeholders: a list loads as static paper-well blocks in its final
-    // shape. Nothing pulses (only the board's own loading line does).
+    // -- Placeholders: nothing pulses ------------------------------------------
     skeleton: {
       base: {
         backgroundColor: paper.well,
@@ -784,14 +707,7 @@ export const awbrnTheme = defineTheme({
 
     // -- Sheets ----------------------------------------------------------------
     card: {
-      base: {
-        backgroundColor: paper.sheet,
-        borderColor: paper.rule,
-        borderStyle: "solid",
-        borderWidth: "1px",
-        borderRadius: "var(--radius-container)",
-        boxShadow: SHADOW_SHEET,
-      },
+      base: sheet,
       "variant:muted": {
         backgroundColor: paper.well,
         borderColor: "transparent",
@@ -802,17 +718,14 @@ export const awbrnTheme = defineTheme({
         borderColor: "transparent",
         boxShadow: "none",
       },
-      // The Waiting row and other insets: one step darker than paper, flat.
       "variant:well": {
         backgroundColor: paper.well,
         borderColor: "transparent",
         boxShadow: "none",
       },
-      // The sheet that waits on the viewer; pair it with the airmail band.
       "variant:owed": {
         boxShadow: SHADOW_OWED,
       },
-      // A panel on the ink table.
       "variant:ink": {
         backgroundColor: ink[900],
         borderColor: ink[800],
@@ -838,32 +751,16 @@ export const awbrnTheme = defineTheme({
       },
     },
     "clickable-card": {
-      base: {
-        ...stepped,
-        backgroundColor: paper.sheet,
-        borderColor: paper.rule,
-        borderStyle: "solid",
-        borderWidth: "1px",
-        borderRadius: "var(--radius-container)",
-        boxShadow: SHADOW_SHEET,
-      },
+      base: { ...stepped, ...sheet },
     },
     section: {
-      "variant:section": {
-        backgroundColor: paper.sheet,
-        borderColor: paper.rule,
-        borderStyle: "solid",
-        borderWidth: "1px",
-        borderRadius: "var(--radius-container)",
-        boxShadow: SHADOW_SHEET,
-      },
+      "variant:section": sheet,
       "variant:muted": {
         backgroundColor: paper.well,
         borderRadius: "var(--radius-container)",
         boxShadow: "none",
       },
     },
-    // A banner names the problem and carries its recovery key.
     banner: {
       base: {
         borderStyle: "solid",
@@ -882,7 +779,6 @@ export const awbrnTheme = defineTheme({
         color: "#0e4f31",
       },
     },
-    // Letter on the table: a dialog is paper, floating.
     dialog: {
       base: {
         backgroundColor: paper.sheet,
@@ -917,7 +813,6 @@ export const awbrnTheme = defineTheme({
         boxShadow: SHADOW_FLOAT,
       },
     },
-    // An empty state is a dashed sheet: a title, at most one key.
     "empty-state": {
       base: {
         backgroundColor: paper.sheet,
@@ -934,8 +829,8 @@ export const awbrnTheme = defineTheme({
 
     // -- Type --------------------------------------------------------------------
     heading: {
-      // Display: the condensed cut, its word space opened back up so "Your
-      // move" never reads "Yourmove".
+      // The condensed cut, its word space opened back up so "Your move" never
+      // reads "Yourmove".
       "level:1": {
         fontStretch: "62%",
         letterSpacing: "-0.01em",
@@ -954,11 +849,9 @@ export const awbrnTheme = defineTheme({
       "level:6": capsLabel,
     },
     text: {
-      // Errors and shortfalls (`−1,000`).
       "color:danger": { color: status.danger },
-      // Placeholders and coordinates: 4.6:1 on white.
+      // 4.6:1 on white.
       "color:tertiary": { color: text.tertiary },
-      // Words on the ink table and the navy bars.
       "color:on-ink": { color: text.onInk },
       "color:on-ink-secondary": { color: text.onInkSecondary },
       "type:supporting": {
@@ -1000,15 +893,7 @@ export const awbrnTheme = defineTheme({
       base: { borderBottom: `1px solid ${paper.rule}` },
     },
     list: {
-      base: {
-        backgroundColor: paper.sheet,
-        borderColor: paper.rule,
-        borderStyle: "solid",
-        borderWidth: "1px",
-        borderRadius: "var(--radius-container)",
-        boxShadow: SHADOW_SHEET,
-        overflow: "hidden",
-      },
+      base: { ...sheet, overflow: "hidden" },
     },
     "list-item": {
       base: { borderBottom: `1px solid ${paper.rule}` },
@@ -1028,7 +913,6 @@ export const awbrnTheme = defineTheme({
     },
 
     // -- Chips and marks ------------------------------------------------------------
-    // A count badge. On a heading or a nav item the shell's CountBadge is used.
     badge: {
       base: {
         borderStyle: "none",
@@ -1041,8 +925,7 @@ export const awbrnTheme = defineTheme({
         textTransform: "none",
       },
     },
-    // A tag: 22px, 4px corners, paper well. The fill sits on the neutral color
-    // so Astryx's named colors keep theirs.
+    // The fill sits on the neutral color so Astryx's named colors keep theirs.
     token: {
       base: {
         borderStyle: "none",
@@ -1084,7 +967,6 @@ export const awbrnTheme = defineTheme({
     },
 
     // -- Fields -----------------------------------------------------------------------
-    // A field's name reads in the label style: ink, 650, 14px.
     "field-label": {
       base: {
         color: text.primary,
@@ -1143,7 +1025,6 @@ export const awbrnTheme = defineTheme({
     },
 
     // -- Navigation ---------------------------------------------------------------------
-    // Sub-pages are underline tabs: the chosen tab takes an ink rule.
     tab: {
       base: {
         ...stepped,

@@ -1,11 +1,6 @@
 /*
- * THE LANDING
- *
- * A visitor's first look, in the guest shell. The hero sits on the ink table:
- * the promise, one sentence, the one red key, and the phone match screen as a
- * picture. Then who to play (the CPU, open lobbies), the maps, replays on ink,
- * and a Day 1 close. Only what a new account can reach today; what needs an
- * account says so.
+ * The visitor's home page. It shows only what a new account can reach today;
+ * what needs an account says so.
  */
 
 import { Heading } from "@astryxdesign/core/Heading";
@@ -20,14 +15,14 @@ import {
   textSizeVars,
   typeScaleVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
-import { useQuery, useSuspenseInfiniteQuery } from "@tanstack/react-query";
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
+import { getFactionById } from "#/factions.ts";
 import { MapRankMedal } from "#/maps/components/MapRankMedal.tsx";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
-import { mapCatalogQueryOptions, mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
+import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import { MAP_RANKS, type MapCatalogEntry } from "#/maps/schemas.ts";
 import { matchesBrowseQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchBrowseSummary } from "#/matches/schemas.ts";
@@ -42,12 +37,9 @@ import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { Postmark } from "#/ui/Postmark.tsx";
 import { DepictedMatch } from "./DepictedMatch.tsx";
 import { DepictedReplay } from "./DepictedReplay.tsx";
-import { chooseLandingMaps, placeSkirmish } from "./depicted.ts";
+import { chooseLandingMaps } from "./depicted.ts";
 
-/**
- * The ranked maps: the landing's featured map, rows and pictures, the first
- * match's map, and Newly ranked all read this one list.
- */
+/** The landing, the first match and Newly ranked all read this one list. */
 export function rankedMapsQueryOptions() {
   return mapCatalogQueryOptions(null, { ranks: [...MAP_RANKS] });
 }
@@ -56,8 +48,6 @@ const homeRoute = getRouteApi("/");
 
 /** Of the map rows beside the featured map, a phone shows the first two. */
 const PHONE_MAP_ROWS = 2;
-/** Create account, the landing's one large key, at both widths. */
-const LANDING_KEY_HEIGHT = "56px";
 
 export function Landing() {
   const { data } = useSuspenseInfiniteQuery(rankedMapsQueryOptions());
@@ -70,7 +60,7 @@ export function Landing() {
   const lobby = lobbies.data.pages[0]?.matches[0] ?? null;
 
   return (
-    <VStack xstyle={styles.page}>
+    <VStack>
       <Hero map={featured} />
       <VStack xstyle={[styles.paper, styles.gutters]}>
         <Section
@@ -94,26 +84,8 @@ export function Landing() {
   );
 }
 
-/** The depicted board's armies and skirmish, once the map's terrain arrives. */
-function useDepiction(map: MapCatalogEntry | null) {
-  const { data: document } = useQuery({
-    ...mapRevisionQueryOptions(map?.mapId ?? "", map?.revision ?? 0),
-    enabled: map !== null,
-  });
-  return useMemo(() => {
-    const code = (slot: number) =>
-      getFactionById(document?.slotFactionIds[slot] ?? defaultFactionIdForSlot(slot))?.code ??
-      (slot === 0 ? "os" : "bm");
-    return {
-      factionCodes: [code(0), code(1)] as const,
-      skirmish: document ? placeSkirmish(document) : null,
-    };
-  }, [document]);
-}
-
 function Hero({ map }: { map: MapCatalogEntry | null }) {
   const headingId = useId();
-  const { factionCodes, skirmish } = useDepiction(map);
   return (
     <section aria-labelledby={headingId} {...stylex.props(styles.hero)}>
       <VStack xstyle={[styles.heroIn, styles.gutters]}>
@@ -131,7 +103,7 @@ function Hero({ map }: { map: MapCatalogEntry | null }) {
         </Text>
         {map ? (
           <VStack xstyle={styles.heroScreen}>
-            <DepictedMatch factionCodes={factionCodes} map={map} skirmish={skirmish} />
+            <DepictedMatch map={map} />
           </VStack>
         ) : null}
       </VStack>
@@ -147,7 +119,7 @@ function CreateAccountKey() {
       size="lg"
       to="/auth"
       variant="primary"
-      xstyle={styles.cta}
+      xstyle={[styles.phoneWide, styles.cta]}
     />
   );
 }
@@ -167,13 +139,9 @@ function Section({ body, children, title }: { body: string; children: ReactNode;
   );
 }
 
-/**
- * Who to play, as link rows: each a name, one line, the real control it opens
- * on (pictured, not pressable), and a chevron.
- */
 function Opponents({ lobby }: { lobby: MatchBrowseSummary | null }) {
   return (
-    <ul {...stylex.props(styles.sheet, styles.ways)}>
+    <ul {...stylex.props(styles.sheet, styles.list)}>
       <WayRow
         line="Ready the moment you sign up."
         link={
@@ -213,8 +181,8 @@ function Opponents({ lobby }: { lobby: MatchBrowseSummary | null }) {
 }
 
 /**
- * One way in. The whole row is the link (its name stretches over the row);
- * the control beside it is a picture of where the link lands.
+ * The whole row is the link (its name stretches over the row); the control
+ * beside it is a picture of where the link lands.
  */
 function WayRow({ line, link, real }: { line: string; link: ReactNode; real: ReactNode }) {
   return (
@@ -233,7 +201,6 @@ function WayRow({ line, link, real }: { line: string; link: ReactNode; real: Rea
   );
 }
 
-/** A real open lobby as its row shows it: thumbnail, title, host, terms and seats. */
 function LobbyPicture({ lobby }: { lobby: MatchBrowseSummary }) {
   const host = lobby.seats.find((seat) => seat.isHost) ?? null;
   return (
@@ -263,7 +230,6 @@ function LobbyPicture({ lobby }: { lobby: MatchBrowseSummary }) {
   );
 }
 
-/** One battlefield at its real tiles beside map rows, and Browse maps after the set. */
 function MapsSheet({ featured, rows }: { featured: MapCatalogEntry; rows: MapCatalogEntry[] }) {
   const picture = mapScreenshotSize("full", featured.width, featured.height);
   return (
@@ -281,15 +247,11 @@ function MapsSheet({ featured, rows }: { featured: MapCatalogEntry; rows: MapCat
           />
         </VStack>
         <HStack as="span" xstyle={styles.mapName}>
-          <VStack as="span" xstyle={styles.mapNameText}>
-            <b {...stylex.props(styles.mapTitle)}>{featured.name}</b>
-            <Postage>{mapPostage(featured)}</Postage>
-          </VStack>
-          <MapRankMedal rank={featured.rank} size="sm" xstyle={styles.mapMedal} />
+          <MapName map={featured} />
         </HStack>
       </Link>
       <VStack xstyle={styles.mapList}>
-        <ul {...stylex.props(styles.mapRows)}>
+        <ul {...stylex.props(styles.list)}>
           {rows.map((map, index) => (
             <li
               key={map.mapId}
@@ -301,11 +263,7 @@ function MapsSheet({ featured, rows }: { featured: MapCatalogEntry; rows: MapCat
                 {...stylex.props(styles.mapRow)}
               >
                 <MatchThumb isEager map={map} size={56} />
-                <VStack as="span" xstyle={styles.mapNameText}>
-                  <b {...stylex.props(styles.mapTitle)}>{map.name}</b>
-                  <Postage>{mapPostage(map)}</Postage>
-                </VStack>
-                <MapRankMedal rank={map.rank} size="sm" xstyle={styles.mapMedal} />
+                <MapName map={map} />
               </Link>
             </li>
           ))}
@@ -319,10 +277,20 @@ function MapsSheet({ featured, rows }: { featured: MapCatalogEntry; rows: MapCat
   );
 }
 
-/** Replays on the ink table: what they are, the key, and a board mid-review. */
+function MapName({ map }: { map: MapCatalogEntry }) {
+  return (
+    <>
+      <VStack as="span" xstyle={styles.mapNameText}>
+        <b {...stylex.props(styles.mapTitle)}>{map.name}</b>
+        <Postage>{mapPostage(map)}</Postage>
+      </VStack>
+      <MapRankMedal rank={map.rank} size="sm" xstyle={styles.mapMedal} />
+    </>
+  );
+}
+
 function Replays({ map }: { map: MapCatalogEntry | null }) {
   const headingId = useId();
-  const { factionCodes, skirmish } = useDepiction(map);
   return (
     <section aria-labelledby={headingId} {...stylex.props(styles.band)}>
       <VStack xstyle={[styles.bandIn, styles.gutters]}>
@@ -339,16 +307,15 @@ function Replays({ map }: { map: MapCatalogEntry | null }) {
             size="lg"
             to="/replay"
             variant="on-ink"
-            xstyle={styles.bandKey}
+            xstyle={[styles.phoneWide, styles.bandKey]}
           />
         </Text>
-        {map ? <DepictedReplay factionCodes={factionCodes} map={map} skirmish={skirmish} /> : null}
+        {map ? <DepictedReplay map={map} /> : null}
       </VStack>
     </section>
   );
 }
 
-/** The close: a Day 1 postmark, a headline, and Create account again. */
 function Close() {
   const headingId = useId();
   const ringDate = useRingDate();
@@ -370,10 +337,9 @@ export function ringDateText(day: Date): string {
 }
 
 /**
- * Today on the ring. The page is drawn with the date the route loaded on (the
- * server's, on a first visit), so the ring is there at first paint; once on
- * the viewer's device it reads their own day, which differs only around
- * midnight.
+ * The page is drawn with the date the route loaded on (the server's, on a
+ * first visit), so the ring is there at first paint; once on the viewer's
+ * device it reads their own day.
  */
 function useRingDate(): string {
   const { ringDate } = homeRoute.useLoaderData();
@@ -391,8 +357,7 @@ const TABLET_MEDIA = "@media (min-width: 721px) and (max-width: 960px)";
 const BELOW_RAIL_MEDIA = "@media (min-width: 721px) and (max-width: 1180px)";
 
 const styles = stylex.create({
-  // The page gutter every paper page and the footer keep (`Page` in
-  // `#/ui/Page.tsx`): never narrower than a sideways phone's inset.
+  // The gutter `Page` in `#/ui/Page.tsx` keeps.
   gutters: {
     paddingInlineStart: {
       default: `max(${pageLayout.gutterDesktop}, ${pageLayout.safeInsetLeft})`,
@@ -403,16 +368,10 @@ const styles = stylex.create({
       [pageLayout.phoneMedia]: `max(${pageLayout.gutterPhone}, ${pageLayout.safeInsetRight})`,
     },
   },
-  page: {
-    display: "flex",
-    flexDirection: "column",
-  },
   hero: {
     overflow: "hidden",
     backgroundColor: awbrnVars.ink950,
   },
-  // Copy and screen are one unit, centered on the table, with 48px of ink
-  // above and below the screen.
   heroIn: {
     display: {
       default: "grid",
@@ -468,7 +427,7 @@ const styles = stylex.create({
     lineHeight: 1.5,
     textWrap: "pretty",
   },
-  cta: {
+  phoneWide: {
     display: {
       default: "inline-flex",
       [pageLayout.phoneMedia]: "flex",
@@ -477,9 +436,11 @@ const styles = stylex.create({
       default: "auto",
       [pageLayout.phoneMedia]: "100%",
     },
+  },
+  cta: {
     minInlineSize: "220px",
-    // The landing's one large key: 56px at both widths, a size up from lg.
-    blockSize: LANDING_KEY_HEIGHT,
+    // A size up from lg.
+    blockSize: "56px",
     paddingInline: spacingVars["--spacing-6"],
     fontSize: typeScaleVars["--text-large-size"],
     fontWeight: 700,
@@ -565,7 +526,7 @@ const styles = stylex.create({
     backgroundColor: awbrnVars.sheet,
     boxShadow: `0 0 0 1px ${awbrnVars.rule}, ${awbrnVars.shadowSheet}`,
   },
-  ways: {
+  list: {
     marginBlock: 0,
     paddingInline: 0,
     listStyle: "none",
@@ -655,7 +616,6 @@ const styles = stylex.create({
   },
   wayReal: {
     gridArea: "real",
-    display: "flex",
     alignItems: "center",
     minInlineSize: 0,
     pointerEvents: "none",
@@ -674,7 +634,6 @@ const styles = stylex.create({
     color: awbrnVars.textTertiary,
   },
   lobby: {
-    display: "flex",
     alignItems: "center",
     gap: "14px",
     minInlineSize: 0,
@@ -693,7 +652,6 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   lobbyMeta: {
-    display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     columnGap: "12px",
@@ -754,13 +712,10 @@ const styles = stylex.create({
     imageRendering: "pixelated",
   },
   mapName: {
-    display: "flex",
     alignItems: "center",
     gap: "12px",
   },
   mapNameText: {
-    display: "flex",
-    flexDirection: "column",
     gap: "2px",
     flexGrow: 1,
     minInlineSize: 0,
@@ -780,14 +735,7 @@ const styles = stylex.create({
     fontWeight: 700,
   },
   mapList: {
-    display: "flex",
-    flexDirection: "column",
     minInlineSize: 0,
-  },
-  mapRows: {
-    marginBlock: 0,
-    paddingInline: 0,
-    listStyle: "none",
   },
   mapRowItem: {
     borderBlockStartColor: awbrnVars.rule,
@@ -872,14 +820,6 @@ const styles = stylex.create({
     },
   },
   bandKey: {
-    display: {
-      default: "inline-flex",
-      [pageLayout.phoneMedia]: "flex",
-    },
-    inlineSize: {
-      default: "auto",
-      [pageLayout.phoneMedia]: "100%",
-    },
     marginBlockStart: {
       default: "32px",
       [pageLayout.phoneMedia]: "24px",

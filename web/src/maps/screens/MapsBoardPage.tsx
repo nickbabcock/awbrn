@@ -1,11 +1,4 @@
-/*
- * MAPS: the catalog.
- *
- * The title and Import a map, then search, the Filters key and the count on
- * one line, then the cards (three across, two below 1180px, one on a phone).
- * Every narrowing lives in the address, so a filtered set is a link somebody
- * can send.
- */
+// Every narrowing lives in the address, so a filtered set is a link somebody can send.
 
 import { Icon } from "@astryxdesign/core/Icon";
 import { Stack } from "@astryxdesign/core/Stack";
@@ -32,7 +25,6 @@ import { EmptySheet, ProblemBanner } from "#/ui/EmptySheet.tsx";
 import { IconRefresh } from "#/ui/icons.tsx";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 
-/** How long the search waits after a keystroke before it writes the address. */
 const SEARCH_DEBOUNCE_MS = 250;
 
 export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
@@ -154,7 +146,6 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
 }
 
 const styles = stylex.create({
-  // The head and the filters, in block flow.
   flow: {
     display: "block",
   },

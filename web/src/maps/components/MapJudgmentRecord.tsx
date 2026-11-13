@@ -1,13 +1,7 @@
 /**
- * Record: every rank and retag this map has been through, newest first.
- *
- * Each entry is a postmark (the day), the change as marks (`A → S`, the tags,
- * a medal), the reason in quotes and who gave it. A rank names a revision and
- * a tag names the map, so both log subjects are read and merged into one
- * history.
- *
- * Only a viewer who may read the moderation log sees it, and only once there
- * is something in it: the medal already says a map was never ranked.
+ * A map's rank and retag history, newest first. A rank names a revision and a
+ * tag names the map, so both log subjects are read and merged. Hidden while
+ * empty: the medal already says a map was never ranked.
  */
 
 import { Heading } from "@astryxdesign/core/Heading";
@@ -38,7 +32,6 @@ import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { Postmark } from "#/ui/Postmark.tsx";
 import { Sheet, SheetBody, SheetHead } from "#/ui/Sheet.tsx";
 
-/** How much of a map's history the page shows. */
 const RECORD_LIMIT = 10;
 
 export function MapJudgmentRecord({ actor, map }: { actor: Actor | null; map: MapCatalogEntry }) {

@@ -6,17 +6,14 @@ import type { UnitKind } from "#/wasm/awbrn_wasm.js";
 /**
  * An archive's outline, read in the page while the engine loads the same file:
  * one boundary per moment, the opening included, with the day, the seat that
- * acted and what it did. The scrubber's day ticks, the rail's log and the
- * phone's log key come from here, so they are there as soon as the file is.
+ * acted and what it did.
  *
- * The engine replays the archive to find its turns and does not report them,
- * so this reads the archive's own record of them: an AWBW archive files every
- * action under the turn and day it was taken in, and an AWBRN archive names the
- * seat behind every action, in seat order. The screen checks the count against
- * the engine's and drops an outline that disagrees.
+ * The engine replays the archive to find its turns but does not report them,
+ * so this reads the archive's own record of them. The screen checks the count
+ * against the engine's and drops an outline that disagrees.
  *
  * Null when the archive cannot be read this way (an unknown shape, or a browser
- * without `DecompressionStream`); the screen then goes without ticks and log.
+ * without `DecompressionStream`).
  */
 export async function readArchiveOutline(bytes: Uint8Array): Promise<LogBoundary[] | null> {
   try {
@@ -159,7 +156,7 @@ function awbrnSummary(action: AwbrnAction, coId: number | null): ActionSummary |
  * was taken in that turn; the boundary after a turn's last action is already
  * the next turn's.
  */
-export function awbwOutline(log: Uint8Array): LogBoundary[] | null {
+function awbwOutline(log: Uint8Array): LogBoundary[] | null {
   const turns = readAwbwTurns(log);
   if (turns.length === 0) return null;
 

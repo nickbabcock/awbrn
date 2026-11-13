@@ -317,7 +317,6 @@ const styles = stylex.create({
     gap: awbrnVars.spacing2_5,
     paddingInlineStart: awbrnVars.spacing3_5,
   },
-  // Out of reach: 40% and grayed, with what is missing in danger mono.
   rowUnaffordable: {
     cursor: "not-allowed",
     color: awbrnVars.textTertiary,

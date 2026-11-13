@@ -36,25 +36,19 @@ export function factionLogoStyle(factionCode: string, size: number): CSSProperti
 }
 
 /**
- * The army's own insignia (the faction crest), drawn at whole pixels.
+ * The army's own insignia.
  *
  * Each logo already carries its army color, so the mark identifies the faction
- * by shape and by hue at the same time: hue is never alone. Callers that show
- * the army name next to it pass `isLabelHidden`, because two announcements of
- * the same army read as two armies. Sizes: 14px is the sprite's own 1x; use
- * 14, 28 or 42 to stay on whole pixels.
- *
- *   <FactionLogo factionCode="os" isLabelHidden size={14} />
+ * by shape and by hue at the same time. Callers that show the army name next to
+ * it pass `isLabelHidden`, because two announcements of the same army read as
+ * two armies. 14px is the sprite's 1x; use multiples to stay on whole pixels.
  */
 export function FactionLogo({
   factionCode,
-  isFramed: _isFramed = true,
   isLabelHidden = false,
   size = 28,
 }: {
   factionCode: string;
-  /** @deprecated The crest's own art is its frame; this no longer draws one. */
-  isFramed?: boolean;
   isLabelHidden?: boolean;
   size?: number;
 }) {

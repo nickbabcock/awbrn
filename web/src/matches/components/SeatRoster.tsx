@@ -1,10 +1,6 @@
 /*
- * THE SEAT ROSTER
- *
- * The seats of a new match in turn order: yours first, with your stamp, name
- * and YOU (your commander is picked in the lobby), and every other seat a choice
- * between leaving it open for somebody and handing it to the computer. A
- * match against the computer is one screen and one press.
+ * The seats of a new match in turn order: yours first, and every other seat
+ * left open or handed to the computer.
  */
 
 import { Selector } from "@astryxdesign/core/Selector";
@@ -61,7 +57,7 @@ export function SeatRoster({ aiSeats, factionCodes, onChange, viewerName }: Seat
           <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.number]}>
             {slotIndex + 1}
           </Text>
-          <FactionLogo factionCode={factionCode} isFramed={false} isLabelHidden size={28} />
+          <FactionLogo factionCode={factionCode} isLabelHidden size={28} />
           {slotIndex === HOST_SLOT ? (
             <HStack as="span" xstyle={styles.who}>
               <SeatStamp

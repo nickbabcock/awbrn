@@ -3,11 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 import { Sheet, SheetBody } from "#/ui/Sheet.tsx";
 
-/**
- * About: what AWBRN is and how it is built, on one sheet that fills the
- * column. Independence is said once, in the footer every page ends with; no
- * keys, since the top bar already goes everywhere this page could send.
- */
+// Independence is said once, in the footer every page ends with.
 export function AboutPage() {
   return (
     <Page width="narrow">

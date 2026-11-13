@@ -1,15 +1,3 @@
-/*
- * NEW MATCH
- *
- * A match starts with a map you can see. On desktop the catalog's cards sit
- * beside the rules sheet; on a phone the form opens with one chosen-map row
- * that opens the map picker sheet, and a task dock keeps the choice so far
- * and Create lobby under the thumb.
- *
- * The rules are what a host decides and nothing else: the name, the pace,
- * the funds, who sits where, who is banned, and the three switches.
- */
-
 import { useAnnounce } from "@astryxdesign/core/hooks";
 import { Icon } from "@astryxdesign/core/Icon";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
@@ -88,11 +76,9 @@ const BANNED_STAMPS_SHOWN = 8;
 const PICKER_ONE_COLUMN_TILES = 25;
 
 /**
- * The picker's deal. In a picker the order is a choice, not a ranking, so a
- * card that may take two columns follows the ones that never do, narrowest
- * first: whatever the column, every card that spans comes after every card
- * that does not, the grid leaves no holes between them, and the page reads
- * (and tabs) in the order it draws.
+ * In a picker the order is a choice, not a ranking, so a card that may take
+ * two columns follows the ones that never do, narrowest first. The grid then
+ * leaves no holes, and the page reads (and tabs) in the order it draws.
  */
 function pickerOrder(maps: readonly MapCatalogEntry[]): MapCatalogEntry[] {
   const regular = maps.filter((map) => map.width <= PICKER_ONE_COLUMN_TILES);
@@ -272,9 +258,6 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
       summary={summary}
     />
   );
-  // What the board says when it holds nothing to choose: the catalog is
-  // empty, or nothing matches. Either way a map can be brought over from AWBW
-  // by its id here, which is the one place a map enters the catalog.
   const emptyBoard = isBoardEmpty ? (
     <EmptyBoard
       filterCount={filterCount}
@@ -433,8 +416,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
       </VStack>
 
       {/* The dock stays while no map is on the form, so Create lobby never
-          leaves the phone: held back while the board loads, and beside the
-          way to recover when the board could not be read. */}
+          leaves the phone. */}
       <TaskDock
         keys={
           selectedMap === null && catalogQuery.isError ? (
@@ -469,7 +451,6 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             </>
           ) : (
             <>
-              {/* A static well in the thumbnail's place (Placeholders). */}
               <VStack as="span" aria-hidden="true" xstyle={styles.dockWell} />
               <VStack as="span" xstyle={styles.dockText}>
                 <b {...stylex.props(styles.dockName)}>
@@ -548,15 +529,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   );
 }
 
-/** The coin in the funds field. */
 function CoinIcon() {
   return <UiSprite name="Coin.png" />;
 }
 
-/**
- * On a phone the form opens with the chosen map as one row: the thumbnail,
- * the name, its postage and medal. It opens the map picker sheet.
- */
+/** On a phone the form opens with the chosen map as one row, which opens the map picker. */
 function ChosenMapKey({ map, onOpen }: { map: MapCatalogEntry | null; onOpen: () => void }) {
   return (
     <button
@@ -567,14 +544,7 @@ function ChosenMapKey({ map, onOpen }: { map: MapCatalogEntry | null; onOpen: ()
       {...stylex.props(styles.mapKey)}
     >
       {map ? (
-        <>
-          <MatchThumb map={map} size={64} />
-          <VStack as="span" xstyle={styles.mapKeyText}>
-            <b {...stylex.props(styles.mapKeyName)}>{map.name}</b>
-            <Postage>{mapPostage(map)}</Postage>
-          </VStack>
-          {map.rank ? <MapRankMedal rank={map.rank} size="sm" /> : null}
-        </>
+        <MapKeyBody map={map} />
       ) : (
         <VStack as="span" xstyle={styles.mapKeyText}>
           <b {...stylex.props(styles.mapKeyName)}>Choose a map</b>
@@ -585,7 +555,6 @@ function ChosenMapKey({ map, onOpen }: { map: MapCatalogEntry | null; onOpen: ()
   );
 }
 
-/** One map in the picker sheet: an 80px row, the chosen one checked. */
 function MapRowKey({
   isChosen,
   map,
@@ -602,18 +571,26 @@ function MapRowKey({
       type="button"
       {...stylex.props(styles.mapRow, isChosen && styles.mapRowChosen)}
     >
-      <MatchThumb map={map} size={64} />
-      <VStack as="span" xstyle={styles.mapKeyText}>
-        <b {...stylex.props(styles.mapKeyName)}>{map.name}</b>
-        <Postage>{mapPostage(map)}</Postage>
-      </VStack>
-      {map.rank ? <MapRankMedal rank={map.rank} size="sm" /> : null}
+      <MapKeyBody map={map} />
       {isChosen ? (
         <VStack as="span" aria-hidden="true" xstyle={styles.picked}>
           <Icon icon={IconCheck} size="sm" />
         </VStack>
       ) : null}
     </button>
+  );
+}
+
+function MapKeyBody({ map }: { map: MapCatalogEntry }) {
+  return (
+    <>
+      <MatchThumb map={map} size={64} />
+      <VStack as="span" xstyle={styles.mapKeyText}>
+        <b {...stylex.props(styles.mapKeyName)}>{map.name}</b>
+        <Postage>{mapPostage(map)}</Postage>
+      </VStack>
+      {map.rank ? <MapRankMedal rank={map.rank} size="sm" /> : null}
+    </>
   );
 }
 
@@ -644,7 +621,6 @@ function Seats({
   );
 }
 
-/** Who is banned, as grayed stamps, with the key that opens the tier picker. */
 function BannedWell({
   bannedCoIds,
   onEdit,
@@ -677,11 +653,9 @@ function BannedWell({
 }
 
 /**
- * A field's name in the form's label style (as Banned reads), drawn here
- * because the input's own label is the lighter Astryx default. The input's
- * hidden label stays its accessible name, so this one is hidden from
- * assistive tech rather than read twice; a click on it still focuses the
- * field, as a label's would.
+ * A field's name in the form's label style, drawn here because the input's
+ * own label is the lighter Astryx default. The input's hidden label stays its
+ * accessible name, so this one is hidden from assistive tech.
  */
 function FieldName({
   children,
@@ -701,7 +675,6 @@ function FieldName({
   );
 }
 
-/** One switch in the list: an icon, the word, and the switch across the row. */
 function SwitchRow({
   icon,
   label,
@@ -727,10 +700,7 @@ function SwitchRow({
   );
 }
 
-/**
- * The board when it holds no map to choose: an empty catalog, or nothing
- * matching. A map enters the catalog by its AWBW id, so the import is here.
- */
+/** A map enters the catalog by its AWBW id, so the import is here. */
 function EmptyBoard({
   filterCount,
   isNarrowed,
@@ -765,7 +735,6 @@ function EmptyBoard({
   );
 }
 
-/** Bring a map over from AWBW by its id. */
 function AwbwImport({
   isSignedIn,
   onImported,
@@ -854,7 +823,6 @@ const styles = stylex.create({
     minInlineSize: 0,
   },
   more: {
-    display: "flex",
     justifyContent: "center",
   },
   // Beside a long catalog the choice so far and Create lobby stay in reach:
@@ -915,7 +883,6 @@ const styles = stylex.create({
     fontWeight: 650,
   },
   banned: {
-    display: "flex",
     alignItems: "center",
     gap: "12px",
     minBlockSize: "56px",
@@ -943,7 +910,6 @@ const styles = stylex.create({
     borderBlockStartWidth: "1px",
   },
   switchRow: {
-    display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: "16px",
@@ -1074,7 +1040,6 @@ const styles = stylex.create({
     gap: "16px",
   },
   import: {
-    display: "flex",
     alignItems: "flex-end",
     flexWrap: "wrap",
     gap: "8px",

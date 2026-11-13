@@ -122,8 +122,6 @@ const PHONE_MEDIA = "(max-width: 720px)";
 /** Said when a question about the past could not be put to the host at all. */
 const REVIEW_UNREACHABLE = "The match could not be read because the connection is not open.";
 /** Said when the board could not be put back after a reading; a reconnect rebuilds it. */
-/** Who is connected to the match, and how (`MatchConnection`). */
-type Connection = MatchConnection;
 const REVIEW_RESTORE_FAILED = "The live board could not be restored. Reconnect to catch up.";
 /** The host's answer when a match's log cannot be opened for reading. */
 const REVIEW_REFUSED = "this match cannot be reviewed";
@@ -419,7 +417,7 @@ export function MatchActivePage({
       void queryClient.invalidateQueries({ queryKey: sessionQueryOptions().queryKey });
     }
   }, [hasConnected, isRefused, queryClient]);
-  const connection: Connection = isSignedOut
+  const connection: MatchConnection = isSignedOut
     ? "signedOut"
     : status === "connected"
       ? "connected"
@@ -1034,11 +1032,6 @@ function readArmyClock(
   };
 }
 
-/**
- * The live match screen: the turn strip, the table with the board, the rail
- * of armies and its keys (desktop); the turn line, the armies, the board, the
- * tile row and the dock (phone).
- */
 function ActiveMatchScreen({
   activatingPower,
   activePlayerSlot,
@@ -1083,10 +1076,9 @@ function ActiveMatchScreen({
   alertsOffer: ReturnType<typeof useTurnAlertsOffer>;
   armies: MatchArmy[];
   boardError: string | null;
-  connection: Connection;
+  connection: MatchConnection;
   day: number | null;
   initialBoard: InitialBoardMessage | null;
-  /** The live day just opened, so its postmark lands. */
   isDayNew: boolean;
   isEndingTurn: boolean;
   isPlayer: boolean;
@@ -1245,6 +1237,7 @@ function ActiveMatchScreen({
     onActivate: isConnected && isViewerTurn && !isReviewing ? onActivatePower : undefined,
   };
   const viewerPowers = viewerArmy && power.onActivate ? readyPowers(viewerArmy.entry) : [];
+  const strongestPower = viewerPowers.at(-1);
   const hasOrders = unitActions !== null && unitActions.destination !== undefined;
   const hasBuild = productionOptions !== null && productionSite !== undefined;
   const isSelecting = inspectedUnit !== null && isViewerTurn && !isReviewing;
@@ -1264,23 +1257,24 @@ function ActiveMatchScreen({
       />
     );
 
+  const tryAgainKey = (onPress: () => void) => (
+    <Button
+      icon={<Icon icon={IconRefresh} />}
+      label="Try again"
+      onClick={onPress}
+      variant="on-ink"
+    />
+  );
   // Each notice carries the way out of what failed, and stays until its cause
   // clears: there is no close key.
   const notices = (
     <>
       {boardError ? (
         <MatchNotice
-          action={
-            <Button
-              icon={<Icon icon={IconRefresh} />}
-              label="Try again"
-              onClick={() => {
-                onBoardError(null);
-                setLoadAttempt((attempt) => attempt + 1);
-              }}
-              variant="on-ink"
-            />
-          }
+          action={tryAgainKey(() => {
+            onBoardError(null);
+            setLoadAttempt((attempt) => attempt + 1);
+          })}
           description={boardError}
           title="The board could not be loaded"
         />
@@ -1295,17 +1289,7 @@ function ActiveMatchScreen({
         />
       ) : null}
       {connection === "refused" ? (
-        <MatchNotice
-          action={
-            <Button
-              icon={<Icon icon={IconRefresh} />}
-              label="Try again"
-              onClick={reconnect}
-              variant="on-ink"
-            />
-          }
-          title="The match could not be reached"
-        />
+        <MatchNotice action={tryAgainKey(reconnect)} title="The match could not be reached" />
       ) : null}
       {matchError ? (
         <MatchNotice
@@ -1343,6 +1327,7 @@ function ActiveMatchScreen({
     boardError !== null ||
     matchError !== null ||
     reviewError !== null;
+  const columnNotices = hasNotice ? <VStack xstyle={styles.columnNotice}>{notices}</VStack> : null;
 
   // A new selection is a new menu: it lands (90ms, stepped) and takes the
   // caret afresh.
@@ -1405,11 +1390,9 @@ function ActiveMatchScreen({
     ) : null;
   // A notice, or the Turn alerts offer, takes the tile window's place beside
   // the orders, as it takes the tile row on a phone.
-  const tileMessage = hasNotice ? (
-    <VStack xstyle={styles.columnNotice}>{notices}</VStack>
-  ) : alertsOffer.isOffering ? (
-    <TurnAlertsOffer onDismiss={alertsOffer.dismiss} />
-  ) : null;
+  const tileMessage =
+    columnNotices ??
+    (alertsOffer.isOffering ? <TurnAlertsOffer onDismiss={alertsOffer.dismiss} /> : null);
   const side = (
     <>
       <BoardKeys runner={runner} />
@@ -1627,17 +1610,13 @@ function ActiveMatchScreen({
     <PhoneReviewBar review={review} />
   ) : (
     <DockRow>
-      {viewerEntry && viewerPowers.length > 0 ? (
+      {viewerEntry && strongestPower ? (
         <PowerKey
           isArmed={armedPower !== null}
           isLoading={activatingPower !== undefined}
-          label={`CO power: ${powerName(viewerEntry, viewerPowers[viewerPowers.length - 1]!)}`}
-          level={viewerPowers[viewerPowers.length - 1]!}
-          onPress={() =>
-            setArmedPower((armed) =>
-              armed === null ? viewerPowers[viewerPowers.length - 1]! : null,
-            )
-          }
+          label={`CO power: ${powerName(viewerEntry, strongestPower)}`}
+          level={strongestPower}
+          onPress={() => setArmedPower((armed) => (armed === null ? strongestPower : null))}
           size="dock"
         />
       ) : null}
@@ -1687,7 +1666,15 @@ function ActiveMatchScreen({
         )
       ) : mover ? (
         <WaitCell
-          clock={moverClock ? <StripClockSmall clock={moverClock} /> : undefined}
+          clock={
+            moverClock ? (
+              <StripClock
+                label={moverClock.label}
+                pressure={moverClock.pressure}
+                value={moverClock.value}
+              />
+            ) : undefined
+          }
           name={mover.name}
         />
       ) : null}
@@ -1695,6 +1682,9 @@ function ActiveMatchScreen({
   );
 
   const sheetView = views.find((view) => view.army.entry.playerId === sheetArmyId) ?? null;
+  const fullscreenKey = (
+    <FullscreenKey isFullscreen={isFullscreen} onEnter={enterFullscreen} onExit={exitFullscreen} />
+  );
 
   return (
     <>
@@ -1716,11 +1706,7 @@ function ActiveMatchScreen({
             keys={
               <>
                 {connection === "reconnecting" ? <ReconnectKey onPress={reconnect} /> : null}
-                <FullscreenKey
-                  isFullscreen={isFullscreen}
-                  onEnter={enterFullscreen}
-                  onExit={exitFullscreen}
-                />
+                {fullscreenKey}
               </>
             }
             sub={
@@ -1740,7 +1726,7 @@ function ActiveMatchScreen({
             locator={locator}
             map={mapDims}
             floating={calculator}
-            notice={hasNotice ? <VStack xstyle={styles.columnNotice}>{notices}</VStack> : null}
+            notice={columnNotices}
             overlay={<WholeMapOutline runner={runner} />}
             side={side}
             tableRef={tableRef}
@@ -1764,13 +1750,7 @@ function ActiveMatchScreen({
                     onPress={() => review.onStep(-1)}
                   />
                 ) : null}
-                {isFullscreenEnabled ? (
-                  <FullscreenKey
-                    isFullscreen={isFullscreen}
-                    onEnter={enterFullscreen}
-                    onExit={exitFullscreen}
-                  />
-                ) : null}
+                {isFullscreenEnabled ? fullscreenKey : null}
               </>
             }
             sub={subLine}
@@ -1829,11 +1809,6 @@ function withOpeningFunds(
     if (funds === undefined) return army;
     return { ...army, entry: { ...army.entry, stats: { ...army.entry.stats, funds } } };
   });
-}
-
-/** The mover's clock in the phone wait cell. */
-function StripClockSmall({ clock }: { clock: ArmyClock }) {
-  return <StripClock label={clock.label} pressure={clock.pressure} value={clock.value} />;
 }
 
 const styles = stylex.create({

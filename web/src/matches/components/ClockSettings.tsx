@@ -83,8 +83,7 @@ export function validateClock(clock: MatchClock): string | null {
 }
 
 /**
- * The pace the match is played at, as three option cards: Live (`5m +2m`),
- * Async (`7d +2d`), and Custom, whose three fields appear only once it is
+ * The pace as option cards; Custom's three fields appear only once it is
  * chosen. A host is choosing a pace, not three durations.
  */
 export function ClockSettings({

@@ -17,20 +17,13 @@ import {
   IconTurnNext,
 } from "#/ui/icons.tsx";
 
-/**
- * Walking a game, by actions or by turns, and the scrubber along it.
- *
- * An action is the unit a fight is read in and a turn is the unit a game is
- * read in, so both are one press. The scrubber jumps anywhere; a tick marks
- * each day where the game says where its days begin.
- */
+/** Walking a game by actions or by turns, and the scrubber along it. */
 export interface ReviewModel {
   /**
    * How far into the game the viewer is standing, or null when the game has
    * not said yet. A live match only counts its actions once somebody asks.
    */
   position: { index: number; total: number } | null;
-  /** Whether the viewer is standing at the far end of the game. */
   isAtLatest: boolean;
   canStepBack: boolean;
   canStepForward: boolean;
@@ -61,8 +54,16 @@ function positionLabel(review: ReviewModel): ReactNode {
   );
 }
 
-/** The scrubber: a range input over a track with a tick for each day. */
-export function Scrubber({
+function Position({ review }: { review: ReviewModel }) {
+  return (
+    <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.position]}>
+      {positionLabel(review)}
+    </Text>
+  );
+}
+
+/** A range input over a track with a tick for each day. */
+function Scrubber({
   review,
   size = "desktop",
 }: {
@@ -84,7 +85,7 @@ export function Scrubber({
   };
 
   return (
-    <HStack as="span" xstyle={[styles.scrub, size === "phone" && styles.scrubPhone]}>
+    <HStack as="span" align="center" xstyle={[styles.scrub, size === "phone" && styles.scrubPhone]}>
       <Text color="inherit" type="inherit" aria-hidden="true" xstyle={styles.track}>
         <i {...stylex.props(styles.played, styles.playedTo(percent))} />
         {total === 0
@@ -143,7 +144,45 @@ function StepKey({
   );
 }
 
-/** A 52px icon key for the phone review bar, filling its cell (log, calculator). */
+/** Previous and next, by turn and by action. */
+function TurnAndActionKeys({ review, size }: { review: ReviewModel; size: "foot" | "dock" }) {
+  const busy = review.isBusy;
+  return (
+    <>
+      <StepKey
+        icon={IconTurnBack}
+        isDisabled={busy || !review.canStepTurnBack}
+        label="Previous turn"
+        onPress={() => review.onTurnStep(-1)}
+        size={size}
+      />
+      <StepKey
+        icon={IconBack}
+        isDisabled={busy || !review.canStepBack}
+        label="Previous action"
+        onPress={() => review.onStep(-1)}
+        size={size}
+      />
+      <StepKey
+        icon={IconNext}
+        isDisabled={busy || !review.canStepForward}
+        isLit={size === "dock"}
+        label="Next action"
+        onPress={() => review.onStep(1)}
+        size={size}
+      />
+      <StepKey
+        icon={IconTurnNext}
+        isDisabled={busy || !review.canStepTurnForward}
+        label="Next turn"
+        onPress={() => review.onTurnStep(1)}
+        size={size}
+      />
+    </>
+  );
+}
+
+/** An icon key for the phone review bar, filling its cell (log, calculator). */
 export function ReviewBarKey({
   icon,
   isDisabled = false,
@@ -160,15 +199,18 @@ export function ReviewBarKey({
   );
 }
 
-/**
- * The desktop stage foot (56px): step keys, the scrubber, the position
- * (`Live` or `214 / 486`).
- */
-export function ReviewFoot({ end, review }: { end?: ReactNode; review: ReviewModel }) {
+/** The desktop stage foot: step keys, the scrubber, the position. */
+export function ReviewFoot({ review }: { review: ReviewModel }) {
   const busy = review.isBusy;
   return (
     <section aria-label="Review" {...stylex.props(styles.foot)}>
-      <HStack as="span" aria-label="Step through the match" role="group" xstyle={styles.keys}>
+      <HStack
+        as="span"
+        aria-label="Step through the match"
+        gap={1}
+        role="group"
+        xstyle={styles.keys}
+      >
         <StepKey
           icon={IconFirst}
           isDisabled={busy || !review.canStepBack}
@@ -176,34 +218,7 @@ export function ReviewFoot({ end, review }: { end?: ReactNode; review: ReviewMod
           onPress={review.onSeekStart}
           size="foot"
         />
-        <StepKey
-          icon={IconTurnBack}
-          isDisabled={busy || !review.canStepTurnBack}
-          label="Previous turn"
-          onPress={() => review.onTurnStep(-1)}
-          size="foot"
-        />
-        <StepKey
-          icon={IconBack}
-          isDisabled={busy || !review.canStepBack}
-          label="Previous action"
-          onPress={() => review.onStep(-1)}
-          size="foot"
-        />
-        <StepKey
-          icon={IconNext}
-          isDisabled={busy || !review.canStepForward}
-          label="Next action"
-          onPress={() => review.onStep(1)}
-          size="foot"
-        />
-        <StepKey
-          icon={IconTurnNext}
-          isDisabled={busy || !review.canStepTurnForward}
-          label="Next turn"
-          onPress={() => review.onTurnStep(1)}
-          size="foot"
-        />
+        <TurnAndActionKeys review={review} size="foot" />
         {review.hasLastKey ? (
           <StepKey
             icon={IconLast}
@@ -215,9 +230,7 @@ export function ReviewFoot({ end, review }: { end?: ReactNode; review: ReviewMod
         ) : null}
       </HStack>
       <Scrubber review={review} />
-      <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.position]}>
-        {positionLabel(review)}
-      </Text>
+      <Position review={review} />
       {review.isAtLatest || review.hasLastKey ? null : (
         <Button
           isDisabled={busy}
@@ -227,71 +240,52 @@ export function ReviewFoot({ end, review }: { end?: ReactNode; review: ReviewMod
           variant="on-ink"
         />
       )}
-      {end}
     </section>
   );
 }
 
-/**
- * Reviewing a live match on a phone: the position, the scrubber, four step
- * keys and Back to live, in place of the dock.
- */
-export function PhoneReviewBar({ review }: { review: ReviewModel }) {
-  const busy = review.isBusy;
+function PhoneBar({
+  children,
+  keysXstyle,
+  review,
+  top,
+}: {
+  children: ReactNode;
+  keysXstyle?: stylex.StyleXStyles;
+  review: ReviewModel;
+  top?: ReactNode;
+}) {
   return (
     <section aria-label="Review" {...stylex.props(styles.phoneBar)}>
-      <HStack as="span" xstyle={styles.phoneTop}>
-        <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.position]}>
-          {positionLabel(review)}
-        </Text>
+      <HStack as="span" align="center" justify="between" xstyle={styles.phoneTop}>
+        {top}
+        <Position review={review} />
       </HStack>
       <Scrubber review={review} size="phone" />
-      <Stack as="span" xstyle={[styles.phoneKeys, styles.phoneKeysReview]}>
-        <StepKey
-          icon={IconTurnBack}
-          isDisabled={busy || !review.canStepTurnBack}
-          label="Previous turn"
-          onPress={() => review.onTurnStep(-1)}
-          size="dock"
-        />
-        <StepKey
-          icon={IconBack}
-          isDisabled={busy || !review.canStepBack}
-          label="Previous action"
-          onPress={() => review.onStep(-1)}
-          size="dock"
-        />
-        <StepKey
-          icon={IconNext}
-          isDisabled={busy || !review.canStepForward}
-          isLit
-          label="Next action"
-          onPress={() => review.onStep(1)}
-          size="dock"
-        />
-        <StepKey
-          icon={IconTurnNext}
-          isDisabled={busy || !review.canStepTurnForward}
-          label="Next turn"
-          onPress={() => review.onTurnStep(1)}
-          size="dock"
-        />
-        <Button
-          isDisabled={busy}
-          label="Back to live"
-          onClick={review.onSeekLatest}
-          variant="on-ink"
-          xstyle={styles.dockWide}
-        />
+      <Stack as="span" xstyle={[styles.phoneKeys, keysXstyle]}>
+        <TurnAndActionKeys review={review} size="dock" />
+        {children}
       </Stack>
     </section>
   );
 }
 
-/**
- * A replay on a phone: the scrubber with its position, then the step keys and
- * whatever the screen adds (the calculator), all 52px.
- */
+/** Reviewing a live match on a phone, in place of the dock. */
+export function PhoneReviewBar({ review }: { review: ReviewModel }) {
+  return (
+    <PhoneBar keysXstyle={styles.phoneKeysReview} review={review}>
+      <Button
+        isDisabled={review.isBusy}
+        label="Back to live"
+        onClick={review.onSeekLatest}
+        variant="on-ink"
+        xstyle={styles.dockWide}
+      />
+    </PhoneBar>
+  );
+}
+
+/** A replay on a phone: the step keys and whatever the screen adds. */
 export function PhoneReplayBar({
   extra,
   review,
@@ -302,51 +296,17 @@ export function PhoneReplayBar({
   /** What happened at this moment, when the game can say. */
   said?: ReactNode;
 }) {
-  const busy = review.isBusy;
   return (
-    <section aria-label="Review" {...stylex.props(styles.phoneBar)}>
-      <HStack as="span" xstyle={styles.phoneTop}>
+    <PhoneBar
+      review={review}
+      top={
         <HStack as="span" xstyle={styles.said}>
           {said}
         </HStack>
-        <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.position]}>
-          {positionLabel(review)}
-        </Text>
-      </HStack>
-      <Scrubber review={review} size="phone" />
-      <Stack as="span" xstyle={styles.phoneKeys}>
-        <StepKey
-          icon={IconTurnBack}
-          isDisabled={busy || !review.canStepTurnBack}
-          label="Previous turn"
-          onPress={() => review.onTurnStep(-1)}
-          size="dock"
-        />
-        <StepKey
-          icon={IconBack}
-          isDisabled={busy || !review.canStepBack}
-          label="Previous action"
-          onPress={() => review.onStep(-1)}
-          size="dock"
-        />
-        <StepKey
-          icon={IconNext}
-          isDisabled={busy || !review.canStepForward}
-          isLit
-          label="Next action"
-          onPress={() => review.onStep(1)}
-          size="dock"
-        />
-        <StepKey
-          icon={IconTurnNext}
-          isDisabled={busy || !review.canStepTurnForward}
-          label="Next turn"
-          onPress={() => review.onTurnStep(1)}
-          size="dock"
-        />
-        {extra}
-      </Stack>
-    </section>
+      }
+    >
+      {extra}
+    </PhoneBar>
   );
 }
 
@@ -366,8 +326,6 @@ const styles = stylex.create({
     color: awbrnVars.textOnInk,
   },
   keys: {
-    display: "flex",
-    gap: spacingVars["--spacing-1"],
     flexShrink: 0,
   },
   footKey: {
@@ -396,8 +354,6 @@ const styles = stylex.create({
   },
   scrub: {
     position: "relative",
-    display: "flex",
-    alignItems: "center",
     flexGrow: 1,
     minInlineSize: "80px",
     blockSize: "36px",
@@ -495,9 +451,6 @@ const styles = stylex.create({
     color: awbrnVars.textOnInk,
   },
   phoneTop: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
     gap: awbrnVars.spacing2_5,
     minBlockSize: "20px",
   },

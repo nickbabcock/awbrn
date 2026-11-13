@@ -11,7 +11,7 @@ import {
   spacingVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useRef, useState, type RefObject, type SVGProps } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject, type SVGProps } from "react";
 import type {
   HoveredCargoUnit,
   HoveredTile,
@@ -119,13 +119,10 @@ export function TileInfoBar() {
  * description of the sprite rather than spent on a line.
  */
 function TerrainLines({ tile }: { tile: HoveredTile }) {
-  const terrainLabel =
-    tile.terrainOwner === undefined ? tile.terrainName : `${tile.terrainOwner} ${tile.terrainName}`;
-
   return (
     <HStack align="center" gap={2} xstyle={styles.line}>
       <Icon
-        aria-label={terrainLabel}
+        aria-label={terrainLabel(tile)}
         icon={SpriteImage}
         role="img"
         style={terrainSpriteStyle(tile.terrainSpriteIndex)}
@@ -583,6 +580,12 @@ function useReadoutDock(windowRef: RefObject<HTMLElement | null>): "start" | "en
   return dock;
 }
 
+function terrainLabel(tile: HoveredTile): string {
+  return tile.terrainOwner === undefined
+    ? tile.terrainName
+    : `${tile.terrainOwner} ${tile.terrainName}`;
+}
+
 function SpriteImage(props: SVGProps<SVGSVGElement>) {
   return <svg {...props} />;
 }
@@ -640,7 +643,7 @@ const styles = stylex.create({
   unitLine: {
     borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
-    borderBlockStartColor: awbrnVars.colorBorderSoft,
+    borderBlockStartColor: awbrnVars.rule,
   },
   // The readings beside the art, in both blocks.
   details: {
@@ -721,10 +724,8 @@ const styles = stylex.create({
   },
 });
 
-/* ------------------------------------------------------------------------ */
-/* Docked readouts: the tile window beside the board, the one-line tile row, */
-/* and the tile sheet a phone opens from it.                                 */
-/* ------------------------------------------------------------------------ */
+/* Docked readouts: the tile window beside the board, the one-line tile row,
+   and the tile sheet a phone opens from it. */
 
 /** The reach of the unit being read, as three short figures. */
 function reachFigures(reach: InspectedUnitReadout) {
@@ -741,13 +742,42 @@ function reachFigures(reach: InspectedUnitReadout) {
   ];
 }
 
+function ReachFigure({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <Text color="inherit" type="inherit" xstyle={docked.reachLabel}>
+        {label}
+      </Text>
+      <Text color="inherit" type="inherit" xstyle={docked.reachValue}>
+        {value}
+      </Text>
+    </>
+  );
+}
+
+function ReachGrid({
+  reach,
+  xstyle,
+}: {
+  reach: InspectedUnitReadout;
+  xstyle?: stylex.StyleXStyles;
+}) {
+  return (
+    <Stack as="span" xstyle={[docked.reach, xstyle]}>
+      {reachFigures(reach).map((figure) => (
+        <Stack as="span" key={figure.label} xstyle={docked.reachCell}>
+          <ReachFigure {...figure} />
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+// Raw spans: an inline atlas crop, which no Astryx component takes.
 function TerrainArt({ tile }: { tile: HoveredTile }) {
-  const label =
-    tile.terrainOwner === undefined ? tile.terrainName : `${tile.terrainOwner} ${tile.terrainName}`;
-  // Raw span: an inline atlas crop, which no Astryx component takes.
   return (
     <span
-      aria-label={label}
+      aria-label={terrainLabel(tile)}
       role="img"
       style={terrainTileStyle(tile.terrainSpriteIndex, 2)}
       {...stylex.props(docked.art)}
@@ -756,7 +786,6 @@ function TerrainArt({ tile }: { tile: HoveredTile }) {
 }
 
 function UnitArt({ unit, factionCode }: { unit: HoveredUnit["unit"]; factionCode: string }) {
-  // Raw span: an inline atlas crop, which no Astryx component takes.
   return (
     <span
       aria-hidden="true"
@@ -779,7 +808,6 @@ function Figure({
 }) {
   return (
     <HStack as="span" aria-label={`${label} ${value}`} role="img" xstyle={docked.figure}>
-      {/* Raw span: an inline atlas crop, which no Astryx component takes. */}
       <span aria-hidden="true" style={icon ?? undefined} {...stylex.props(docked.figureIcon)} />
       <Text
         color="inherit"
@@ -793,12 +821,33 @@ function Figure({
   );
 }
 
-function unitFigures(unit: HoveredUnit) {
+/** The terrain's figures; the sheet also prints what a capture counts down from. */
+function terrainFigures(tile: HoveredTile, hasMaximums = false) {
+  return [
+    { icon: TERRAIN_STAR, label: "Defense", value: `${tile.defenseStars}` },
+    ...(tile.captureRemaining === undefined
+      ? []
+      : [
+          {
+            icon: CAPTURE,
+            label: "Capture left",
+            value: hasMaximums
+              ? `${tile.captureRemaining} / ${CAPTURE_POINTS}`
+              : `${tile.captureRemaining}`,
+          },
+        ]),
+  ];
+}
+
+/** The unit's figures; the sheet also prints each one's ceiling. */
+function unitFigures(unit: HoveredUnit, hasMaximums = false) {
+  const amount = (value: number | undefined, maximum: number) =>
+    hasMaximums ? `${value ?? "—"} / ${maximum}` : `${value ?? "—"}`;
   return [
     {
       icon: HP,
       label: "HP",
-      value: unit.health === undefined ? "—" : `${unit.health}`,
+      value: unit.health === undefined ? "—" : amount(unit.health, 10),
       isCritical: unit.health !== undefined && unit.health <= 3,
     },
     ...(unit.ammoDisplay === "none"
@@ -807,30 +856,50 @@ function unitFigures(unit: HoveredUnit) {
           {
             icon: AMMO,
             label: "Ammo",
-            value:
-              unit.ammoDisplay === "unlimited"
-                ? "∞"
-                : unit.ammo === undefined
-                  ? "—"
-                  : `${unit.ammo}`,
-            isCritical: false,
+            value: unit.ammoDisplay === "unlimited" ? "∞" : amount(unit.ammo, unit.maxAmmo),
           },
         ]),
-    {
-      icon: FUEL,
-      label: "Fuel",
-      value: unit.fuel === undefined ? "—" : `${unit.fuel}`,
-      isCritical: false,
-    },
+    { icon: FUEL, label: "Fuel", value: amount(unit.fuel, unit.maxFuel) },
   ];
 }
 
+/** Art beside a name and the lines of figures under it. */
+function ArtBlock({
+  art,
+  children,
+  name,
+  xstyle,
+}: {
+  art: ReactNode;
+  children: ReactNode;
+  name: string;
+  xstyle: stylex.StyleXStyles;
+}) {
+  return (
+    <HStack as="span" xstyle={xstyle}>
+      {art}
+      <Stack as="span" xstyle={docked.stack}>
+        <Text color="inherit" type="inherit" xstyle={docked.name}>
+          {name}
+        </Text>
+        {children}
+      </Stack>
+    </HStack>
+  );
+}
+
+function Coordinates({ tile }: { tile: HoveredTile }) {
+  return (
+    <Text color="inherit" type="inherit" xstyle={docked.coordinate}>
+      {tile.x + 1},{tile.y + 1}
+    </Text>
+  );
+}
+
 /**
- * The tile window, docked beside the board in its column (184px): the
- * terrain (art, name, defense, coordinates), the unit on it (art, name, HP,
- * ammo, fuel), and the reach of the unit being read (Move, Range, Sight).
- * With nothing under the cursor it draws nothing. It changes with the
- * selection in two frames (90ms, stepped); hovering only rewrites it.
+ * The tile window, docked beside the board in its column. With nothing under
+ * the cursor it draws nothing. It changes with the selection in two stepped
+ * frames; hovering only rewrites it.
  */
 export function TileWindow() {
   const tile = useGameStore((state) => state.hoveredTile);
@@ -844,65 +913,42 @@ export function TileWindow() {
       {...stylex.props(docked.window, docked.lands)}
     >
       {tile === null ? null : (
-        <HStack as="span" xstyle={docked.windowLine}>
-          <TerrainArt tile={tile} />
-          <Stack as="span" xstyle={docked.stack}>
-            <Text color="inherit" type="inherit" xstyle={docked.name}>
-              {tile.terrainName}
-            </Text>
-            <HStack as="span" xstyle={docked.figures}>
-              <Figure icon={TERRAIN_STAR} label="Defense" value={`${tile.defenseStars}`} />
-              {tile.captureRemaining === undefined ? null : (
-                <Figure icon={CAPTURE} label="Capture left" value={`${tile.captureRemaining}`} />
-              )}
-              <Text color="inherit" type="inherit" xstyle={docked.coordinate}>
-                {tile.x + 1},{tile.y + 1}
-              </Text>
-            </HStack>
-          </Stack>
-        </HStack>
+        <ArtBlock
+          art={<TerrainArt tile={tile} />}
+          name={tile.terrainName}
+          xstyle={docked.windowLine}
+        >
+          <HStack as="span" xstyle={docked.figures}>
+            {terrainFigures(tile).map((figure) => (
+              <Figure key={figure.label} {...figure} />
+            ))}
+            <Coordinates tile={tile} />
+          </HStack>
+        </ArtBlock>
       )}
       {tile?.unit === undefined ? null : (
-        <HStack as="span" xstyle={[docked.windowLine, docked.ruled]}>
-          <UnitArt factionCode={tile.unit.factionCode} unit={tile.unit.unit} />
-          <Stack as="span" xstyle={docked.stack}>
-            <Text color="inherit" type="inherit" xstyle={docked.name}>
-              {tile.unit.name}
-            </Text>
-            <HStack as="span" xstyle={docked.figures}>
-              {unitFigures(tile.unit).map((figure) => (
-                <Figure key={figure.label} {...figure} />
-              ))}
-            </HStack>
-          </Stack>
-        </HStack>
+        <ArtBlock
+          art={<UnitArt factionCode={tile.unit.factionCode} unit={tile.unit.unit} />}
+          name={tile.unit.name}
+          xstyle={[docked.windowLine, docked.ruled]}
+        >
+          <HStack as="span" xstyle={docked.figures}>
+            {unitFigures(tile.unit).map((figure) => (
+              <Figure key={figure.label} {...figure} />
+            ))}
+          </HStack>
+        </ArtBlock>
       )}
-      {reach === null ? null : (
-        <Stack as="span" xstyle={docked.reach}>
-          {reachFigures(reach).map((figure) => (
-            <Stack as="span" key={figure.label} xstyle={docked.reachCell}>
-              <Text color="inherit" type="inherit" xstyle={docked.reachLabel}>
-                {figure.label}
-              </Text>
-              <Text color="inherit" type="inherit" xstyle={docked.reachValue}>
-                {figure.value}
-              </Text>
-            </Stack>
-          ))}
-        </Stack>
-      )}
+      {reach === null ? null : <ReachGrid reach={reach} />}
     </section>
   );
 }
 
 /**
- * The tile as one 44px line.
- *
- * Desktop (the rail's View block, `hasNames`): sprites, names and figures, no
- * coordinates. Phone: terrain art and defense, a rule, the unit art, then HP,
- * ammo and fuel in 40px tabular cells; the terrain is named only on an empty
- * tile. With a unit selected the line shows that unit's Move, Range and Sight.
- * `onOpen` makes the whole line the key to the tile sheet.
+ * The tile as one line. On the desktop rail (`hasNames`) it names the terrain
+ * and the unit; on a phone the terrain is named only on an empty tile. With a
+ * unit selected the line shows that unit's reach instead. `onOpen` makes the
+ * whole line the key to the tile sheet.
  */
 export function TileLine({
   hasNames = false,
@@ -918,24 +964,14 @@ export function TileLine({
   const content =
     reach !== null && !hasNames ? (
       <>
-        {/* Raw span: an inline atlas crop, which no Astryx component takes. */}
-        <span
-          aria-hidden="true"
-          style={unitSpriteStyle(reach.unit, reach.factionCode, 2) ?? undefined}
-          {...stylex.props(docked.art)}
-        />
+        <UnitArt factionCode={reach.factionCode} unit={reach.unit} />
         <Text color="inherit" type="inherit" xstyle={docked.name}>
           {reach.name}
         </Text>
         <HStack as="span" xstyle={docked.lineReach}>
           {reachFigures(reach).map((figure) => (
             <HStack as="span" key={figure.label} xstyle={docked.lineReachItem}>
-              <Text color="inherit" type="inherit" xstyle={docked.reachLabel}>
-                {figure.label}
-              </Text>
-              <Text color="inherit" type="inherit" xstyle={docked.reachValue}>
-                {figure.value}
-              </Text>
+              <ReachFigure {...figure} />
             </HStack>
           ))}
         </HStack>
@@ -949,10 +985,9 @@ export function TileLine({
               {tile.terrainName}
             </Text>
           ) : null}
-          <Figure icon={TERRAIN_STAR} label="Defense" value={`${tile.defenseStars}`} />
-          {tile.captureRemaining === undefined ? null : (
-            <Figure icon={CAPTURE} label="Capture left" value={`${tile.captureRemaining}`} />
-          )}
+          {terrainFigures(tile).map((figure) => (
+            <Figure key={figure.label} {...figure} />
+          ))}
         </HStack>
         {tile.unit === undefined ? null : (
           <HStack as="span" xstyle={[docked.lineGroup, docked.lineUnit]}>
@@ -1027,83 +1062,42 @@ export function TileDetails() {
   return (
     <VStack gap={0}>
       {tile === null ? null : (
-        <HStack as="span" xstyle={docked.sheetLine}>
-          <TerrainArt tile={tile} />
-          <Stack as="span" xstyle={docked.stack}>
-            <Text color="inherit" type="inherit" xstyle={docked.name}>
-              {tile.terrainOwner === undefined
-                ? tile.terrainName
-                : `${tile.terrainName} · ${tile.terrainOwner}`}
-            </Text>
-            <HStack as="span" xstyle={docked.figures}>
-              <Figure icon={TERRAIN_STAR} label="Defense" value={`${tile.defenseStars}`} />
-              {tile.captureRemaining === undefined ? null : (
-                <Figure
-                  icon={CAPTURE}
-                  label="Capture left"
-                  value={`${tile.captureRemaining} / ${CAPTURE_POINTS}`}
-                />
-              )}
-              <Text color="inherit" type="inherit" xstyle={docked.coordinate}>
-                {tile.x + 1},{tile.y + 1}
-              </Text>
-            </HStack>
-          </Stack>
-        </HStack>
+        <ArtBlock
+          art={<TerrainArt tile={tile} />}
+          name={
+            tile.terrainOwner === undefined
+              ? tile.terrainName
+              : `${tile.terrainName} · ${tile.terrainOwner}`
+          }
+          xstyle={docked.sheetLine}
+        >
+          <HStack as="span" xstyle={docked.figures}>
+            {terrainFigures(tile, true).map((figure) => (
+              <Figure key={figure.label} {...figure} />
+            ))}
+            <Coordinates tile={tile} />
+          </HStack>
+        </ArtBlock>
       )}
       {tile?.unit === undefined ? null : (
-        <HStack as="span" xstyle={docked.sheetLine}>
-          <UnitArt factionCode={tile.unit.factionCode} unit={tile.unit.unit} />
-          <Stack as="span" xstyle={docked.stack}>
-            <Text color="inherit" type="inherit" xstyle={docked.name}>
-              {tile.unit.name}
-            </Text>
+        <ArtBlock
+          art={<UnitArt factionCode={tile.unit.factionCode} unit={tile.unit.unit} />}
+          name={tile.unit.name}
+          xstyle={docked.sheetLine}
+        >
+          <HStack as="span" xstyle={docked.figures}>
+            {unitFigures(tile.unit, true).map((figure) => (
+              <Figure key={figure.label} {...figure} />
+            ))}
+          </HStack>
+          {tile.unit.loadedUnits.length === 0 ? null : (
             <HStack as="span" xstyle={docked.figures}>
-              <Figure
-                icon={HP}
-                isCritical={tile.unit.health !== undefined && tile.unit.health <= 3}
-                label="HP"
-                value={tile.unit.health === undefined ? "—" : `${tile.unit.health} / 10`}
-              />
-              {tile.unit.ammoDisplay === "none" ? null : (
-                <Figure
-                  icon={AMMO}
-                  label="Ammo"
-                  value={
-                    tile.unit.ammoDisplay === "unlimited"
-                      ? "∞"
-                      : `${tile.unit.ammo ?? "—"} / ${tile.unit.maxAmmo}`
-                  }
-                />
-              )}
-              <Figure
-                icon={FUEL}
-                label="Fuel"
-                value={`${tile.unit.fuel ?? "—"} / ${tile.unit.maxFuel}`}
-              />
+              <Cargo units={tile.unit.loadedUnits} />
             </HStack>
-            {tile.unit.loadedUnits.length === 0 ? null : (
-              <HStack as="span" xstyle={docked.figures}>
-                <Cargo units={tile.unit.loadedUnits} />
-              </HStack>
-            )}
-          </Stack>
-        </HStack>
+          )}
+        </ArtBlock>
       )}
-      {reach === null ? null : (
-        <Stack as="span" xstyle={[docked.reach, docked.sheetReach]}>
-          {reachFigures(reach).map((figure) => (
-            <Stack as="span" key={figure.label} xstyle={docked.reachCell}>
-              <Text color="inherit" type="inherit" xstyle={docked.reachLabel}>
-                {figure.label}
-              </Text>
-              <Text color="inherit" type="inherit" xstyle={docked.reachValue}>
-                {figure.value}
-              </Text>
-            </Stack>
-          ))}
-        </Stack>
-      )}
+      {reach === null ? null : <ReachGrid reach={reach} xstyle={docked.sheetReach} />}
     </VStack>
   );
 }
@@ -1138,7 +1132,6 @@ const docked = stylex.create({
     userSelect: "none",
   },
   windowLine: {
-    display: "flex",
     alignItems: "center",
     gap: awbrnVars.spacing2_5,
     paddingBlock: spacingVars["--spacing-2"],
@@ -1170,7 +1163,6 @@ const docked = stylex.create({
     lineHeight: 1.15,
   },
   figures: {
-    display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     gap: `${spacingVars["--spacing-1"]} ${awbrnVars.spacing2_5}`,
@@ -1288,7 +1280,6 @@ const docked = stylex.create({
     gap: spacingVars["--spacing-1"],
   },
   sheetLine: {
-    display: "flex",
     alignItems: "center",
     gap: spacingVars["--spacing-3"],
     minBlockSize: "64px",

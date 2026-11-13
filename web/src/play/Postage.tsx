@@ -7,10 +7,7 @@ import { figureStyles } from "#/ui/Figure.tsx";
 
 export { mapPostage } from "#/maps/components/MapPlate.tsx";
 
-/**
- * The postage line: a row's facts franked in mono, mixed case
- * (`2P · 22×18 · cookielamb3`, `Live 5m +2m · 1 / 2`).
- */
+/** A row's facts in mono (`2P · 22×18 · cookielamb3`, `Live 5m +2m · 1 / 2`). */
 export function Postage({
   children,
   xstyle,

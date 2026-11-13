@@ -17,33 +17,23 @@ import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { shellMarker, shellVars } from "#/ui/shell.stylex.ts";
 
 /**
- * The frame around every screen: the navy top bar, the page, the independence
- * footer and, on a phone, the tab bar.
- *
- * A screen that is not a paper page says so with `<ShellMode>` (see
- * `#/ui/ShellMode.tsx`); the root reads that marker with `:has()` and hides the
- * chrome that screen does not want, in the first paint.
+ * A screen that is not a paper page says so with `<ShellMode>`; the root reads
+ * that marker with `:has()` and hides the chrome that screen does not want, in
+ * the first paint.
  */
 export function Layout({ children }: { children: ReactNode }) {
   const session = useAppSession();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  // The player's own socket, which every match reports a turn change to. It is
-  // what re-reads the count below, so nothing here has to guess how often
-  // whose turn it is might have moved.
+  // Every match reports a turn change to the player's own socket, which is what
+  // re-reads the awaiting count; it polls only while the socket is down.
   const socketStatus = usePlayerNotifications(session !== null);
-  // Matches that wait on this player, ranked pairings to confirm included.
-  // It is the one count badge, on My games.
   const { data: awaitingData } = useQuery({
     ...matchesAwaitingQueryOptions(socketStatus === "connected"),
     enabled: session !== null,
   });
   const awaiting = session !== null ? (awaitingData?.awaiting ?? 0) : 0;
-  // The same number in the browser tab, which is all a player reading another
-  // tab can see of the site.
   useTabBadge(awaiting, pathname);
   const routeShellMode = useRouteShellMode();
-  // A route change moves focus to the new page's title (or a pushed screen's
-  // turn line).
   useArrivalFocus();
 
   return (

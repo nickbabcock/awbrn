@@ -1,10 +1,3 @@
-/**
- * Import a map: the Maps page's head key, and the sheet it opens.
- *
- * A map enters the catalog by its AWBW map id. The sheet asks for the id and
- * nothing else; once the map is in, it opens the map's own page.
- */
-
 import { Banner } from "@astryxdesign/core/Banner";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Stack } from "@astryxdesign/core/Stack";

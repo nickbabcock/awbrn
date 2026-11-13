@@ -26,10 +26,7 @@ export const STACKED_STAMPS = 4;
 
 /**
  * Who the viewer faces, as stamps: one opponent reads as crest, stamp and
- * name; a crowded table stacks the stamps like those already on an envelope
- * and counts the rest (`+3`). A commander nobody may see yet is a stamp holding
- * only its army's grayed crest; an opponent a ranked pairing still withholds
- * is the game's "no CO" stamp, with no name.
+ * name; a crowded table stacks the stamps and counts the rest (`+3`).
  */
 export function Opponents({ seats }: { seats: readonly OpponentSeat[] }) {
   if (seats.length === 0) return null;
@@ -39,9 +36,7 @@ export function Opponents({ seats }: { seats: readonly OpponentSeat[] }) {
     const faction = getFactionById(seat.factionId);
     return (
       <HStack as="span" xstyle={styles.vs}>
-        {faction ? (
-          <FactionLogo factionCode={faction.code} isFramed={false} isLabelHidden size={14} />
-        ) : null}
+        {faction ? <FactionLogo factionCode={faction.code} isLabelHidden size={14} /> : null}
         {seat.isHidden ? (
           // The game's "no CO" portrait: an opponent not revealed yet, not a
           // seat still choosing.
@@ -99,11 +94,8 @@ export function Opponents({ seats }: { seats: readonly OpponentSeat[] }) {
 
 /**
  * A seat's commander as a stamp. A commander not chosen, or sealed until the
- * match starts, is a stamp still: the seat is taken, so it stays filled, with
- * its army's crest grayed on the well where the portrait goes. (The game's
- * "no CO" portrait is a red cross, which at stamp size reads as a fallen army.)
- * The viewer's own seat (`isYours`) is never in doubt, so its crest stands in
- * full on the army's field.
+ * match starts, is its army's grayed crest: the game's "no CO" portrait is a
+ * red cross, which at stamp size reads as a fallen army.
  */
 export function SeatStamp({
   coId,
@@ -111,7 +103,6 @@ export function SeatStamp({
   isDecorative = false,
   isYours = false,
   label,
-  size = "sm",
   xstyle,
 }: {
   coId: number | null;
@@ -121,7 +112,6 @@ export function SeatStamp({
   isYours?: boolean;
   /** Names a stamp with no commander; a chosen commander names itself. */
   label?: string;
-  size?: "sm" | "md" | "lg";
   xstyle?: stylex.StyleXStyles;
 }) {
   const co = getCoById(coId);
@@ -131,37 +121,32 @@ export function SeatStamp({
         coKey={co.key}
         factionCode={factionCode}
         isDecorative={isDecorative}
-        size={size}
         xstyle={xstyle}
       />
     );
   }
-  const scale = STAMP_SCALE[size];
   const name = label ?? "No commander yet";
   return (
     <StampFrame
       aria-hidden={isDecorative ? true : undefined}
       aria-label={isDecorative ? undefined : name}
       fieldXstyle={[
-        styles.fieldSize(32 * scale),
+        styles.field,
         isYours && factionCode !== null && styles.fieldColor(factionColorVar(factionCode, "field")),
       ]}
-      isSmall={size === "sm"}
+      isSmall
       role={isDecorative ? undefined : "img"}
       title={isDecorative ? undefined : name}
       xstyle={xstyle}
     >
       {factionCode ? (
         <HStack as="span" xstyle={[styles.crest, !isYours && styles.grayed]}>
-          <FactionLogo factionCode={factionCode} isFramed={false} isLabelHidden size={16 * scale} />
+          <FactionLogo factionCode={factionCode} isLabelHidden size={16} />
         </HStack>
       ) : null}
     </StampFrame>
   );
 }
-
-/** The stamp's portrait edge per size: 32px drawn at 1x, 2x and 3x. */
-const STAMP_SCALE = { sm: 1, md: 2, lg: 3 } as const;
 
 const styles = stylex.create({
   vs: {
@@ -189,17 +174,16 @@ const styles = stylex.create({
       ":first-child": 0,
     },
   },
-  fieldSize: (edge: number) => ({
-    inlineSize: `${edge}px`,
-    blockSize: `${edge}px`,
-  }),
+  field: {
+    inlineSize: "32px",
+    blockSize: "32px",
+  },
   fieldColor: (color: string) => ({
     backgroundColor: color,
   }),
   crest: {
     display: "inline-grid",
   },
-  // The crest as an open seat draws it: grayed and faded.
   grayed: {
     filter: "grayscale(1) opacity(0.5)",
   },

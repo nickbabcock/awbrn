@@ -1,12 +1,8 @@
 import { IconMail, IconMap, IconPlay, IconReplay, type DrawnIcon } from "#/ui/icons.tsx";
 
 /**
- * The sections of the site, and the pages each one holds.
- *
- * The top bar (desktop) and the tab bar (phone) name a section; the page head
- * names the pages inside it as underline tabs. All three read this one table,
- * so the lit section and the lit tab can never disagree about where the
- * player is.
+ * The top bar, the tab bar and the page head all read this one table, so the
+ * lit section and the lit tab can never disagree about where the player is.
  */
 
 export interface SitePage {
@@ -20,9 +16,7 @@ export interface SitePage {
 export interface SiteSection {
   id: "play" | "mine" | "maps" | "replay";
   label: string;
-  /** The section's drawn icon, in the top bar and the tab bar. */
   icon: DrawnIcon;
-  /** Where the section's entry in the bar goes. */
   to: string;
   requiresSession?: boolean;
   pages: SitePage[];
