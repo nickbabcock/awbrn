@@ -17,6 +17,16 @@ export async function requireRateLimit(
   });
 }
 
+/**
+ * The server function form. A Response thrown from a server function reaches
+ * the client as the call's result rather than as an error, so a caller would
+ * carry on as though the write had landed.
+ */
+export async function requireFnRateLimit(limiter: RateLimit, key: string): Promise<void> {
+  const { success } = await limiter.limit({ key });
+  if (!success) throw new Error("too many requests; try again in a minute");
+}
+
 export function requestActorKey(request: Request): string {
   const address = request.headers.get("CF-Connecting-IP");
   return address ? `ip:${address}` : "ip:unknown";

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
 import { matchIdSchema } from "#/matches/match_id.ts";
 import { rankedConfirmationRequestSchema, rankedPoolSchema } from "#/matches/schemas.ts";
-import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
+import { rateLimitBindings, requireFnRateLimit } from "#/rate_limit.ts";
 import { DEFAULT_MAX_ACTIVE_MATCHES, HARD_MAX_ACTIVE_MATCHES } from "./matchmaking.ts";
 import { listSeeks, startSeek, stopSeek, updateRankedConfirmation } from "./matchmaking.server.ts";
 import { rankedOverview, rankedStandings } from "./ranked_overview.server.ts";
@@ -30,10 +30,9 @@ export const startRankedSeekFn = createServerFn({ method: "POST" })
   .validator(seekRequestSchema)
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Response("Unauthorized", { status: 401 });
-    await requireRateLimit(
+    await requireFnRateLimit(
       rateLimitBindings().LOBBY_WRITE_RATE_LIMITER,
       `seek:user:${context.session.user.id}`,
-      10,
     );
     return startSeek(context.session.user.id, data.pool, data.maxActiveMatches);
   });

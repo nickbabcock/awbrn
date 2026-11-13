@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { env } from "cloudflare:workers";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
-import { requireRateLimit } from "#/rate_limit.ts";
+import { requireFnRateLimit } from "#/rate_limit.ts";
 import { getPlayerStub } from "./player_service.ts";
 import { pushSubscriptionSchema, pushUnsubscribeSchema } from "./schemas.ts";
 import { readVapidKeys, type VapidEnvironment } from "./web_push.ts";
@@ -22,12 +22,7 @@ export const subscribePushFn = createServerFn({ method: "POST" })
   .validator(pushSubscriptionSchema)
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Response("Unauthorized", { status: 401 });
-    try {
-      await requireRateLimit(env.PUSH_SUBSCRIBE_RATE_LIMITER, `user:${context.session.user.id}`);
-    } catch (response) {
-      if (response instanceof Response) throw response;
-      throw response;
-    }
+    await requireFnRateLimit(env.PUSH_SUBSCRIBE_RATE_LIMITER, `user:${context.session.user.id}`);
     await getPlayerStub(context.session.user.id).addPushSubscription(data);
     return { subscribed: true };
   });

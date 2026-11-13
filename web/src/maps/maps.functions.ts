@@ -19,7 +19,7 @@ import {
   setMapRevisionRank,
   setMapTags,
 } from "./maps.server.ts";
-import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
+import { rateLimitBindings, requireFnRateLimit } from "#/rate_limit.ts";
 
 /**
  * One map revision, with the faction each of its seats starts with.
@@ -76,7 +76,7 @@ export const importAwbwMapFn = createServerFn({ method: "POST" })
   .middleware([requirePermission({ map: ["import"] })])
   .validator(awbwMapImportRequestSchema)
   .handler(async ({ data, context }) => {
-    await requireRateLimit(
+    await requireFnRateLimit(
       rateLimitBindings().IMPORT_MAP_RATE_LIMITER,
       `user:${context.actor.userId}`,
     );
