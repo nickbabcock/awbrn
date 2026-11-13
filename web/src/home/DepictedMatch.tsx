@@ -24,7 +24,7 @@ import { figureStyles } from "#/ui/Figure.tsx";
 import { IconBack, IconCalculator, IconMore, IconReplay, IconWholeMap } from "#/ui/icons.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
-import { DepictedBoard } from "./DepictedBoard.tsx";
+import { DepictedBoard, useDepiction } from "./DepictedBoard.tsx";
 import type { DepictedSkirmish } from "./depicted.ts";
 
 const noop = () => {};
@@ -33,20 +33,11 @@ const noop = () => {};
 const STAR = 9000;
 
 /**
- * The phone match screen as a picture: the turn line, two army plates, the
- * board at the touch floor, the tile row and the dock, drawn by the match's
- * own parts. It is inert: no hit targets, and a swipe over it scrolls the
- * page. Its accessible name says what it shows.
+ * The phone match screen as a picture, drawn by the match's own parts. It is
+ * inert, so a swipe over it scrolls the page.
  */
-export function DepictedMatch({
-  factionCodes,
-  map,
-  skirmish,
-}: {
-  factionCodes: readonly [string, string];
-  map: MapCatalogEntry;
-  skirmish: DepictedSkirmish | null;
-}) {
+export function DepictedMatch({ map }: { map: MapCatalogEntry }) {
+  const { factionCodes, skirmish } = useDepiction(map);
   const views: ArmyView[] = [
     {
       army: {
@@ -123,7 +114,7 @@ export function DepictedMatch({
           ))}
         </VStack>
         <VStack xstyle={styles.board}>
-          <DepictedBoard alt="" factionCodes={factionCodes} map={map} skirmish={skirmish} />
+          <DepictedBoard factionCodes={factionCodes} map={map} skirmish={skirmish} />
         </VStack>
         <HStack xstyle={styles.tileRow}>
           <TileLinePicture factionCode={factionCodes[0]} map={map} skirmish={skirmish} />
@@ -157,10 +148,7 @@ export function DepictedMatch({
   );
 }
 
-/**
- * The tile line under the cursor: the terrain cut from the map's own render
- * and its defense, a rule, then the unit with HP, ammo and fuel.
- */
+/** The tile line under the cursor: the terrain cut from the map's own render, then the unit. */
 function TileLinePicture({
   factionCode,
   map,
@@ -306,7 +294,6 @@ const styles = stylex.create({
     minBlockSize: 0,
   },
   tileRow: {
-    display: "flex",
     alignItems: "center",
     gap: "8px",
     minBlockSize: "56px",
@@ -318,7 +305,6 @@ const styles = stylex.create({
     borderBlockStartWidth: "1px",
   },
   tileLine: {
-    display: "flex",
     alignItems: "center",
     gap: "10px",
     flexGrow: 1,

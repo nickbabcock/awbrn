@@ -243,17 +243,14 @@ describe("the ladder place", () => {
 });
 
 describe("leadingOwedPairingId", () => {
-  it("gives the red key to the first owed pairing only", () => {
-    const pending = [
-      { matchId: "ready", isReady: true },
+  it("gives the red key to the first owed pairing only, and none when all are ready", () => {
+    const ready = { matchId: "ready", isReady: true };
+    const owed = [
+      ready,
       { matchId: "first-owed", isReady: false },
       { matchId: "second-owed", isReady: false },
     ];
-    expect(leadingOwedPairingId(pending)).toBe("first-owed");
-  });
-
-  it("gives no red key when every pairing is ready", () => {
-    expect(leadingOwedPairingId([{ matchId: "ready", isReady: true }])).toBeNull();
-    expect(leadingOwedPairingId([])).toBeNull();
+    expect(leadingOwedPairingId(owed)).toBe("first-owed");
+    expect(leadingOwedPairingId([ready])).toBeNull();
   });
 });

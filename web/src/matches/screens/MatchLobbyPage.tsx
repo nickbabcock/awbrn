@@ -1,12 +1,7 @@
 /*
- * MATCH SETUP: THE LOBBY
- *
  * A lobby is a wait, and the one thing worth doing during it is choosing who
- * commands. So the seat leads: the battlefield in brief (army, turn order and
- * the terms), the commander's briefing, then Ready; the tier picker sits
- * beside it with the banned faces struck. The seats and the whole map follow.
- * Other seats show that they have chosen, but not whom, until the match
- * starts.
+ * commands, so the seat leads. Other seats show that they have chosen, but not
+ * whom, until the match starts.
  */
 
 import { Heading } from "@astryxdesign/core/Heading";
@@ -254,18 +249,14 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
   const isLocked = pendingAction !== null || seatChanges.intents.size > 0 || !isLobby;
   const mapName = mapData?.metadata.name ?? mapEntry?.name ?? `Map ${match.mapId}`;
   const faction = seat ? getFactionById(seat.factionId) : null;
-  const isCoSaving =
-    seat !== null &&
-    seatChanges.isSaving &&
-    seatChanges.intents.get(seat.slotIndex)?.patch.coId !== undefined &&
-    seatChanges.intents.get(seat.slotIndex)?.error === null;
+  const savingIntent =
+    seat !== null && seatChanges.isSaving ? seatChanges.intents.get(seat.slotIndex) : undefined;
+  const isCoSaving = savingIntent?.patch.coId !== undefined && savingIntent.error === null;
   const isReadySaving =
     pendingAction === "ready" ||
-    (seat !== null &&
-      seatChanges.isSaving &&
-      seatChanges.intents.get(seat.slotIndex)?.patch.ready !== undefined &&
-      seatChanges.intents.get(seat.slotIndex)?.patch.coId === undefined &&
-      seatChanges.intents.get(seat.slotIndex)?.patch.factionId === undefined);
+    (savingIntent?.patch.ready !== undefined &&
+      savingIntent.patch.coId === undefined &&
+      savingIntent.patch.factionId === undefined);
   const isLeaveLocked = pendingAction !== null || seatChanges.isSaving || !isLobby;
 
   /**
@@ -443,12 +434,7 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
                     {mapName !== match.name ? <Fact isStrong>{mapName}</Fact> : null}
                     {seat && faction ? (
                       <Fact isStrong>
-                        <FactionLogo
-                          factionCode={faction.code}
-                          isFramed={false}
-                          isLabelHidden
-                          size={14}
-                        />
+                        <FactionLogo factionCode={faction.code} isLabelHidden size={14} />
                         {faction.displayName}
                       </Fact>
                     ) : null}
@@ -571,7 +557,7 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
             </Sheet>
           </VStack>
 
-          <VStack xstyle={[setupStyles.after, setupStyles.desktopOnly]}>
+          <VStack xstyle={[setupStyles.after, setupStyles.phoneHidden]}>
             <Sheet aria-label="Battlefield">
               <SheetBody xstyle={setupStyles.pickerBody}>
                 <BattlefieldPicture mapId={match.mapId} revision={match.mapRevision} />
@@ -658,11 +644,7 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
   );
 }
 
-/**
- * One seat: its number, its army (the viewer's own crest is where the army is
- * chosen), its stamp, the player, and whether they are ready. An open seat
- * carries the key that claims it.
- */
+/** The viewer's own crest is where the army is chosen. */
 function SeatLine({
   canClaim,
   factionCode,
@@ -714,7 +696,7 @@ function SeatLine({
       {onFactionChange ? (
         <FactionCrest factionCode={factionCode} onChange={onFactionChange} size={14} />
       ) : (
-        <FactionLogo factionCode={factionCode} isFramed={false} size={14} />
+        <FactionLogo factionCode={factionCode} size={14} />
       )}
       {onChoose ? (
         <button
@@ -744,7 +726,6 @@ function SeatLine({
   );
 }
 
-/** Copies the private join link. */
 function CopyLinkKey({ url }: { url: string }) {
   const [isCopied, setIsCopied] = useState(false);
   useEffect(() => {

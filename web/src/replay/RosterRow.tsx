@@ -242,7 +242,7 @@ const styles = stylex.create({
     borderBlockStartWidth: borderVars["--border-width"],
     borderInlineStartWidth: borderVars["--border-width"],
     borderStyle: "solid",
-    borderColor: awbrnVars.colorBorderSoft,
+    borderColor: awbrnVars.rule,
     // The same row sits in the rail, in a pair under the board, and alone on a
     // phone, so how much width it has is its own fact rather than the window's.
     containerType: "inline-size",

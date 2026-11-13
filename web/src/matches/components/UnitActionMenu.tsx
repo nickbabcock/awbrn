@@ -163,10 +163,8 @@ export function UnitActionMenu({
       {({ isSheet, spriteScale }) => (
         <VStack gap={0} xstyle={boardMenuStyles.body}>
           <HStack align="center" gap={3} justify="between" xstyle={boardMenuStyles.header}>
-            {/* Who is firing. It is the same unit for every order below, so it
-                is said once here rather than repeated down the list, and the
-                header stops being the word "Orders" only when there is an
-                engagement for it to be one half of. */}
+            {/* The unit is the same for every order below, so it is said once
+                here rather than repeated down the list. */}
             {attacker && !pending ? (
               <Attacker badge={attacker} spriteScale={1} />
             ) : (
@@ -334,7 +332,6 @@ function OrderRow({
         ? option.action.action.target
         : null;
   const forecast = option.forecast;
-  const markerProps = menuRowMarker;
 
   return (
     <button
@@ -350,10 +347,11 @@ function OrderRow({
       title={isEnabled ? undefined : title}
       type="button"
       {...stylex.props(
-        markerProps,
+        menuRowMarker,
         boardMenuStyles.row,
         spriteScale === 2 && boardMenuStyles.rowSpacious,
-        isWide && styles.rowDock,
+        isWide && styles.dockRow,
+        isWide && styles.dockOrder,
         needsConfirmation(option) && styles.rowDestructive,
         needsConfirmation(option) && styles.rowSeparated,
         !isEnabled && boardMenuStyles.rowInert,
@@ -408,9 +406,8 @@ function orderKey(option: UnitActionOption): string {
 }
 
 /**
- * The phone order dock: the orders replace the tile row and the dock at their
- * height, so the board stays tappable for another target. Each order is a row
- * (a Fire row carries its target, DEAL and TAKE); a 52px key backs out.
+ * The phone order dock: the orders replace the tile row and the dock, so the
+ * board stays tappable for another target.
  */
 function OrderDock({
   attacker,
@@ -513,8 +510,6 @@ const land = stylex.keyframes({
 });
 
 const styles = stylex.create({
-  // An order is a word, not a unit: there is no art in the row to make room
-  // for, so the row is a line of the HUD face and one step either side.
   orderBody: {
     display: "grid",
     gap: spacingVars["--spacing-1-5"],
@@ -534,13 +529,9 @@ const styles = stylex.create({
     marginInlineStart: "auto",
     inlineSize: "auto",
   },
-  rowDock: {
+  dockOrder: {
     minBlockSize: "56px",
-    borderRadius: radiusVars["--radius-element"],
-    borderBlockStartWidth: 0,
-    fontSize: awbrnVars.text17,
   },
-  // The dock changes with the selection: 90ms, stepped.
   dock: {
     animationName: {
       default: land,
@@ -628,11 +619,6 @@ const styles = stylex.create({
     borderBlockStartStyle: "solid",
     borderBlockStartColor: colorVars["--color-border-emphasized"],
   },
-  // An engagement is two lines, so the key stops being a line of text and
-  // becomes a block. It sets its own height from its content rather than from
-  // the row floor, and it breathes above and below because two of these stacked
-  // with no air read as one four-line list.
-
   heading: {
     fontSize: awbrnVars.text15,
     fontWeight: 750,

@@ -1,12 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 
-/**
- * The match screen's geometry: the frame DESIGN.md measures (the rail, the
- * strip, the foot), the key and row sizes the board's controls share, and the
- * small marks the armies draw. Spacing, radii and colors come from the theme
- * (`spacingVars`, `radiusVars`, `awbrnVars`); these are the sizes it has no
- * name for.
- */
+/** The match screen's sizes that the theme's spacing, radii and colors have no name for. */
 export const matchLayout = stylex.defineConsts({
   /** The rail beside the stage on desktop. */
   railWidth: "360px",
@@ -17,10 +11,8 @@ export const matchLayout = stylex.defineConsts({
   screenMinHeightPhone: "480px",
   /** A key or a line a finger can hit: icon keys, board keys, the tile line. */
   target: "44px",
-  /** The phone dock's keys: 64 wide, 52 tall. */
   dockKeyWidth: "64px",
   dockKeyHeight: "52px",
-  /** The glyph on a 52px phone key: the dock's and the review bar's. */
   dockGlyph: "22px",
   /** A ledger row and a turn-order cell. */
   rowHeight: "64px",
@@ -54,9 +46,7 @@ export const matchLayout = stylex.defineConsts({
   starSmall: "9px",
   starBig: "19px",
   starBigSmall: "12px",
-  /** Board keys floating at the board's edge: ink 900 at 94%. */
-  inkFloat: "color-mix(in srgb, var(--color-ink-900) 94%, transparent)",
-  /** The board's edge fading into the table: 55% ink 950. */
+  /** The board's edge fading into the table. */
   boardFade: "color-mix(in srgb, var(--color-ink-950) 55%, transparent)",
   /** The table's glow under the board. */
   tableGlow: "color-mix(in srgb, var(--color-ink-700) 35%, transparent)",
@@ -64,11 +54,7 @@ export const matchLayout = stylex.defineConsts({
   locatorDim: "color-mix(in srgb, var(--color-ink-950) 45%, transparent)",
 });
 
-/**
- * The match screen's type sizes. DESIGN.md's label (12px) and figure (12.5px)
- * hold most of it; the rest are the strip and line titles and the steps
- * between them that a dense rail needs.
- */
+/** The match screen's type sizes. */
 export const matchType = stylex.defineConsts({
   /** YOU and OUT on a turn-order stamp. */
   tag: "10.5px",

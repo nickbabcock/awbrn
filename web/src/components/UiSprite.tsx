@@ -1,16 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { uiAtlasSpriteStyle } from "#/components/game_sprites.ts";
 
-/**
- * One sprite from the game's interface atlas (`Clock.png`, `Coin.png`,
- * `CO/Power.png`, `HP.png`, `Ammo.png`, `Fuel.png`, ...), drawn at a whole
- * scale: 1x, 2x or 3x, pixelated. Never smoothed, tinted or recolored.
- *
- * Decorative by default (the figure beside it carries the meaning); pass
- * `label` when the sprite stands alone.
- *
- *   <UiSprite name="Coin.png" />
- */
+/** One sprite from the game's interface atlas. Decorative unless given a `label`. */
 export function UiSprite({
   label,
   name,

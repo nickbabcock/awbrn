@@ -10,38 +10,10 @@ import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 export type { ButtonProps } from "@astryxdesign/core/Button";
 
 /**
- * A key. Every command in AWBRN is one of these.
- *
- * Variants (the theme draws them; see `awbrnTheme.ts`):
- * - `primary`: Airmail red, the next command. **One Red Key**: at most one per
- *   viewport. End turn is `secondary` (or `on-ink`) while units remain and
- *   turns `primary` only when the turn is spent.
- * - `secondary` (default): a sheet-colored key with a strong rule.
- * - `ink`: a firm key that is not the next command (an empty state's one key).
- * - `on-ink`: a raised key on the ink table or a navy bar (ink 850).
- * - `ghost`, `ghost-on-ink`: quiet keys on paper or on ink.
- * - `destructive`: Resign, Decline. Outlined in danger until armed.
- *
- * Sizes: `sm` 32px, `md` 40px, `lg` 48px; on a coarse pointer every size is
- * at least 44px and `lg` is the dock's 52px. Icon keys pass `isIconOnly`, an
- * `icon` from `#/ui/icons.tsx`, a `label` (the accessible name) and a
- * `tooltip`.
- *
- * **Busy.** A key that sent a request (`isLoading`, or a `clickAction` whose
- * promise is pending) keeps its label and its width and ignores presses until
- * the answer. After a short hold, so a quick answer never flashes, the drawn
- * spinner takes the icon's place and turns a spoke at a time; it holds still
- * under reduced motion. A key with no icon takes a small spinner beside its
- * label and gives it room from its own padding, so it holds its width (a key
- * that sets its own padding grows by the spinner's slot instead).
- *
- *   <Button label="Play turn" size="lg" variant="primary" />
- *   <Button isLoading={isEnding} label="End turn" onClick={endTurn} variant="primary" />
- *   <Button icon={<Icon icon={IconCalculator} />} isIconOnly label="Calculator"
- *     tooltip="Calculator" variant="on-ink" />
- *
- * Route links use `RouterButton` from `#/ui/astryx-links.tsx`, which takes the
- * same props plus TanStack Router's `to`.
+ * A key that sent a request (`isLoading`, or a `clickAction` whose promise is
+ * pending) keeps its label and its width and ignores presses until the answer.
+ * After a short hold, so a quick answer never flashes, a spinner takes the
+ * icon's place, or sits beside the label of a key with no icon.
  */
 export function Button({
   clickAction,

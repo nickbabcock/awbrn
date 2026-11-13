@@ -16,14 +16,9 @@ export type MatchThumbSize = 48 | 56 | 64 | 80;
 export type MinimapState = "loading" | "ready" | "failed";
 
 /**
- * Tracks a minimap picture from the first paint.
- *
- * The server draws the picture as drawn, so the page shows its minimaps
- * before (and without) the script that hydrates it; the minimaps are small,
- * cached files that are usually there by first paint. Once React holds the
- * element, the ref reads what it already knows: a picture still on its way
- * steps back to the paper well (before the browser paints) until it loads,
- * and one that failed shows the map glyph.
+ * Tracks a minimap picture from the first paint. The server renders it as
+ * drawn, since minimaps are small cached files usually there by first paint;
+ * once React holds the element, the ref reads what the image already knows.
  */
 export function useMinimapState() {
   const [state, setState] = useState<MinimapState>("ready");
@@ -43,18 +38,9 @@ export function useMinimapState() {
 }
 
 /**
- * A map as a row's thumbnail: the 1x minimap on ink, cropped to its middle the
- * way a stamp shows part of a view, never resampled. Until the picture is
- * drawn the well is paper, not a black square; a picture that cannot load
- * leaves the paper well with a map glyph.
- *
- * Pass `map` when the screen already holds the map's catalog entry (a list of
- * maps): the thumbnail draws from it with the page, with no request of its
- * own. Otherwise `mapId` and `revision` look the entry up.
- *
- * `size` is the edge on desktop; `phoneSize` takes over at phone width (a
- * match row's 80px thumbnail is 64px there). `isEager` loads a thumbnail that
- * sits above the fold with the page rather than when it scrolls into view.
+ * A map as a row's thumbnail: the 1x minimap on ink, cropped to its middle,
+ * never resampled. Pass `map` when the screen already holds the catalog
+ * entry, so the thumbnail needs no request of its own.
  */
 export function MatchThumb({
   isEager = false,
@@ -111,7 +97,6 @@ const styles = stylex.create({
   well: {
     // Flex centering overflows both edges equally, so a map wider than the
     // well shows its middle.
-    display: "flex",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -119,7 +104,6 @@ const styles = stylex.create({
     borderRadius: "6px",
     backgroundColor: awbrnVars.paperWell,
   },
-  // The drawn minimap sits on ink, framed by a hairline.
   inked: {
     backgroundColor: awbrnVars.ink900,
     boxShadow: `inset 0 0 0 1px ${awbrnVars.ink700}`,
@@ -134,14 +118,12 @@ const styles = stylex.create({
       [pageLayout.phoneMedia]: `${phone}px`,
     },
   }),
-  // The picture keeps its own pixels; the well crops what does not fit.
   picture: {
     display: "block",
     flexShrink: 0,
     maxInlineSize: "none",
     imageRendering: "pixelated",
   },
-  // A picture still arriving draws nothing over the paper well.
   pending: {
     visibility: "hidden",
   },

@@ -38,15 +38,8 @@ export const OPENING_SCALE = 2;
 const ZOOM_STEP = 1.25;
 
 /** How much of the board the camera shows, read from the engine's `BoardView`. */
-export interface BoardViewState {
-  bv: BoardView | null;
-  canZoomIn: boolean;
-  canZoomOut: boolean;
-  /** True while every tile of the map is inside the canvas. */
-  mapFits: boolean;
-}
-
-export function readBoardView(bv: BoardView | null): BoardViewState {
+export function useBoardView() {
+  const bv = useGameStore((state) => state.boardView);
   if (bv === null) {
     return { bv, canZoomIn: true, canZoomOut: true, mapFits: false };
   }
@@ -54,13 +47,9 @@ export function readBoardView(bv: BoardView | null): BoardViewState {
     bv,
     canZoomIn: bv.scale < bv.maxScale - SCALE_EPSILON,
     canZoomOut: bv.scale > bv.fitScale + SCALE_EPSILON,
+    /** True while every tile of the map is inside the canvas. */
     mapFits: viewHoldsMap(bv),
   };
-}
-
-export function useBoardView(): BoardViewState {
-  const bv = useGameStore((state) => state.boardView);
-  return readBoardView(bv);
 }
 
 function viewHoldsMap(bv: BoardView): boolean {
@@ -146,19 +135,8 @@ export function formatScale(scale: number): string {
   return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2).replace(/0$/, "")}×`;
 }
 
-/**
- * The board keys: zoom out, the scale, zoom in, then the whole map. Zoom steps
- * 1.25x about the middle of the canvas and stops at its limit; whole map goes
- * to the fit scale and back, and rests when the map already fits.
- */
-export function BoardKeys({
-  isFloating = false,
-  runner,
-}: {
-  /** Over the board (full screen, no column to dock into). */
-  isFloating?: boolean;
-  runner: GameRunner;
-}) {
+/** The board keys: zoom out, the scale, zoom in, then the whole map. */
+export function BoardKeys({ runner }: { runner: GameRunner }) {
   const view = useBoardView();
   const whole = useWholeMap(runner);
   const scale = view.bv?.scale ?? OPENING_SCALE;
@@ -170,7 +148,7 @@ export function BoardKeys({
 
   return (
     <HStack as="span" aria-label="Board view" role="group" xstyle={styles.keys}>
-      <HStack as="span" xstyle={[styles.zoomGroup, isFloating && styles.floating]}>
+      <HStack as="span" xstyle={[styles.frame, styles.zoomGroup]}>
         <Button
           icon={<Icon icon={IconMinus} />}
           isDisabled={!view.canZoomOut}
@@ -211,7 +189,7 @@ export function BoardKeys({
             : "The whole map is on the table"
         }
         variant="ghost-on-ink"
-        xstyle={[styles.wholeKey, isFloating && styles.floating, whole.isWhole && styles.wholeOn]}
+        xstyle={[styles.key, styles.frame, whole.isWhole && styles.wholeOn]}
       />
     </HStack>
   );
@@ -239,10 +217,9 @@ function SettledScale({ scale }: { scale: number }) {
 }
 
 /**
- * The locator: the map's small picture (4px a tile) with the camera's view
- * drawn on it. Press or drag to move the view there; with the keyboard, the
- * arrow keys move the view a quarter of itself (Shift: a whole view). It is
- * shown only while the map is cropped.
+ * The locator: the map's small picture with the camera's view drawn on it.
+ * Press or drag to move the view there; the arrow keys move the view a quarter
+ * of itself (Shift: a whole view). Shown only while the map is cropped.
  */
 export function Locator({
   mapName,
@@ -295,7 +272,7 @@ export function Locator({
   };
 
   return (
-    <figure {...stylex.props(styles.locator)}>
+    <figure {...stylex.props(styles.frame, styles.locator)}>
       <button
         aria-description={`Showing columns ${first.x} to ${last.x}, rows ${first.y} to ${last.y}. Arrow keys move the view.`}
         aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
@@ -358,10 +335,7 @@ function clampRect(rect: TileRect, width: number, height: number): TileRect {
   };
 }
 
-/**
- * The view the player left, outlined over the whole map (2px white, ink edge),
- * so they can see where Back returns them.
- */
+/** The view the player left, outlined over the whole map, so they can see where Back returns them. */
 export function WholeMapOutline({ runner }: { runner: GameRunner }) {
   const whole = useWholeMap(runner);
   const bv = useBoardView().bv;
@@ -382,9 +356,7 @@ export function WholeMapOutline({ runner }: { runner: GameRunner }) {
   );
 }
 
-/**
- * The phone's one board key, at the end of the tile row: Whole map, then Back.
- */
+/** The phone's one board key, at the end of the tile row: Whole map, then Back. */
 export function ViewKey({ runner }: { runner: GameRunner }) {
   const whole = useWholeMap(runner);
 
@@ -445,7 +417,6 @@ export function FirstTouchHint({ children }: { children: ReactNode }) {
   );
 }
 
-/** The canvas box size and the table's mode, measured from the table. */
 export type TableMode = "pending" | "dock" | "gather" | "none" | "phone";
 
 export interface TableLayout {
@@ -523,15 +494,14 @@ const styles = stylex.create({
     flexShrink: 0,
     gap: spacingVars["--spacing-1-5"],
   },
-  zoomGroup: {
-    display: "inline-flex",
-    alignItems: "center",
+  frame: {
     borderRadius: radiusVars["--radius-element"],
     backgroundColor: awbrnVars.ink900,
     boxShadow: `inset 0 0 0 1px ${awbrnVars.ink700}`,
   },
-  floating: {
-    backgroundColor: matchLayout.inkFloat,
+  zoomGroup: {
+    display: "inline-flex",
+    alignItems: "center",
   },
   key: {
     inlineSize: matchLayout.target,
@@ -553,16 +523,6 @@ const styles = stylex.create({
     fontWeight: 600,
     letterSpacing: "-0.02em",
   },
-  wholeKey: {
-    inlineSize: matchLayout.target,
-    blockSize: matchLayout.target,
-    minInlineSize: matchLayout.target,
-    paddingInline: 0,
-    borderRadius: radiusVars["--radius-element"],
-    backgroundColor: awbrnVars.ink900,
-    boxShadow: `inset 0 0 0 1px ${awbrnVars.ink700}`,
-    color: awbrnVars.textOnInkStrong,
-  },
   wholeOn: {
     backgroundColor: awbrnVars.ink100,
     color: awbrnVars.ink950,
@@ -578,9 +538,6 @@ const styles = stylex.create({
     margin: 0,
     padding: spacingVars["--spacing-1-5"],
     maxInlineSize: "100%",
-    borderRadius: radiusVars["--radius-element"],
-    backgroundColor: awbrnVars.ink900,
-    boxShadow: `inset 0 0 0 1px ${awbrnVars.ink700}`,
   },
   locatorMap: {
     position: "relative",

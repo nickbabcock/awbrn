@@ -1,30 +1,43 @@
 import { VStack } from "@astryxdesign/core/Stack";
+import { useQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
-import { Fragment, type CSSProperties } from "react";
+import { Fragment, useMemo, type CSSProperties } from "react";
 import { uiAtlasSpriteStyle, unitSpriteStyle } from "#/components/game_sprites.ts";
+import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
+import { mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
 import type { MapCatalogEntry } from "#/maps/schemas.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
-import type { DepictedSkirmish } from "./depicted.ts";
+import { placeSkirmish, type DepictedSkirmish } from "./depicted.ts";
 
 /** A map tile in the full picture, in its own pixels. */
 const TILE = 16;
 /** The board's opening scale. A 2dppx screen raises it to the touch floor (2.5x). */
 const SCALE = 2;
 
+/** The depicted board's armies and skirmish, once the map's terrain arrives. */
+export function useDepiction(map: MapCatalogEntry) {
+  const { data: document } = useQuery(mapRevisionQueryOptions(map.mapId, map.revision));
+  return useMemo(() => {
+    const code = (slot: number) =>
+      getFactionById(document?.slotFactionIds[slot] ?? defaultFactionIdForSlot(slot))?.code ??
+      (slot === 0 ? "os" : "bm");
+    return {
+      factionCodes: [code(0), code(1)] as const,
+      skirmish: document ? placeSkirmish(document) : null,
+    };
+  }, [document]);
+}
+
 /**
- * A depicted board: the map's own render at 2x (the 2.5x touch floor on a
- * 2dppx screen), centered on the depicted cursor, with the skirmish's units
- * on it and the table's 16px fades on every cropped edge. It fills its box
- * and is a picture: nothing on it can be pressed.
+ * A depicted board: the map's own render centered on the depicted cursor,
+ * with the skirmish's units on it and a fade on every cropped edge.
  */
 export function DepictedBoard({
-  alt,
   factionCodes,
   map,
   skirmish,
 }: {
-  alt: string;
   factionCodes: readonly [string, string];
   map: MapCatalogEntry;
   skirmish: DepictedSkirmish | null;
@@ -49,7 +62,7 @@ export function DepictedBoard({
           ]}
         >
           <img
-            alt={alt}
+            alt=""
             decoding="async"
             height={picture.height}
             src={map.screenshot.full}

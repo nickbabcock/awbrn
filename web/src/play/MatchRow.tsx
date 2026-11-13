@@ -22,13 +22,9 @@ import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { TimeLeft } from "#/ui/TimeLeft.tsx";
 
 /**
- * One of the viewer's matches as triage: the map, the title, who they face,
- * the time left, and one key. Terms live in lobbies and the Match menu.
- *
- * The row lays itself out from its own width (a container query), so the same
- * row reads in Home's main column and My games' 880px list: from 900px wide
- * the key takes a fixed 148px column; on a phone the time and the key take
- * their own line under the title.
+ * One of the viewer's matches as triage. The row lays itself out from its own
+ * width (a container query), so the same row reads in Home's main column and
+ * My games' narrower list.
  */
 export function MatchRow({
   isAboveFold = false,
@@ -179,10 +175,7 @@ export function MatchFaces({
   return <Opponents seats={opponents} />;
 }
 
-/**
- * The clock that matters to the row: the viewer's own (warn when a live clock
- * runs low), someone else's (in Text 2), or a pairing's window.
- */
+/** The viewer's own clock, someone else's, or a pairing's window. */
 function RowTimeLeft({ now, row }: { now: number; row: MatchRowData }) {
   if (row.deadlineAt === null) return null;
   const remaining = row.deadlineAt - now;
@@ -223,7 +216,6 @@ const styles = stylex.create({
   },
   thumb: {
     gridArea: "thumb",
-    display: "flex",
   },
   main: {
     gridArea: "main",
@@ -241,7 +233,6 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   meta: {
-    display: "flex",
     alignItems: "center",
     minBlockSize: "40px",
     minInlineSize: 0,
@@ -251,7 +242,7 @@ const styles = stylex.create({
     alignItems: "center",
     blockSize: "40px",
   },
-  // A stamp's footprint (32px field in a 4px perforation) in paper well.
+  // A stamp's footprint, in paper well.
   place: {
     display: "block",
     inlineSize: "40px",
@@ -272,7 +263,6 @@ const styles = stylex.create({
   },
   end: {
     gridArea: "end",
-    display: "flex",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: "16px",

@@ -1,23 +1,17 @@
 import { Stack } from "@astryxdesign/core/Stack";
 import { Icon } from "@astryxdesign/core/Icon";
-import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import type { Session } from "#/auth/session.ts";
 import { AccountMenu } from "#/layouts/AccountMenu.tsx";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { RouterButton } from "#/ui/astryx-links.tsx";
-import { CountBadge } from "#/ui/CountBadge.tsx";
+import { AwaitingCount } from "#/ui/CountBadge.tsx";
 import { IconPlus } from "#/ui/icons.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { shellVars } from "#/ui/shell.stylex.ts";
 import { SITE_SECTIONS, pageOffersNewMatch, sectionForPath } from "#/ui/site_sections.ts";
 
-/**
- * The 56px navy bar: the brand (home), the sections, New match and the
- * account (a guest gets Sign in and no New match). Below 720px the sections move to the tab bar and the bar keeps the
- * brand and the account; on a pushed screen it steps aside entirely.
- */
 export function TopBar({
   awaiting,
   pathname,
@@ -30,7 +24,6 @@ export function TopBar({
   const sections = SITE_SECTIONS.filter((section) => session !== null || !section.requiresSession);
   const current = sectionForPath(pathname);
   const isHome = pathname === "/";
-  // A guest's bar is the sections and Sign in; New match is a signed-in key.
   const showsNewMatch = session !== null && !pageOffersNewMatch(pathname);
 
   return (
@@ -47,7 +40,6 @@ export function TopBar({
       <nav aria-label="Main navigation" {...stylex.props(styles.nav)}>
         {sections.map((section) => {
           const isCurrent = current?.id === section.id;
-          const count = section.id === "mine" ? awaiting : 0;
           return (
             <Link
               aria-current={isCurrent ? "page" : undefined}
@@ -57,14 +49,7 @@ export function TopBar({
             >
               <Icon icon={section.icon} size="sm" xstyle={styles.navIcon} />
               {section.label}
-              {count > 0 ? (
-                <>
-                  <CountBadge count={count} />
-                  <VisuallyHidden>
-                    {count === 1 ? "1 match waits on you" : `${count} matches wait on you`}
-                  </VisuallyHidden>
-                </>
-              ) : null}
+              {section.id === "mine" ? <AwaitingCount count={awaiting} /> : null}
             </Link>
           );
         })}
@@ -145,7 +130,6 @@ const styles = stylex.create({
     fontStretch: "62%",
     letterSpacing: "0.04em",
   },
-  // The brand's mark is a corner of an airmail envelope.
   brandMark: {
     inlineSize: "22px",
     blockSize: "14px",
@@ -194,7 +178,6 @@ const styles = stylex.create({
       [pageLayout.belowRailMedia]: "none",
     },
   },
-  // The current section takes a white rule on the bar's bottom edge.
   current: {
     color: awbrnVars.textOnInkStrong,
     "::after": {
@@ -208,7 +191,6 @@ const styles = stylex.create({
       borderStartEndRadius: awbrnVars.currentMark,
     },
   },
-  // The brand carries the current-page rule across its whole width.
   brandCurrent: {
     "::after": {
       insetInline: 0,

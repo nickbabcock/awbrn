@@ -1,25 +1,13 @@
 /**
- * A map card, and the grid a set of them is dealt onto.
+ * Map cards and the grid they are dealt onto.
  *
- * The card is an ink well holding the whole map, letterboxed, over a sheet
- * body: the name, the postage line (`2P · 20×20 · Bamboozle`) and the tags.
- * A ranked revision wears its pennant on the top edge.
- *
- * One Pitch Per Set: every minimap in a grid draws at 2x (8px a tile), so a
- * 37×37 map reads larger than a 19×19 one. A card always shows the whole map
- * (Whole Scale Or Crop): a map wider than its well at 2x (a 50×50) gives up
- * its inline letterbox first, then takes two columns of the grid, and only
- * where that is still too narrow drops, alone, to the largest whole scale that
- * fits. The scale and the span are worked out by CSS against the grid, so the
- * server render already draws them. A wide card keeps its place in the deal
- * (no dense packing), so the grid reads, and tabs, in the catalog's order.
- *
- * Row-mates share their tracks through subgrid: the wells of a row are one
- * height, each map centered in its ink, and the bodies below them line up.
- *
- * The card has two jobs and one face. On the catalog it opens the map's page
- * (`MapLinkPlate`); on New match it is one of a set being chosen from
- * (`MapSelectPlate`), and the chosen card takes an ink ring and a check.
+ * Every minimap in a grid draws at the same whole scale, so a larger map reads
+ * larger. A card always shows the whole map: one wider than its well first
+ * gives up its inline letterbox, then spans two columns, and only then drops
+ * to the largest whole scale that fits. CSS works the scale and span out
+ * against the grid, so the server render already draws them. Wide cards keep
+ * their place (no dense packing), so the grid reads and tabs in catalog order.
+ * Row-mates share tracks through subgrid, so wells and bodies line up.
  */
 
 import { Icon } from "@astryxdesign/core/Icon";
@@ -46,31 +34,16 @@ import { figureStyles } from "#/ui/Figure.tsx";
 import { IconCheck } from "#/ui/icons.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
-/** The whole scale every minimap in a set draws at. */
 const SET_PITCH = 2;
-/** Between a phone and the rail breakpoint: two cards across. */
 const TABLET_MEDIA = "@media (min-width: 721px) and (max-width: 1180px)";
-/** Ink on each side of the minimap inside its well. */
 const WELL_PADDING = spacingVars["--spacing-4"];
-/** The card's rule, on each side of its well. */
 const CARD_BORDER = 1;
 
-/** What a card says about a map, in one line the screen reader also reads. */
-export function mapPlateSummary(map: MapCatalogEntry): string {
-  const rank = map.rank ? `rank ${map.rank}` : "unranked";
-  return `${map.name} by ${map.author}, ${map.playerCount} players, ${map.width} by ${map.height}, ${rank}`;
-}
-
-/** The postage line: armies, size and author, franked in mono. */
 export function mapPostage(map: MapCatalogEntry): string {
   return `${map.playerCount}P · ${map.width}×${map.height} · ${map.author}`;
 }
 
-/**
- * The grid a set of map cards is dealt onto: three across, two below 1180px,
- * one on a phone. `density="compact"` is the picker inside New match, which
- * shares its row with the rules sheet and sets its cards closer.
- */
+/** `density="compact"` is the New match picker, which shares its row with the rules sheet. */
 export function MapCardGrid({
   children,
   density = "catalog",
@@ -83,7 +56,6 @@ export function MapCardGrid({
   );
 }
 
-/** The card on the catalog: a link that opens the map's page. */
 export function MapLinkPlate({ map }: { map: MapCatalogEntry }) {
   return (
     <Link
@@ -96,7 +68,6 @@ export function MapLinkPlate({ map }: { map: MapCatalogEntry }) {
   );
 }
 
-/** The card in New match: one of a set, and the chosen one wears a check. */
 export function MapSelectPlate({
   isSelected,
   map,
@@ -183,11 +154,10 @@ function MapCardFace({ map }: { map: MapCatalogEntry }) {
   );
 }
 
-/** A card still on its way, holding its place in the grid. */
 export function MapLoadingPlate({ index }: { index: number }) {
   return (
     <Stack aria-hidden="true" as="span" xstyle={[styles.card, styles.loading]}>
-      <Stack as="span" xstyle={[styles.well, styles.wellHeight(160)]} />
+      <Stack as="span" xstyle={[styles.well, styles.loadingWell]} />
       <Stack as="span" xstyle={styles.body}>
         <Skeleton height={18} index={index} width="60%" />
         <Skeleton height={12} index={index} width="45%" />
@@ -217,10 +187,7 @@ const styles = stylex.create({
     },
   },
   gridCompact: {
-    gap: {
-      default: awbrnVars.spacing3_5,
-      [pageLayout.phoneMedia]: awbrnVars.spacing3_5,
-    },
+    gap: awbrnVars.spacing3_5,
     "--map-column": {
       default: `calc((100cqi - 2 * ${awbrnVars.spacing3_5}) / 3)`,
       [TABLET_MEDIA]: `calc((100cqi - ${awbrnVars.spacing3_5}) / 2)`,
@@ -240,8 +207,7 @@ const styles = stylex.create({
     color: awbrnVars.ink900,
     textDecoration: "none",
     backgroundColor: awbrnVars.sheet,
-    // Hover only where a pointer hovers, so a tap leaves nothing behind; a
-    // press takes the same tone, and the chosen card adds its ring and check.
+    // Hover only where a pointer hovers, so a tap leaves nothing behind.
     borderColor: {
       default: awbrnVars.rule,
       ":hover": { default: null, [pageLayout.hoverMedia]: awbrnVars.ink900 },
@@ -298,10 +264,9 @@ const styles = stylex.create({
     borderStartStartRadius: `calc(${radiusVars["--radius-container"]} - ${borderVars["--border-width"]})`,
     borderStartEndRadius: `calc(${radiusVars["--radius-container"]} - ${borderVars["--border-width"]})`,
   },
-  // The minimap's height, inside the well's ink.
-  wellHeight: (height: number) => ({
-    minBlockSize: `calc(${height}px + 2 * ${WELL_PADDING})`,
-  }),
+  loadingWell: {
+    minBlockSize: `calc(160px + 2 * ${WELL_PADDING})`,
+  },
   minimap: {
     display: "block",
     flexShrink: 0,
@@ -323,7 +288,6 @@ const styles = stylex.create({
     display: "flex",
     filter: awbrnVars.shadowPennant,
   },
-  // Its lines kept at the top of the body row.
   body: {
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr)",

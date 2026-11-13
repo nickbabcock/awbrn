@@ -20,12 +20,8 @@ import { IconChevronDown, IconChevronUp } from "#/ui/icons.tsx";
 import { useState } from "react";
 
 /**
- * The briefing for one commander: the large stamp and the name, what the CO
- * does day to day, and both powers behind one disclosure whose summary names
- * them (`Double Time · Victory March`).
- *
- * `coId` is the CO to read: the seat's own, or one the player is pointing at
- * before choosing. `factionCode` gives the stamp its army's field.
+ * The briefing for one commander. `coId` is the seat's own, or one the player
+ * is pointing at before choosing.
  */
 export function CoBrief({
   coId,
@@ -126,7 +122,6 @@ const styles = stylex.create({
     gap: spacingVars["--spacing-4"],
   },
   head: {
-    display: "flex",
     alignItems: "center",
     gap: awbrnVars.spacing3_5,
   },

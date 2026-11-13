@@ -101,11 +101,9 @@ export function BoardMenuShell(props: BoardMenuShellProps) {
 }
 
 /**
- * The menu docked in the table's column beside the board: a letter on the
- * table, paper with an ink head. It never stands over a tile, so the board
- * stays tappable for another target; the engine answers presses on the board.
- * It lands with the selection in two frames (90ms, stepped); the page keys it
- * by the selection so each new one lands.
+ * The menu docked in the table's column beside the board. It never stands
+ * over a tile, so the board stays tappable for another target. The page keys
+ * it by the selection so each new one lands.
  */
 function DockedMenu({ children, footer, label, onDismiss, onRestoreFocus }: BoardMenuShellProps) {
   return (
@@ -480,7 +478,6 @@ export const boardMenuStyles = stylex.create({
   body: {
     minBlockSize: 0,
   },
-  // The ink head of a letter on the table: what the menu is for, and a figure.
   header: {
     minBlockSize: "44px",
     paddingBlock: awbrnVars.spacing2_5,
@@ -496,8 +493,6 @@ export const boardMenuStyles = stylex.create({
     overflowY: "auto",
     overscrollBehavior: "contain",
   },
-  // One order: 48px (56px under a thumb), a rule above, the red wash under
-  // the cursor.
   row: {
     display: "flex",
     alignItems: "center",
@@ -676,6 +671,6 @@ const styles = stylex.create({
   sheetFooter: {
     borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
-    borderBlockStartColor: awbrnVars.colorBorderSoft,
+    borderBlockStartColor: awbrnVars.rule,
   },
 });

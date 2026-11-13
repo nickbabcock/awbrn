@@ -29,14 +29,12 @@ export const Route = createRootRouteWithContext<{
       // viewport-fit=cover lets the bars run under the notch and the home
       // indicator; the shell pads them with the safe-area insets.
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      // The browser's own chrome wears the top bar's ink.
       { name: "theme-color", content: "#101b3a" },
       { name: "color-scheme", content: "light" },
       { title: "AWBRN" },
     ],
     links: [
       { rel: "stylesheet", href: resetCss },
-      // The brand mark, until the shell draws the waiting count on it.
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
     ],
   }),

@@ -1,14 +1,6 @@
 /**
- * The grade the site gives a map revision: a pennant with one letter.
- *
- * S is power gold, A ink, B airmail blue, C slate. The letter is the medal's
- * name for assistive tech, so it never rides on the color alone.
- *
- * Sizes: `xs` (22×26) in a Record line, `sm` (the catalog card's pennant,
- * 32×42, 26×34 on a phone), `md` (34×38) and `lg` (56×64) beside a map's
- * title. An unranked revision draws nothing unless `isUnrankedShown` asks for
- * the quiet paper-well pennant with a dash (a Record line that took a rank
- * away).
+ * The grade the site gives a map revision: a pennant with one letter. The
+ * letter is the medal's accessible name, so it never rides on the color alone.
  */
 
 import { Stack } from "@astryxdesign/core/Stack";
@@ -19,17 +11,15 @@ import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import type { MapRank } from "#/maps/schemas.ts";
 
-export type MapRankMedalSize = "xs" | "sm" | "md" | "lg";
-
 export function MapRankMedal({
   isUnrankedShown = false,
   rank,
-  size = "md",
+  size,
   xstyle,
 }: {
   isUnrankedShown?: boolean;
   rank: MapRank | null;
-  size?: MapRankMedalSize;
+  size: "xs" | "sm" | "lg";
   xstyle?: stylex.StyleXStyles;
 }) {
   if (rank === null && !isUnrankedShown) return null;
@@ -87,12 +77,6 @@ const sizes = stylex.create({
     blockSize: { default: "42px", [pageLayout.phoneMedia]: "34px" },
     paddingBlockEnd: { default: "7px", [pageLayout.phoneMedia]: "6px" },
     fontSize: { default: "18px", [pageLayout.phoneMedia]: typeScaleVars["--text-body-size"] },
-  },
-  md: {
-    inlineSize: "34px",
-    blockSize: "38px",
-    paddingBlockEnd: "5px",
-    fontSize: "19px",
   },
   lg: {
     inlineSize: "56px",

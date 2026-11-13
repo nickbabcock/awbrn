@@ -8,8 +8,7 @@ import { Button } from "#/ui/Button.tsx";
 import { figureStyles } from "#/ui/Figure.tsx";
 import { IconBack, IconNext, IconTurnBack, IconTurnNext } from "#/ui/icons.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
-import { DepictedBoard } from "./DepictedBoard.tsx";
-import type { DepictedSkirmish } from "./depicted.ts";
+import { DepictedBoard, useDepiction } from "./DepictedBoard.tsx";
 
 const noop = () => {};
 
@@ -17,19 +16,9 @@ const noop = () => {};
 const DAYS = 21;
 const POSITION = { index: 214, total: 486 };
 
-/**
- * A replay as a picture: a crop of the board mid-game over the review bar
- * (step keys, the scrubber with a tick per day, the position). Inert.
- */
-export function DepictedReplay({
-  factionCodes,
-  map,
-  skirmish,
-}: {
-  factionCodes: readonly [string, string];
-  map: MapCatalogEntry;
-  skirmish: DepictedSkirmish | null;
-}) {
+/** A replay as an inert picture: a crop of the board mid-game over the review bar. */
+export function DepictedReplay({ map }: { map: MapCatalogEntry }) {
+  const { factionCodes, skirmish } = useDepiction(map);
   const played = (POSITION.index / POSITION.total) * 100;
   return (
     <figure
@@ -39,7 +28,7 @@ export function DepictedReplay({
     >
       <VStack inert xstyle={styles.frame}>
         <VStack xstyle={styles.board}>
-          <DepictedBoard alt="" factionCodes={factionCodes} map={map} skirmish={skirmish} />
+          <DepictedBoard factionCodes={factionCodes} map={map} skirmish={skirmish} />
         </VStack>
         <HStack xstyle={styles.bar}>
           <HStack as="span" xstyle={styles.keys}>
@@ -108,7 +97,6 @@ const styles = stylex.create({
     },
   },
   bar: {
-    display: "flex",
     flexWrap: {
       default: "nowrap",
       [pageLayout.phoneMedia]: "wrap",
@@ -124,7 +112,6 @@ const styles = stylex.create({
     borderBlockStartWidth: "1px",
   },
   keys: {
-    display: "flex",
     gap: "4px",
   },
   key: {

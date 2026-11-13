@@ -29,11 +29,8 @@ import { Sheet } from "#/ui/Sheet.tsx";
 import { Terms } from "#/ui/Terms.tsx";
 
 /**
- * Open lobbies: an envelope per match. The title and the battlefield, the
- * terms franked in a middle column, the seats as the stamps already on it, and
- * one fixed-width key. On desktop every row shares one set of tracks (subgrid),
- * so the terms follow the longest title and the seats take the slack. On a
- * narrow tablet the terms and seats sit under the title, so it keeps its room.
+ * On desktop every row shares one set of tracks (subgrid), so the terms follow
+ * the longest title and the seats take the slack.
  */
 export function MatchesBrowsePage() {
   const browseQuery = useSuspenseInfiniteQuery(matchesBrowseQueryOptions());
@@ -181,11 +178,7 @@ function LobbyRow({
   );
 }
 
-/**
- * The seats as stamps already on the envelope: a taken seat shows its
- * commander (the viewer's own; blank for the rest, which the lobby keeps
- * sealed), an open seat the dashed outline with its army's crest grayed.
- */
+/** A taken seat shows the viewer's own commander; the lobby seals the rest. */
 function SeatStamps({
   lobby,
   ownCoId,

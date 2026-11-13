@@ -23,11 +23,6 @@ interface FactionCrestProps {
 /**
  * The army's crest, and the way its army is chosen.
  *
- *   <FactionCrest factionCode="os" />                      a plain mark
- *   <FactionCrest factionCode="os" onChange={setArmy} />   a key that opens the roll
- *
- * The roll is a popover on desktop and a bottom sheet on a phone.
- *
  * The mark is the control: a seat shows only its insignia, and clicking it
  * opens the roll of armies. Every army is named there, so this is where the
  * crest is learned and why the surrounding row does not have to repeat it.
@@ -73,12 +68,7 @@ export function FactionCrest({
             {factions.map((faction) => (
               <ToggleButton
                 icon={
-                  <FactionLogo
-                    factionCode={faction.code}
-                    isFramed={false}
-                    isLabelHidden
-                    size={PICKER_LOGO_SIZE}
-                  />
+                  <FactionLogo factionCode={faction.code} isLabelHidden size={PICKER_LOGO_SIZE} />
                 }
                 key={faction.id}
                 label={faction.displayName}
@@ -97,7 +87,7 @@ export function FactionCrest({
       width={PICKER_WIDTH}
     >
       <Button
-        icon={<FactionLogo factionCode={factionCode} isFramed={false} isLabelHidden size={size} />}
+        icon={<FactionLogo factionCode={factionCode} isLabelHidden size={size} />}
         isDisabled={isDisabled}
         isIconOnly
         label={`${activeName}. Choose a different army.`}

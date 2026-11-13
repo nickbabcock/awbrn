@@ -5,14 +5,6 @@ import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import { IconRefresh } from "#/ui/icons.tsx";
 
-/**
- * An empty state: a dashed sheet, a title, at most one key, and no key at all
- * when the page head already offers it. Sprites may stand above the title
- * (`art`); no helper sentence.
- *
- *   <EmptySheet action={<RouterButton label="New match" to="/matches/new" variant="ink" />}
- *     title="No open lobbies" />
- */
 export function EmptySheet({
   action,
   art,
@@ -35,13 +27,6 @@ export function EmptySheet({
   );
 }
 
-/**
- * A problem, said once: an icon, a title naming the problem, and the key that
- * recovers (`Retry`, `Reconnect`). The title carries it; no explanation.
- *
- *   <ProblemBanner action={<Button label="Retry" onClick={refetch} size="sm" />}
- *     title="More lobbies failed to load" />
- */
 export function ProblemBanner({
   action,
   icon,

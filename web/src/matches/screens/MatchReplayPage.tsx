@@ -18,18 +18,12 @@ import { BackKey } from "#/ui/BackKey.tsx";
 import { IconDownload } from "#/ui/icons.tsx";
 
 /**
- * A finished match, read back.
+ * A finished match, read back at its own address.
  *
- * The match keeps its own address once it ends: a link handed out while it was
- * being played still opens the same board afterwards, and nothing has to be
- * downloaded and handed back to a second page to watch it.
- *
- * What is watched is the stored archive rather than the host. The host answers
- * a live match one seat at a time, because a board it handed to the wrong seat
- * would be a board that seat is not entitled to; a match that is over has no
- * such seat, and the archive carries every action, so the engine in this page
- * can project any of them. That is what makes the viewpoint control possible,
- * and it is the reason a fogged match is worth opening again.
+ * It plays the stored archive rather than asking the host, which answers a
+ * live match one seat at a time. The archive carries every action, so the
+ * engine can project any seat's view: that is what makes the viewpoint
+ * control possible.
  */
 export function MatchReplayPage({
   joinSlug = null,
@@ -108,20 +102,16 @@ export function MatchReplayPage({
     },
   }));
 
-  // In the rail foot on desktop, and beside Full screen on a phone.
-  const downloadKey = (
-    <InkIconKey
-      href={matchReplayDownloadPath(matchId)}
-      icon={IconDownload}
-      label="Download the replay archive"
-    />
-  );
-
   return (
     <ReplayScreen
-      archiveKey={downloadKey}
+      archiveKey={
+        <InkIconKey
+          href={matchReplayDownloadPath(matchId)}
+          icon={IconDownload}
+          label="Download the replay archive"
+        />
+      }
       back={<BackKey label="Back to History" to="/my/history" />}
-      lineKeys={downloadKey}
       error={loadError}
       locatorSrc={mapEntry?.screenshot.small ?? null}
       map={mapEntry ? { width: mapEntry.width, height: mapEntry.height } : null}

@@ -28,7 +28,7 @@ function residueLabel(readiness: TurnReadinessChanged, isPowerReady: boolean): s
 }
 
 /** The residue as sprites and counts: `[infantry] 2 [base] 1 [POWER]`. */
-export function TurnResidue({
+function TurnResidue({
   factionCode,
   isPowerReady = false,
   readiness,
@@ -65,11 +65,7 @@ export function TurnResidue({
   );
 }
 
-/**
- * End turn. It carries what ending leaves (`[infantry] 2 [base] 1`); when
- * nothing is left it turns red and drops the counts. One Red Key: it is
- * secondary on ink while units remain.
- */
+/** End turn. It carries what ending leaves; when nothing is left it turns red and drops the counts. */
 export function EndTurnKey({
   factionCode,
   isDisabled,
@@ -111,13 +107,8 @@ export function EndTurnKey({
 }
 
 /**
- * A paper dialog (desktop) or a hugging bottom sheet (phone): a title in the
- * body, what it is about, then keys on a paper foot. The title names it.
- *
- * Motion is the overlays' own (`overlayMotion`): the dialog appears in place
- * over 120ms and leaves over 90ms, both stepped; the sheet rises half way,
- * then all the way. Nothing moves under reduced motion. A confirmation opens
- * on its safe key: mark that key `data-autofocus`.
+ * A paper dialog (desktop) or a hugging bottom sheet (phone). A confirmation
+ * opens on its safe key: mark that key `data-autofocus`.
  */
 export function PaperDialog({
   children,
@@ -126,7 +117,6 @@ export function PaperDialog({
   headStart,
   isOpen,
   onOpenChange,
-  purpose = "info",
   title,
 }: {
   children?: ReactNode;
@@ -135,7 +125,6 @@ export function PaperDialog({
   headStart?: ReactNode;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
-  purpose?: "info" | "form" | "required";
   title: string;
 }) {
   const isCompactTouch = useCompactTouch();
@@ -162,7 +151,7 @@ export function PaperDialog({
         label={title}
         onOpenChange={onOpenChange}
         padding={0}
-        purpose={purpose}
+        purpose="info"
         xstyle={[styles.sheetPanel, overlayMotion.sheet, !isOpen && overlayMotion.sheetLeaving]}
       >
         {content}
@@ -175,7 +164,7 @@ export function PaperDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       padding={0}
-      purpose={purpose}
+      purpose="info"
       width={420}
       xstyle={[overlayMotion.dialog, isOpen && overlayMotion.dialogOpen]}
     >
@@ -184,10 +173,6 @@ export function PaperDialog({
   );
 }
 
-/**
- * End your turn? What is left as sprites and counts, that it cannot be undone,
- * Keep playing and End turn.
- */
 export function EndTurnDialog({
   factionCode,
   isEnding,

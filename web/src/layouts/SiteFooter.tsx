@@ -5,11 +5,6 @@ import { RouterTextLink } from "#/ui/astryx-links.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { shellVars } from "#/ui/shell.stylex.ts";
 
-/**
- * The foot of every paper page, at both widths: AWBRN is independent, said
- * once, so no screen has to make room for it and no screen can be read as
- * implying otherwise. A pushed screen (the match, a replay) has no foot.
- */
 export function SiteFooter() {
   return (
     <footer {...stylex.props(styles.footer)}>

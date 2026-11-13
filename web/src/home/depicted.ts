@@ -1,16 +1,11 @@
 /**
- * The pictures the landing page draws of the product: which maps it shows, and
- * where a depicted skirmish puts its units on a real map's terrain.
- *
- * A depicted screen is an inert picture of a match, not a match. Its board is
- * the map's own render; its units are placed here, on tiles a land unit can
- * stand on, so any map the catalog ranks reads as a game in progress.
+ * The landing page's pictures of the product: which maps it shows, and where
+ * a depicted skirmish puts its units on a real map's terrain.
  */
 
 import type { UnitKind } from "#/wasm/awbrn_wasm.js";
 import type { MapCatalogEntry, MapRank } from "#/maps/schemas.ts";
 
-/** How strongly a rank recommends a map: S first. */
 const RANK_ORDER: Record<MapRank, number> = { S: 0, A: 1, B: 2, C: 3 };
 
 /** The size a first match is best played on: about 20 by 20. */
@@ -52,16 +47,12 @@ export function chooseFirstMatchMap(maps: readonly MapCatalogEntry[]): MapCatalo
   return chosen;
 }
 
-/** Map rows beside the landing's featured map: four on desktop. */
-export const LANDING_MAP_ROWS = 4;
+const LANDING_MAP_ROWS = 4;
 
 /**
- * The landing's maps, from the ranked list: the featured map (the one a first
- * match is played on; a catalog with no ranked duel still features its
- * strongest map), the map rows beside it, and the map the depicted replay
- * shows (another two-army map, so the page is not one map twice). The route
- * loads the featured and replay maps' terrain with the page, so the depicted
- * boards are drawn with their units at first paint.
+ * The landing's maps: the featured map (the first match's, else the strongest),
+ * the map rows beside it, and the replay's map (another two-army map, so the
+ * page is not one map twice).
  */
 export function chooseLandingMaps(maps: readonly MapCatalogEntry[]): {
   featured: MapCatalogEntry | null;
@@ -75,8 +66,7 @@ export function chooseLandingMaps(maps: readonly MapCatalogEntry[]): {
   return { featured, rows, replay };
 }
 
-/** A unit on a depicted board, at a tile. */
-export interface DepictedUnit {
+interface DepictedUnit {
   x: number;
   y: number;
   unit: UnitKind;
@@ -124,10 +114,9 @@ function isOpenGround(terrain: number): boolean {
   return terrain === 1 || terrain === 3 || (terrain >= 15 && terrain <= 27);
 }
 
-/** The tile the depicted cursor sits on, and the units around it. */
 export interface DepictedSkirmish {
+  /** The tile the depicted cursor sits on. */
   focus: { x: number; y: number };
-  /** The terrain stars of the tile under the cursor. */
   focusDefense: number;
   units: DepictedUnit[];
 }

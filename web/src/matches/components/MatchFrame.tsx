@@ -26,13 +26,9 @@ const INSET_TOP = "env(safe-area-inset-top, 0px)";
 const INSET_BOTTOM = "env(safe-area-inset-bottom, 0px)";
 
 /**
- * The match and the replay viewer, as one pushed screen.
- *
- * Desktop (the window under the 56px top bar): the stage (an 80px turn strip,
- * the ink table, a 56px review foot) beside a 360px rail (armies, then its
- * foot of keys). Phone (the whole window, no top or tab bar): the turn line,
- * the armies, the board full-bleed, the 56px tile row, the dock. Turn controls
- * never move. One DOM: the canvas box is never remounted between the two.
+ * The match and the replay viewer, as one pushed screen: a stage beside a rail
+ * on desktop, a column on a phone. One DOM: the canvas box is never remounted
+ * between the two.
  *
  * Each safe-area inset is counted once. AppShell pads its header with the top
  * inset (the navy header stays, empty, over a phone's turn line) and main
@@ -189,23 +185,29 @@ export type MatchConnection = "connected" | "connecting" | "reconnecting" | "ref
 
 /**
  * The live connection, as a dot, and a word when it is not live. On a phone
- * the dock says the word, so the turn line keeps the dot and gives the word
- * to assistive tech alone.
- *
- * Before the first connection the dot and word are Text on ink 2: nothing has
- * gone wrong yet, and a refused first one is still being tried (its notice
- * says so). Warn means a connection that dropped. A signed-out viewer has no
- * connection to show.
+ * the dock says the word, so the turn line gives the word to assistive tech
+ * alone. Warn means a connection that dropped: nothing has gone wrong with a
+ * first one yet, and a refused first one is still being tried.
  */
 export function ConnectionState({ status }: { status: MatchConnection }) {
   if (status === "signedOut") return null;
   if (status === "connected") {
-    return <Stack as="span" aria-label="Connected" role="img" xstyle={styles.liveDot} />;
+    return (
+      <Stack as="span" aria-label="Connected" role="img" xstyle={[styles.dot, styles.dotLive]} />
+    );
   }
   const isFirst = status !== "reconnecting";
   return (
-    <HStack as="span" role="status" xstyle={isFirst ? styles.connecting : styles.reconnecting}>
-      <Stack as="span" aria-hidden="true" xstyle={isFirst ? styles.quietDot : styles.warnDot} />
+    <HStack
+      as="span"
+      role="status"
+      xstyle={[styles.connection, isFirst ? styles.quiet : styles.warn]}
+    >
+      <Stack
+        as="span"
+        aria-hidden="true"
+        xstyle={[styles.dot, isFirst ? styles.dotQuiet : styles.dotWarn]}
+      />
       <Text color="inherit" type="inherit" xstyle={styles.connectionWord}>
         {isFirst ? "Connecting" : "Reconnecting"}
       </Text>
@@ -228,12 +230,9 @@ export function WatchingTag({ hasFog }: { hasFog: boolean }) {
 }
 
 /**
- * The desktop turn strip (80px): the postmark day, whose turn it is over the
- * match name and its connection, then the mover's clock and the strip's keys.
- * The band runs along it while the turn is yours. `isDayNew` lands the
- * postmark: the live day just changed. `isLive` cancels the postmark: the
- * live match's day is being played, so its stamp is spent; a replay or a
- * review shows the postmark alone.
+ * The desktop turn strip. `isDayNew` lands the postmark: the live day just
+ * changed. `isLive` cancels the postmark: the live match's day is being
+ * played; a replay or a review shows the postmark alone.
  */
 export function TurnStrip({
   clock,
@@ -273,7 +272,7 @@ export function TurnStrip({
         </HStack>
       )}
       <HStack as="span" xstyle={styles.who}>
-        <h1 {...stylex.props(styles.title)}>{title}</h1>
+        <h1 {...stylex.props(styles.title, styles.stripTitle)}>{title}</h1>
         {sub ? (
           <HStack as="span" xstyle={styles.sub}>
             {sub}
@@ -292,7 +291,6 @@ export function TurnStrip({
   );
 }
 
-/** The mover's clock in the strip: the clock sprite and a 20px figure. */
 export function StripClock({
   label,
   pressure,
@@ -317,10 +315,6 @@ export function StripClock({
   );
 }
 
-/**
- * The phone turn line: back, the 44px postmark, whose turn it is (or the map)
- * over the match name and its connection, then the line's keys.
- */
 export function TurnLine({
   back,
   day,
@@ -345,10 +339,10 @@ export function TurnLine({
       {day === null ? null : (
         <Postmark
           figure={day}
-          isCompact
           isNew={isDayNew}
           key={day}
           label={`Day ${day}`}
+          size={44}
           tone="ink"
         />
       )}
@@ -356,7 +350,7 @@ export function TurnLine({
         <Text
           color="inherit"
           type="inherit"
-          xstyle={[styles.lineTitle, isTitleDim && styles.lineTitleDim]}
+          xstyle={[styles.title, styles.lineTitle, isTitleDim && styles.lineTitleDim]}
         >
           {title}
         </Text>
@@ -386,10 +380,6 @@ function useRingDate(): string | null {
   return text;
 }
 
-/**
- * A problem with the match, on ink: a title naming it, an optional line, and
- * a recovery key.
- */
 export function MatchNotice({
   action,
   description,
@@ -422,7 +412,6 @@ export function MatchNotice({
   );
 }
 
-/** A reconnect key for a dropped match. */
 export function ReconnectKey({ onPress }: { onPress: () => void }) {
   return (
     <Button
@@ -453,7 +442,6 @@ export function SignInKey({ size }: { size: "notice" | "dock" }) {
   );
 }
 
-/** A 52px dock key with its word under the icon, as the tab bar does. */
 export function DockKey({
   icon,
   isDisabled,
@@ -510,7 +498,6 @@ export function InkIconKey({
   );
 }
 
-/** The dock's row: 52px keys, padded for the home indicator. */
 export function DockRow({ children }: { children: ReactNode }) {
   return (
     <HStack align="stretch" gap={2} xstyle={styles.dockRow}>
@@ -539,20 +526,21 @@ export function WaitCell({
         as="span"
         xstyle={[
           styles.waitName,
-          line === "connecting" && styles.waitFirstLine,
-          line === "reconnecting" && styles.waitLine,
+          line === "connecting" && styles.quiet,
+          line === "reconnecting" && styles.warn,
         ]}
       >
         <Stack
           as="span"
           aria-hidden="true"
-          xstyle={
-            line === "connecting"
-              ? styles.quietDot
-              : line === "reconnecting"
-                ? styles.warnDot
-                : styles.liveDot
-          }
+          xstyle={[
+            styles.dot,
+            line === undefined
+              ? styles.dotLive
+              : line === "connecting"
+                ? styles.dotQuiet
+                : styles.dotWarn,
+          ]}
         />
         <Text color="inherit" type="inherit" xstyle={styles.waitNameText}>
           {name}
@@ -710,9 +698,6 @@ const styles = stylex.create({
     scrollbarWidth: "thin",
   },
   railFoot: {
-    display: "flex",
-    alignItems: "center",
-    gap: spacingVars["--spacing-2"],
     paddingBlock: `${awbrnVars.spacing3_5} ${spacingVars["--spacing-4"]}`,
     paddingInline: spacingVars["--spacing-4"],
     borderBlockStartColor: awbrnVars.ink800,
@@ -754,16 +739,18 @@ const styles = stylex.create({
     minInlineSize: 0,
   },
   title: {
-    margin: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     color: awbrnVars.textOnInkStrong,
-    fontSize: matchType.stripTitle,
     fontStretch: "62%",
     fontWeight: 820,
     lineHeight: 1,
     wordSpacing: "0.12em",
+  },
+  stripTitle: {
+    margin: 0,
+    fontSize: matchType.stripTitle,
   },
   sub: {
     display: "flex",
@@ -805,30 +792,21 @@ const styles = stylex.create({
     blockSize: matchLayout.target,
     paddingInline: 0,
   },
-  liveDot: {
+  dot: {
     display: "inline-block",
     flexShrink: 0,
     inlineSize: matchLayout.dot,
     blockSize: matchLayout.dot,
     borderRadius: "50%",
+  },
+  dotLive: {
     backgroundColor: awbrnVars.okOnInk,
     boxShadow: `0 0 0 ${spacingVars["--spacing-1"]} color-mix(in srgb, ${awbrnVars.okOnInk} 18%, transparent)`,
   },
-  warnDot: {
-    display: "inline-block",
-    flexShrink: 0,
-    inlineSize: matchLayout.dot,
-    blockSize: matchLayout.dot,
-    borderRadius: "50%",
+  dotWarn: {
     backgroundColor: awbrnVars.warnFill,
   },
-  /** The first connection: nothing has dropped, so nothing warns. */
-  quietDot: {
-    display: "inline-block",
-    flexShrink: 0,
-    inlineSize: matchLayout.dot,
-    blockSize: matchLayout.dot,
-    borderRadius: "50%",
+  dotQuiet: {
     backgroundColor: awbrnVars.textOnInkSecondary,
   },
   /** Said by the dock on a phone; kept for assistive tech there. */
@@ -855,19 +833,17 @@ const styles = stylex.create({
     },
     whiteSpace: "nowrap",
   },
-  connecting: {
+  connection: {
     display: "inline-flex",
     alignItems: "center",
     gap: spacingVars["--spacing-1-5"],
-    color: awbrnVars.textOnInkSecondary,
     fontWeight: 650,
   },
-  reconnecting: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: spacingVars["--spacing-1-5"],
+  quiet: {
+    color: awbrnVars.textOnInkSecondary,
+  },
+  warn: {
     color: awbrnVars.warnFill,
-    fontWeight: 650,
   },
   watching: {
     display: "inline-flex",
@@ -897,15 +873,7 @@ const styles = stylex.create({
     flexGrow: 1,
   },
   lineTitle: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    color: awbrnVars.textOnInkStrong,
     fontSize: matchType.lineTitle,
-    fontStretch: "62%",
-    fontWeight: 820,
-    lineHeight: 1,
-    wordSpacing: "0.12em",
   },
   lineTitleDim: {
     color: awbrnVars.textOnInkSecondary,
@@ -957,9 +925,6 @@ const styles = stylex.create({
     fontWeight: 700,
   },
   dockRow: {
-    display: "flex",
-    alignItems: "stretch",
-    gap: spacingVars["--spacing-2"],
     paddingBlock: awbrnVars.spacing2_5,
     paddingInline: spacingVars["--spacing-3"],
     paddingBlockEnd: `calc(${spacingVars["--spacing-3"]} + ${INSET_BOTTOM})`,
@@ -1006,12 +971,6 @@ const styles = stylex.create({
     minInlineSize: 0,
     color: awbrnVars.textOnInk,
     fontWeight: 650,
-  },
-  waitFirstLine: {
-    color: awbrnVars.textOnInkSecondary,
-  },
-  waitLine: {
-    color: awbrnVars.warnFill,
   },
   waitNameText: {
     overflow: "hidden",

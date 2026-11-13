@@ -10,9 +10,7 @@ import { leadingMatches, prefetchLobbyRows, prefetchMatchRows } from "#/play/pre
 
 export const Route = createFileRoute("/")({
   // The queue is the first thing the screen draws, so it arrives with the
-  // page rather than pushing the briefing down a moment later. The ranked
-  // maps come with it: the landing's pictures, the first match's map, and
-  // Newly ranked all read them.
+  // page rather than pushing the briefing down a moment later.
   loader: async ({ context }) => {
     const { queryClient } = context;
     const session = await queryClient.ensureQueryData(sessionQueryOptions());
@@ -26,11 +24,8 @@ export const Route = createFileRoute("/")({
         ? queryClient.ensureQueryData(rankedOverviewQueryOptions()).catch(() => undefined)
         : null,
     ]);
-    // The maps the landing depicts (its hero and its replay) and the one a
-    // first match is played on: their terrain places the depicted units and
-    // their seats give the armies. A player with matches sees neither. The
-    // landing features its strongest map when no ranked duel exists; a first
-    // match is never on a map for more armies.
+    // The maps the landing depicts and the one a first match is played on:
+    // their terrain places the depicted units and their seats give the armies.
     const catalog = maps.pages.flatMap((page) => page.maps);
     const landing = mine === null ? chooseLandingMaps(catalog) : null;
     const depicted = landing
@@ -56,7 +51,6 @@ export const Route = createFileRoute("/")({
         : null,
       prefetchLobbyRows(queryClient, lobbies, session?.user.id ?? null),
     ]);
-    // The landing's close postmark carries today on its ring.
     return { ringDate: ringDateText(new Date()) };
   },
   component: HomePage,

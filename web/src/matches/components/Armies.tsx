@@ -16,7 +16,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type ReactNode,
   type RefObject,
 } from "react";
 import { CoStamp } from "#/components/CoStamp.tsx";
@@ -42,7 +41,6 @@ import { ModalSheet } from "#/ui/ModalSheet.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
 
-/** A seat's clock as one army shows it. */
 export interface ArmyClock {
   /** `3m 42s`, `5d 11h`. */
   value: string;
@@ -57,19 +55,16 @@ export interface ArmyView {
   army: MatchArmy;
   isViewer: boolean;
   clock: ArmyClock | null;
-  /** How the army left the match, as far as the page can say. */
   fall?: ArmyFall | null;
   /** Changes how this army is drawn (its depicted faction). */
   onFactionChange?: (factionId: number) => void;
   /**
-   * The page will never read this army's state (a signed-out viewer): it
-   * shows what the match record names, and holds no room for a meter or
-   * figures that are not coming.
+   * The page will never read this army's state (a signed-out viewer), so it
+   * holds no room for a meter or figures that are not coming.
    */
   isRecordOnly?: boolean;
 }
 
-/** The power keys an army offers right now, and what pressing one does. */
 export interface PowerControl {
   activating: ActivatablePowerLevel | undefined;
   /** Set only for the viewer's army on the viewer's turn. */
@@ -84,18 +79,23 @@ function outMark(fall: ArmyFall | null | undefined): string {
   return fall?.day == null ? "Out" : `Out · Day ${fall.day}`;
 }
 
-/** The commander's name, for the army sheet and assistive tech. */
 function coName(entry: PlayerRosterEntry): string {
   return entry.coName ?? "No commander";
 }
 
+/** An army's faction color mixed into the ink under it. */
+function armyWash(factionCode: string, percent: number, isOwed = false) {
+  return washStyles.wash(
+    factionColorVar(factionCode, "accent"),
+    isOwed ? 18 : percent,
+    isOwed ? awbrnVars.ink850 : awbrnVars.ink900,
+  );
+}
+
 /* ---------------------------------------------------------------- meter */
 
-/**
- * The CO power meter in stars: small stars buy the power, large stars the
- * super power, parted by a rule. Gold fills what is charged.
- */
-export function StarMeter({
+/** The CO power meter in stars: small stars buy the power, large the super power. */
+function StarMeter({
   entry,
   hasReadout = false,
   size = "md",
@@ -122,6 +122,7 @@ export function StarMeter({
   const copStars = meter.cop?.stars ?? 0;
   const superStars = meter.scop === null ? 0 : meter.scop.stars - copStars;
   const readout = `${formatStars(meter.charged)}/${meter.totalStars}`;
+  const isSmall = size === "sm";
   const stars: { big: boolean; fill: number; split: boolean }[] = [];
   for (let index = 0; index < copStars + superStars; index += 1) {
     stars.push({
@@ -141,7 +142,7 @@ export function StarMeter({
         aria-valuenow={Math.round(meter.charged * 10) / 10}
         aria-valuetext={`${readout} stars${meter.level === "charging" ? "" : ", power ready"}`}
         role="meter"
-        xstyle={[meterStyles.meter, size === "sm" && meterStyles.meterSmall]}
+        xstyle={[meterStyles.meter, isSmall && meterStyles.meterSmall]}
       >
         {stars.map((star, index) => (
           <HStack as="span" key={index} xstyle={meterStyles.starSlot}>
@@ -149,7 +150,7 @@ export function StarMeter({
               <i
                 {...stylex.props(
                   meterStyles.split,
-                  size === "sm" && meterStyles.splitSmall,
+                  isSmall && meterStyles.splitSmall,
                   tone === "paper" && meterStyles.splitPaper,
                 )}
               />
@@ -158,12 +159,10 @@ export function StarMeter({
               {...stylex.props(
                 meterStyles.star,
                 star.big
-                  ? size === "sm"
+                  ? isSmall
                     ? meterStyles.starBigSmall
                     : meterStyles.starBig
-                  : size === "sm"
-                    ? meterStyles.starSmall
-                    : null,
+                  : isSmall && meterStyles.starSmall,
                 tone === "paper"
                   ? meterStyles.fillPaper(star.fill * 100)
                   : meterStyles.fill(star.fill * 100),
@@ -198,10 +197,7 @@ function formatStars(charged: number): string {
 
 /* ---------------------------------------------------------------- power key */
 
-/**
- * The power key: the game's own POWER or SUPER sprite on ink 950 with a gold
- * ring. Never red. `size` is 34px in the rail and 52px in the phone dock.
- */
+/** The power key: the game's own POWER or SUPER sprite on ink with a gold ring. */
 export function PowerKey({
   isArmed = false,
   isLoading = false,
@@ -233,10 +229,7 @@ export function PowerKey({
         isArmed && powerStyles.armed,
       )}
     >
-      <UiSprite
-        name={level === "scop" ? "SuperPower.png" : "NormalPower.png"}
-        scale={size === "row" ? 1 : 1}
-      />
+      <UiSprite name={level === "scop" ? "SuperPower.png" : "NormalPower.png"} />
     </button>
   );
 }
@@ -249,16 +242,17 @@ export function readyPowers(entry: PlayerRosterEntry): ActivatablePowerLevel[] {
   return levels;
 }
 
-export function powerName(entry: PlayerRosterEntry, level: ActivatablePowerLevel): string {
+function coPower(entry: PlayerRosterEntry, level: ActivatablePowerLevel) {
   const abilities = entry.coKey ? getCoAbilities(entry.coKey) : null;
-  const power = level === "scop" ? abilities?.superPower : abilities?.power;
-  return power?.name ?? (level === "scop" ? "Super power" : "Power");
+  return level === "scop" ? abilities?.superPower : abilities?.power;
 }
 
-export function powerEffect(entry: PlayerRosterEntry, level: ActivatablePowerLevel): string | null {
-  const abilities = entry.coKey ? getCoAbilities(entry.coKey) : null;
-  const power = level === "scop" ? abilities?.superPower : abilities?.power;
-  return power?.effect ?? null;
+export function powerName(entry: PlayerRosterEntry, level: ActivatablePowerLevel): string {
+  return coPower(entry, level)?.name ?? (level === "scop" ? "Super power" : "Power");
+}
+
+function activateLabel(entry: PlayerRosterEntry, level: ActivatablePowerLevel): string {
+  return `Activate ${level === "scop" ? "super power" : "CO power"}: ${powerName(entry, level)}`;
 }
 
 function PowerKeys({
@@ -272,26 +266,21 @@ function PowerKeys({
 }) {
   if (!power?.onActivate) return null;
   const onActivate = power.onActivate;
-  return (
-    <>
-      {readyPowers(entry).map((level) => (
-        <PowerKey
-          isLoading={power.activating === level}
-          key={level}
-          label={`Activate ${level === "scop" ? "super power" : "CO power"}: ${powerName(entry, level)}`}
-          level={level}
-          onPress={() => onActivate(level)}
-          size={size}
-        />
-      ))}
-    </>
-  );
+  return readyPowers(entry).map((level) => (
+    <PowerKey
+      isLoading={power.activating === level}
+      key={level}
+      label={activateLabel(entry, level)}
+      level={level}
+      onPress={() => onActivate(level)}
+      size={size}
+    />
+  ));
 }
 
 /* ---------------------------------------------------------------- small parts */
 
-/** A seat's clock chip: not the mover's (the strip carries that). */
-export function ClockChip({ clock }: { clock: ArmyClock }) {
+function ClockChip({ clock }: { clock: ArmyClock }) {
   return (
     <HStack
       as="span"
@@ -321,8 +310,8 @@ function YouTag({ isSmall = false }: { isSmall?: boolean }) {
   );
 }
 
-function MovingDot({ label = "On the move" }: { label?: string }) {
-  return <Stack as="span" aria-label={label} role="img" xstyle={chipStyles.dot} />;
+function MovingDot() {
+  return <Stack as="span" aria-label="On the move" role="img" xstyle={chipStyles.dot} />;
 }
 
 function ArmyStamp({ entry, size }: { entry: PlayerRosterEntry; size: "sm" | "md" }) {
@@ -333,28 +322,6 @@ function ArmyStamp({ entry, size }: { entry: PlayerRosterEntry; size: "sm" | "md
       label={coName(entry)}
       size={size}
       state={entry.eliminated ? "canceled" : "default"}
-    />
-  );
-}
-
-/**
- * The army's crest. It is the faction picker only on paper (the army sheet);
- * on the ink rail it is the mark alone, and the stamp opens the sheet.
- */
-function Crest({
-  isPicker = false,
-  size = 14,
-  view,
-}: {
-  isPicker?: boolean;
-  size?: number;
-  view: ArmyView;
-}) {
-  return (
-    <FactionCrest
-      factionCode={view.army.entry.displayFactionCode}
-      onChange={isPicker ? view.onFactionChange : undefined}
-      size={size}
     />
   );
 }
@@ -385,91 +352,62 @@ function StampKey({
   );
 }
 
-function StatTile({
-  icon,
-  label,
-  value,
-  tone = "ink",
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  tone?: "ink" | "paper";
-}) {
-  // Raw span: Astryx components drop `title`, and this tooltip is its label.
+/** Funds or units as a sprite and a figure, left out until the engine reports it. */
+function Count({ entry, of }: { entry: PlayerRosterEntry; of: "funds" | "units" }) {
+  const value = of === "funds" ? entry.stats.funds : entry.stats.unitCount;
+  if (value === undefined) return null;
   return (
-    <span
-      title={label}
-      {...stylex.props(cardStyles.stat, tone === "paper" && cardStyles.statPaper)}
-    >
-      {icon}
-      <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, cardStyles.statValue]}>
-        <VisuallyHidden>{label}: </VisuallyHidden>
-        {value}
-      </Text>
-    </span>
+    <HStack as="span" xstyle={[figureStyles.figure, chipStyles.count]}>
+      {of === "funds" ? (
+        <UiSprite name="Coin.png" />
+      ) : (
+        <StatIcon factionCode={entry.displayFactionCode} />
+      )}
+      <VisuallyHidden>{of === "funds" ? "Funds " : "Units "}</VisuallyHidden>
+      {formatFigure(value)}
+    </HStack>
   );
 }
 
-/**
- * The four figures as sprite-and-figure tiles. A figure the engine has not
- * reported yet is left out rather than drawn as a placeholder, and the grid is
- * not drawn at all until one is known.
- */
+/** The four figures as tiles. A figure the engine has not reported is left out. */
 function ArmyStats({ entry, tone = "ink" }: { entry: PlayerRosterEntry; tone?: "ink" | "paper" }) {
   const { funds, income, unitCount, unitValue } = entry.stats;
-  if (
-    funds === undefined &&
-    income === undefined &&
-    unitCount === undefined &&
-    unitValue === undefined
-  ) {
-    return null;
-  }
+  const code = entry.displayFactionCode;
+  const tiles = [
+    { label: "Funds", value: funds, icon: <StatIcon spriteName="Coin.png" /> },
+    {
+      label: "Income",
+      value: income,
+      sign: "+",
+      icon: <StatIcon spriteName="BuildingsCaptured.png" />,
+    },
+    { label: "Units", value: unitCount, icon: <StatIcon factionCode={code} /> },
+    { label: "Unit value", value: unitValue, icon: <StatIcon coinOverlay factionCode={code} /> },
+  ].filter((tile) => tile.value !== undefined);
+  if (tiles.length === 0) return null;
   return (
     <Stack as="span" xstyle={cardStyles.stats}>
-      {funds === undefined ? null : (
-        <StatTile
-          icon={<StatIcon spriteName="Coin.png" />}
-          label="Funds"
-          tone={tone}
-          value={formatFigure(funds)}
-        />
-      )}
-      {income === undefined ? null : (
-        <StatTile
-          icon={<StatIcon spriteName="BuildingsCaptured.png" />}
-          label="Income"
-          tone={tone}
-          value={`+${income.toLocaleString("en-US")}`}
-        />
-      )}
-      {unitCount === undefined ? null : (
-        <StatTile
-          icon={<StatIcon factionCode={entry.displayFactionCode} />}
-          label="Units"
-          tone={tone}
-          value={formatFigure(unitCount)}
-        />
-      )}
-      {unitValue === undefined ? null : (
-        <StatTile
-          icon={<StatIcon coinOverlay factionCode={entry.displayFactionCode} />}
-          label="Unit value"
-          tone={tone}
-          value={formatFigure(unitValue)}
-        />
-      )}
+      {tiles.map(({ icon, label, sign, value }) => (
+        // Raw span: Astryx components drop `title`, and this tooltip is its label.
+        <span
+          key={label}
+          title={label}
+          {...stylex.props(cardStyles.stat, tone === "paper" && cardStyles.statPaper)}
+        >
+          {icon}
+          <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, cardStyles.statValue]}>
+            <VisuallyHidden>{label}: </VisuallyHidden>
+            {`${sign ?? ""}${formatFigure(value)}`}
+          </Text>
+        </span>
+      ))}
     </Stack>
   );
 }
 
-/* ---------------------------------------------------------------- rail: cards */
+/* ---------------------------------------------------------------- rail */
 
-/**
- * Two armies in the rail: one card each. The wash is the army's color; the
- * band runs along your card on your turn.
- */
+/** Two armies in the rail: one card each. */
 export function ArmyCard({
   isOwed,
   onOpen,
@@ -489,11 +427,7 @@ export function ArmyCard({
       aria-label={army.name}
       {...stylex.props(
         cardStyles.card,
-        washStyles.wash(
-          factionColorVar(entry.displayFactionCode, "accent"),
-          isOwed ? 18 : army.isActive ? 16 : 9,
-          isOwed ? awbrnVars.ink850 : awbrnVars.ink900,
-        ),
+        armyWash(entry.displayFactionCode, army.isActive ? 16 : 9, isOwed),
       )}
     >
       {isOwed ? <AirmailBand isOverlay thickness={4} /> : null}
@@ -505,23 +439,23 @@ export function ArmyCard({
             <Text
               color="inherit"
               type="inherit"
-              xstyle={[cardStyles.nameText, entry.eliminated && cardStyles.struck]}
+              xstyle={[textStyles.ellipsis, entry.eliminated && textStyles.struck]}
             >
               {army.name}
             </Text>
             {isViewer ? <YouTag /> : null}
           </HStack>
           <HStack as="span" xstyle={cardStyles.crestLine}>
-            <Crest view={view} size={14} />
+            <FactionCrest factionCode={entry.displayFactionCode} size={14} />
             {entry.eliminated && fall?.reason ? (
-              <Text color="inherit" type="inherit" xstyle={cardStyles.why}>
+              <Text color="inherit" type="inherit" xstyle={[textStyles.ellipsis, textStyles.why]}>
                 {fall.reason}
               </Text>
             ) : null}
           </HStack>
         </Stack>
         {entry.eliminated ? (
-          <Text color="inherit" type="inherit" xstyle={cardStyles.out}>
+          <Text color="inherit" type="inherit" xstyle={textStyles.out}>
             {outMark(fall)}
           </Text>
         ) : clock && !clock.isRunning ? (
@@ -543,10 +477,8 @@ export function ArmyCard({
   );
 }
 
-/* ---------------------------------------------------------------- rail: ledger */
-
 /**
- * Three or more armies in the rail: one 64px row each, in turn order. A fallen
+ * Three or more armies in the rail: one row each, in turn order. A fallen
  * army keeps its place, canceled. From seven armies the ledger scrolls and
  * your row stays pinned.
  */
@@ -557,30 +489,14 @@ export function Ledger({
   views,
 }: {
   isOwed: boolean;
-  /** Opens an army's sheet. */
   onOpen?: (playerId: number) => void;
   power?: PowerControl;
   views: ArmyView[];
 }) {
   const isLong = views.length >= 7;
   const listRef = useRef<HTMLOListElement>(null);
-  const activeId = views.find((view) => view.army.isActive)?.army.entry.playerId;
   const more = useScrollEdges(listRef, "block");
-
-  // The ledger scrolls inside the rail, so the view block under it stays on
-  // screen; the mover is kept in view as the turn passes down a long one.
-  // Only the ledger moves: `scrollIntoView` would scroll the rail and the page
-  // along with it.
-  useEffect(() => {
-    const list = listRef.current;
-    if (activeId === undefined || !list) return;
-    const row = list.querySelector<HTMLElement>(`[data-player="${activeId}"]`);
-    if (!row) return;
-    const shown = list.getBoundingClientRect();
-    const place = row.getBoundingClientRect();
-    if (place.top < shown.top) list.scrollTop -= shown.top - place.top;
-    else if (place.bottom > shown.bottom) list.scrollTop += place.bottom - shown.bottom;
-  }, [activeId]);
+  useKeepMoverInView(listRef, views, "block");
 
   return (
     <ol
@@ -599,6 +515,12 @@ export function Ledger({
         const entry = army.entry;
         const isRowOwed = isOwed && isViewer;
         const { funds, unitCount } = entry.stats;
+        const endTop =
+          isViewer && power?.onActivate && readyPowers(entry).length > 0 ? (
+            <PowerKeys entry={entry} power={power} size="row" />
+          ) : clock && !clock.isRunning ? (
+            <ClockChip clock={clock} />
+          ) : null;
         return (
           <li
             aria-label={`${index + 1}. ${army.name}${isViewer ? " (you)" : ""}, ${coName(entry)}, ${entry.displayFactionName}${entry.eliminated ? `, ${outMark(fall).toLowerCase()}${fall?.reason ? `, ${fall.reason}` : ""}` : ""}`}
@@ -606,11 +528,7 @@ export function Ledger({
             key={entry.playerId}
             {...stylex.props(
               ledgerStyles.row,
-              washStyles.wash(
-                factionColorVar(entry.displayFactionCode, "accent"),
-                isRowOwed ? 18 : army.isActive ? 16 : 8,
-                isRowOwed ? awbrnVars.ink850 : awbrnVars.ink900,
-              ),
+              armyWash(entry.displayFactionCode, army.isActive ? 16 : 8, isRowOwed),
               entry.eliminated && ledgerStyles.rowOut,
               isLong && isViewer && ledgerStyles.pinned,
             )}
@@ -629,21 +547,29 @@ export function Ledger({
               onOpen={onOpen ? () => onOpen(entry.playerId) : undefined}
               size="sm"
             />
-            <Stack as="span" xstyle={ledgerStyles.main}>
+            <Stack as="span" xstyle={cardStyles.identity}>
               <HStack as="span" xstyle={ledgerStyles.name}>
                 {army.isActive ? <MovingDot /> : null}
                 <b
-                  {...stylex.props(ledgerStyles.nameText, entry.eliminated && ledgerStyles.struck)}
+                  {...stylex.props(
+                    textStyles.ellipsis,
+                    ledgerStyles.nameText,
+                    entry.eliminated && textStyles.struck,
+                  )}
                 >
                   {army.name}
                 </b>
                 {isViewer ? <YouTag isSmall /> : null}
               </HStack>
               <HStack as="span" xstyle={ledgerStyles.line2}>
-                <Crest view={view} size={14} />
+                <FactionCrest factionCode={entry.displayFactionCode} size={14} />
                 {entry.eliminated ? (
                   fall?.reason ? (
-                    <Text color="inherit" type="inherit" xstyle={ledgerStyles.why}>
+                    <Text
+                      color="inherit"
+                      type="inherit"
+                      xstyle={[textStyles.ellipsis, textStyles.why]}
+                    >
                       {fall.reason}
                     </Text>
                   ) : null
@@ -654,36 +580,20 @@ export function Ledger({
             </Stack>
             <Stack as="span" xstyle={ledgerStyles.end}>
               {entry.eliminated ? (
-                <Text color="inherit" type="inherit" xstyle={ledgerStyles.out}>
+                <Text color="inherit" type="inherit" xstyle={textStyles.out}>
                   {outMark(fall)}
                 </Text>
               ) : (
                 <>
-                  {isViewer && power?.onActivate && readyPowers(entry).length > 0 ? (
+                  {endTop ? (
                     <HStack as="span" xstyle={ledgerStyles.endTop}>
-                      <PowerKeys entry={entry} power={power} size="row" />
-                    </HStack>
-                  ) : clock && !clock.isRunning ? (
-                    <HStack as="span" xstyle={ledgerStyles.endTop}>
-                      <ClockChip clock={clock} />
+                      {endTop}
                     </HStack>
                   ) : null}
                   {funds === undefined && unitCount === undefined ? null : (
                     <HStack as="span" xstyle={[figureStyles.figure, ledgerStyles.figures]}>
-                      {funds === undefined ? null : (
-                        <HStack as="span" xstyle={ledgerStyles.figure}>
-                          <UiSprite name="Coin.png" />
-                          <VisuallyHidden>Funds </VisuallyHidden>
-                          {formatFigure(funds)}
-                        </HStack>
-                      )}
-                      {unitCount === undefined ? null : (
-                        <HStack as="span" xstyle={ledgerStyles.figure}>
-                          <StatIcon factionCode={entry.displayFactionCode} />
-                          <VisuallyHidden>Units </VisuallyHidden>
-                          {formatFigure(unitCount)}
-                        </HStack>
-                      )}
+                      <Count entry={entry} of="funds" />
+                      <Count entry={entry} of="units" />
                     </HStack>
                   )}
                 </>
@@ -698,8 +608,7 @@ export function Ledger({
 
 /**
  * Whether a scroller has content out of sight before or after along `axis`, so
- * it fades on that edge the way the board fades into the table. `read` goes on
- * the scroller's `onScroll`.
+ * it fades on that edge. `read` goes on the scroller's `onScroll`.
  */
 function useScrollEdges(
   ref: RefObject<HTMLElement | null>,
@@ -739,18 +648,49 @@ function useScrollEdges(
   return { ...edges, read };
 }
 
+/**
+ * Keeps the mover's `[data-player]` item in view as the turn passes along a
+ * long scroller, clear of a `[data-pinned]` item at either edge. Only the
+ * scroller moves: `scrollIntoView` would scroll the page along with it.
+ */
+function useKeepMoverInView(
+  ref: RefObject<HTMLElement | null>,
+  views: ArmyView[],
+  axis: "block" | "inline",
+) {
+  const activeId = views.find((view) => view.army.isActive)?.army.entry.playerId;
+  useEffect(() => {
+    const scroller = ref.current;
+    if (activeId === undefined || !scroller) return;
+    const item = scroller.querySelector<HTMLElement>(`[data-player="${activeId}"]`);
+    if (!item) return;
+    const isBlock = axis === "block";
+    const pinned = scroller.querySelector<HTMLElement>("[data-pinned]");
+    const guard =
+      pinned && pinned !== item ? (isBlock ? pinned.offsetHeight : pinned.offsetWidth) : 0;
+    const shown = scroller.getBoundingClientRect();
+    const place = item.getBoundingClientRect();
+    const [start, end, itemStart, itemEnd] = isBlock
+      ? [shown.top, shown.bottom, place.top, place.bottom]
+      : [shown.left, shown.right, place.left, place.right];
+    const delta =
+      itemStart < start + guard
+        ? itemStart - (start + guard)
+        : itemEnd > end - guard
+          ? itemEnd - (end - guard)
+          : 0;
+    if (delta === 0) return;
+    if (isBlock) scroller.scrollTop += delta;
+    else scroller.scrollLeft += delta;
+  }, [activeId, axis, ref]);
+}
+
 /* ---------------------------------------------------------------- phone */
 
 /**
- * One army as a phone plate: stamp, crest and name, YOU (two armies only),
- * meter, then funds and the clock (units in a replay or review). Opens the
- * army sheet.
- *
- * The plate lays itself out from its own width, not the screen's: narrow (two
- * plates side by side) sets the name beside the stamp, then the meter and the
- * figures each on a clear row under both; wide (one plate across, or a plate
- * in a wider surface) stacks the name over the meter beside the stamp, with
- * the figures at the end.
+ * One army as a phone plate; it opens the army sheet. The plate lays itself
+ * out from its own width, not the screen's: narrow (two plates side by side)
+ * or wide (one plate across).
  */
 export function ArmyPlate({
   hasYouTag,
@@ -787,11 +727,7 @@ export function ArmyPlate({
       {...stylex.props(
         plateStyles.plate,
         isWide && plateStyles.plateWide,
-        washStyles.wash(
-          factionColorVar(entry.displayFactionCode, "accent"),
-          isOwed ? 18 : army.isActive && !isWide ? 18 : 10,
-          isOwed ? awbrnVars.ink850 : awbrnVars.ink900,
-        ),
+        armyWash(entry.displayFactionCode, army.isActive && !isWide ? 18 : 10, isOwed),
       )}
     >
       {isOwed ? <AirmailBand isOverlay thickness={4} /> : null}
@@ -804,18 +740,22 @@ export function ArmyPlate({
         </Stack>
         <HStack as="span" xstyle={[plateStyles.name, view.isRecordOnly && plateStyles.nameAlone]}>
           {army.isActive && showUnits ? <MovingDot /> : null}
-          <FactionLogoInline code={entry.displayFactionCode} />
+          <FactionCrest factionCode={entry.displayFactionCode} size={14} />
           <Text
             color="inherit"
             type="inherit"
-            xstyle={[plateStyles.nameText, entry.eliminated && cardStyles.struck]}
+            xstyle={[textStyles.ellipsis, entry.eliminated && textStyles.struck]}
           >
             {army.name}
           </Text>
           {hasYouTag && isViewer ? <YouTag isSmall /> : null}
         </HStack>
         {entry.eliminated ? (
-          <Text color="inherit" type="inherit" xstyle={[plateStyles.meter, plateStyles.out]}>
+          <Text
+            color="inherit"
+            type="inherit"
+            xstyle={[plateStyles.meter, textStyles.ellipsis, plateStyles.out]}
+          >
             {outMark(fall)}
             {fall?.reason ? ` · ${fall.reason}` : ""}
           </Text>
@@ -827,7 +767,12 @@ export function ArmyPlate({
         )}
         {view.isRecordOnly ? null : (
           <HStack as="span" id={figuresId} xstyle={plateStyles.figures}>
-            <PlateFigures clock={clock} entry={entry} showUnits={showUnits} />
+            <Count entry={entry} of="funds" />
+            {showUnits || clock === null ? (
+              <Count entry={entry} of="units" />
+            ) : (
+              <ClockChip clock={clock} />
+            )}
           </HStack>
         )}
       </Stack>
@@ -835,48 +780,9 @@ export function ArmyPlate({
   );
 }
 
-function PlateFigures({
-  clock,
-  entry,
-  showUnits,
-}: {
-  clock: ArmyClock | null;
-  entry: PlayerRosterEntry;
-  showUnits: boolean;
-}) {
-  const { funds, unitCount } = entry.stats;
-  return (
-    <>
-      {funds === undefined ? null : (
-        <HStack as="span" xstyle={[figureStyles.figure, plateStyles.funds]}>
-          <UiSprite name="Coin.png" />
-          <VisuallyHidden>Funds </VisuallyHidden>
-          {formatFigure(funds)}
-        </HStack>
-      )}
-      {showUnits || clock === null ? (
-        unitCount === undefined ? null : (
-          <HStack as="span" xstyle={[figureStyles.figure, plateStyles.funds]}>
-            <StatIcon factionCode={entry.displayFactionCode} />
-            <VisuallyHidden>Units </VisuallyHidden>
-            {formatFigure(unitCount)}
-          </HStack>
-        )
-      ) : (
-        <ClockChip clock={clock} />
-      )}
-    </>
-  );
-}
-
-function FactionLogoInline({ code }: { code: string }) {
-  return <FactionCrest factionCode={code} size={14} />;
-}
-
 /**
- * Three or more armies on a phone: the turn-order row (stamp and name per
- * army, YOU or OUT on the corner, the mover on a green foot). It scrolls
- * sideways past six, keeping the mover and you in view. Any cell opens that
+ * Three or more armies on a phone: the turn-order row. Past six armies it
+ * scrolls sideways, keeping the mover and you in view. Any cell opens that
  * army's sheet.
  */
 export function TurnOrderRow({
@@ -889,30 +795,9 @@ export function TurnOrderRow({
   views: ArmyView[];
 }) {
   const rowRef = useRef<HTMLElement>(null);
-  const activeId = views.find((view) => view.army.isActive)?.army.entry.playerId;
-  // Past six armies the row scrolls, and your own cell stays at an edge of it
-  // while another army's turn carries the row away.
   const isLong = views.length >= 7;
   const more = useScrollEdges(rowRef, "inline");
-
-  // The mover is kept in view as the turn passes along a long row, clear of
-  // your own cell pinned at either edge. Only the row moves: `scrollIntoView`
-  // would scroll the screen along with it.
-  useEffect(() => {
-    const row = rowRef.current;
-    if (activeId === undefined || !row) return;
-    const cell = row.querySelector<HTMLElement>(`[data-player="${activeId}"]`);
-    if (!cell) return;
-    const pinned = row.querySelector<HTMLElement>("[data-pinned]");
-    const guard = pinned && pinned !== cell ? pinned.offsetWidth : 0;
-    const shown = row.getBoundingClientRect();
-    const place = cell.getBoundingClientRect();
-    if (place.left < shown.left + guard) {
-      row.scrollLeft -= shown.left + guard - place.left;
-    } else if (place.right > shown.right - guard) {
-      row.scrollLeft += place.right - (shown.right - guard);
-    }
-  }, [activeId]);
+  useKeepMoverInView(rowRef, views, "inline");
 
   return (
     <Stack as="section" aria-label="Turn order" xstyle={orderStyles.row}>
@@ -939,27 +824,20 @@ export function TurnOrderRow({
               type="button"
               {...stylex.props(
                 orderStyles.cell,
-                orderStyles.wash(
-                  factionColorVar(entry.displayFactionCode, "accent"),
-                  army.isActive ? 22 : 8,
-                ),
+                armyWash(entry.displayFactionCode, army.isActive ? 22 : 8),
                 army.isActive && orderStyles.cellActive,
                 isLong && isViewer && orderStyles.cellPinned,
               )}
             >
               <Stack as="span" xstyle={orderStyles.stampWrap}>
                 <ArmyStamp entry={entry} size="sm" />
-                {entry.eliminated ? (
+                {entry.eliminated || isViewer ? (
                   <Text
                     color="inherit"
                     type="inherit"
-                    xstyle={[orderStyles.tag, orderStyles.tagOut]}
+                    xstyle={[orderStyles.tag, entry.eliminated && orderStyles.tagOut]}
                   >
-                    OUT
-                  </Text>
-                ) : isViewer ? (
-                  <Text color="inherit" type="inherit" xstyle={orderStyles.tag}>
-                    YOU
+                    {entry.eliminated ? "OUT" : "YOU"}
                   </Text>
                 ) : null}
               </Stack>
@@ -1000,11 +878,7 @@ export function TurnOrderRow({
 
 /* ---------------------------------------------------------------- army sheet */
 
-/**
- * The army sheet a plate or a turn-order cell opens: the CO and army named,
- * the meter, the four figures, and POWER and SUPER with what is left to
- * charge. No clock.
- */
+/** The army sheet a plate or a turn-order cell opens. */
 export function ArmySheet({
   isOpen,
   onOpenChange,
@@ -1020,7 +894,6 @@ export function ArmySheet({
   if (view === null) return null;
   const entry = view.army.entry;
   const meter = readPowerMeter(entry);
-  const levels: ActivatablePowerLevel[] = ["cop", "scop"];
 
   return (
     <ModalSheet
@@ -1030,7 +903,11 @@ export function ArmySheet({
       title={view.isViewer ? `${view.army.name} (you)` : view.army.name}
     >
       <HStack as="span" xstyle={sheetStyles.who}>
-        <Crest isPicker size={16} view={view} />
+        <FactionCrest
+          factionCode={entry.displayFactionCode}
+          onChange={view.onFactionChange}
+          size={16}
+        />
         {coName(entry)} · {entry.displayFactionName}
         {entry.eliminated ? (
           <Text color="inherit" type="inherit" xstyle={sheetStyles.out}>
@@ -1056,19 +933,20 @@ export function ArmySheet({
       </Stack>
       {meter ? (
         <Stack as="span" xstyle={sheetStyles.powers}>
-          {levels.map((level) => {
+          {(["cop", "scop"] as const).map((level) => {
             const cost = level === "scop" ? meter.scop : meter.cop;
             if (cost === null) return null;
             const isReady = canActivatePower(entry, level);
             const canPress = isReady && power?.onActivate !== undefined;
             const name = powerName(entry, level);
             const isOn = entry.activePower === level;
+            const toGo = formatStars(cost.remaining / meter.starCharge);
             return (
               <button
                 aria-label={
                   canPress
-                    ? `Activate ${level === "scop" ? "super power" : "CO power"}: ${name}`
-                    : `${name}: ${isOn ? "on" : isReady ? "ready" : `${formatStars(cost.remaining / meter.starCharge)} stars to go`}`
+                    ? activateLabel(entry, level)
+                    : `${name}: ${isOn ? "on" : isReady ? "ready" : `${toGo} stars to go`}`
                 }
                 disabled={!canPress || power?.activating !== undefined}
                 key={level}
@@ -1083,11 +961,7 @@ export function ArmySheet({
                 <UiSprite name={level === "scop" ? "SuperPower.png" : "NormalPower.png"} />
                 <Text color="inherit" type="inherit" xstyle={sheetStyles.powerName}>
                   {name}
-                  {isOn
-                    ? " · on"
-                    : isReady
-                      ? ""
-                      : ` · ${formatStars(cost.remaining / meter.starCharge)}`}
+                  {isOn ? " · on" : isReady ? "" : ` · ${toGo}`}
                 </Text>
               </button>
             );
@@ -1114,7 +988,7 @@ export function ArmedPower({
     <HStack as="span" xstyle={armedStyles.row}>
       <Stack as="span" xstyle={armedStyles.text}>
         <b {...stylex.props(armedStyles.name)}>{powerName(entry, level)}</b>{" "}
-        {powerEffect(entry, level)}
+        {coPower(entry, level)?.effect}
       </Stack>
       <Button
         icon={<Icon icon={IconClose} />}
@@ -1133,6 +1007,37 @@ export function ArmedPower({
 }
 
 /* ---------------------------------------------------------------- styles */
+
+const textStyles = stylex.create({
+  ellipsis: {
+    minInlineSize: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  struck: {
+    color: awbrnVars.textOnInkSecondary,
+    textDecorationLine: "line-through",
+    textDecorationColor: awbrnVars.violetOnInk,
+  },
+  out: {
+    color: awbrnVars.violetOnInk,
+    fontSize: matchType.label,
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    whiteSpace: "nowrap",
+  },
+  why: {
+    color: awbrnVars.textOnInkSecondary,
+    fontSize: matchType.figure,
+  },
+});
+
+const washStyles = stylex.create({
+  wash: (accent: string, percent: number, base: string) => ({
+    backgroundColor: `color-mix(in oklab, ${accent} ${percent}%, ${base})`,
+  }),
+});
 
 const meterStyles = stylex.create({
   row: {
@@ -1300,6 +1205,13 @@ const chipStyles = stylex.create({
     backgroundColor: awbrnVars.okOnInk,
     boxShadow: `0 0 0 ${spacingVars["--spacing-0-5"]} color-mix(in srgb, ${awbrnVars.okOnInk} 22%, transparent)`,
   },
+  count: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-1"],
+    color: awbrnVars.textOnInkStrong,
+    fontWeight: 600,
+  },
 });
 
 const cardStyles = stylex.create({
@@ -1313,8 +1225,7 @@ const cardStyles = stylex.create({
     borderBlockEndStyle: "solid",
     borderBlockEndWidth: borderVars["--border-width"],
     color: awbrnVars.textOnInk,
-    // The card lays out from its own width: the rail, the full screen
-    // surface and anything wider than either.
+    // The stat grid widens from the card's own width, not the screen's.
     containerType: "inline-size",
   },
   stampKey: {
@@ -1345,36 +1256,10 @@ const cardStyles = stylex.create({
     fontSize: matchType.cardName,
     fontWeight: 750,
   },
-  nameText: {
-    minInlineSize: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  struck: {
-    color: awbrnVars.textOnInkSecondary,
-    textDecorationLine: "line-through",
-    textDecorationColor: awbrnVars.violetOnInk,
-  },
   crestLine: {
     display: "flex",
     alignItems: "center",
     gap: spacingVars["--spacing-1-5"],
-  },
-  out: {
-    color: awbrnVars.violetOnInk,
-    fontSize: matchType.label,
-    fontWeight: 700,
-    letterSpacing: "0.04em",
-    whiteSpace: "nowrap",
-  },
-  why: {
-    minInlineSize: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    color: awbrnVars.textOnInkSecondary,
-    fontSize: matchType.figure,
   },
   powerLine: {
     display: "flex",
@@ -1423,11 +1308,9 @@ const cardStyles = stylex.create({
 const LEDGER_FADE = `calc(${matchLayout.rowHeight} / 2)`;
 
 const ledgerStyles = stylex.create({
-  // Its own scroller in the rail's column: it gives up height before the view
-  // block and the log under it do, down to three rows, and your row stays
-  // pinned to whichever edge it would leave by. It shows six whole rows at
-  // most and half of a seventh, so a row cut by the edge says more armies lie
-  // below; the space the cap leaves goes to the growing block under it.
+  // It gives up height before the view block and the log under it do, down to
+  // three rows. It shows six whole rows at most and half of a seventh, so a row
+  // cut by the edge says more armies lie below.
   list: {
     flexShrink: 1,
     maxBlockSize: `calc(6.5 * ${matchLayout.rowHeight} + ${borderVars["--border-width"]})`,
@@ -1445,10 +1328,8 @@ const ledgerStyles = stylex.create({
   floor: (rows: number) => ({
     minBlockSize: `calc(${rows} * ${matchLayout.rowHeight})`,
   }),
-  // While rows lie past an edge, the ledger fades into the rail's ink there
-  // over half a row, so the row the edge cuts dissolves rather than stopping
-  // dead against the block below. The fade holds to the scrolled edge and
-  // sits under your pinned row, so your own row is never dimmed.
+  // The fade holds to the scrolled edge and sits under your pinned row, so
+  // your own row is never dimmed.
   fadeAbove: {
     "::before": {
       content: "''",
@@ -1507,11 +1388,6 @@ const ledgerStyles = stylex.create({
     color: awbrnVars.textOnInkSecondary,
     textAlign: "end",
   },
-  main: {
-    display: "grid",
-    gap: spacingVars["--spacing-1"],
-    minInlineSize: 0,
-  },
   name: {
     display: "flex",
     alignItems: "center",
@@ -1522,16 +1398,7 @@ const ledgerStyles = stylex.create({
     lineHeight: 1.15,
   },
   nameText: {
-    minInlineSize: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
     fontWeight: 750,
-  },
-  struck: {
-    color: awbrnVars.textOnInkSecondary,
-    textDecorationLine: "line-through",
-    textDecorationColor: awbrnVars.violetOnInk,
   },
   line2: {
     display: "flex",
@@ -1552,37 +1419,8 @@ const ledgerStyles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     gap: awbrnVars.spacing2_5,
-    color: awbrnVars.textOnInkStrong,
-    fontSize: matchType.figure,
-    fontWeight: 600,
-  },
-  figure: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: spacingVars["--spacing-1"],
-  },
-  out: {
-    color: awbrnVars.violetOnInk,
-    fontSize: matchType.label,
-    fontWeight: 700,
-    letterSpacing: "0.04em",
-    whiteSpace: "nowrap",
-  },
-  why: {
-    minInlineSize: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    color: awbrnVars.textOnInkSecondary,
     fontSize: matchType.figure,
   },
-});
-
-/** An army's wash: its faction color mixed into the ink it sits on. */
-const washStyles = stylex.create({
-  wash: (accent: string, percent: number, base: string) => ({
-    backgroundColor: `color-mix(in oklab, ${accent} ${percent}%, ${base})`,
-  }),
 });
 
 /** Past this width a plate puts its figures at the end of its name line. */
@@ -1630,7 +1468,6 @@ const plateStyles = stylex.create({
       [PLATE_WIDE]: spacingVars["--spacing-1"],
     },
   },
-  /** Only the stamp and the name: no empty rows, and no gaps around them. */
   layoutRecordOnly: {
     gridTemplateColumns: "auto minmax(0, 1fr)",
     gridTemplateAreas: '"stamp name"',
@@ -1657,12 +1494,6 @@ const plateStyles = stylex.create({
     fontWeight: 750,
     lineHeight: 1.15,
   },
-  nameText: {
-    minInlineSize: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
   meter: {
     gridArea: "meter",
     alignSelf: {
@@ -1672,9 +1503,6 @@ const plateStyles = stylex.create({
     minInlineSize: 0,
   },
   out: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
     color: awbrnVars.violetOnInk,
     fontSize: matchType.figure,
     fontWeight: 700,
@@ -1693,14 +1521,6 @@ const plateStyles = stylex.create({
       default: matchType.figure,
       [PLATE_WIDE]: matchType.detail,
     },
-  },
-  funds: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: spacingVars["--spacing-1"],
-    color: awbrnVars.textOnInkStrong,
-    fontSize: "inherit",
-    fontWeight: 600,
   },
 });
 
@@ -1746,9 +1566,6 @@ const orderStyles = stylex.create({
     fontFamily: "inherit",
     cursor: "pointer",
   },
-  wash: (accent: string, percent: number) => ({
-    backgroundColor: `color-mix(in oklab, ${accent} ${percent}%, ${awbrnVars.ink900})`,
-  }),
   cellActive: {
     color: awbrnVars.textOnInkStrong,
   },
@@ -1756,7 +1573,6 @@ const orderStyles = stylex.create({
   rowLong: {
     scrollPaddingInline: matchLayout.rowHeight,
   },
-  /** Your cell in a long row: held at whichever edge it would leave by. */
   cellPinned: {
     position: "sticky",
     insetInlineStart: 0,
@@ -1821,8 +1637,7 @@ const orderStyles = stylex.create({
     borderRadius: `${radiusVars["--radius-inner"]} ${radiusVars["--radius-inner"]} 0 0`,
     backgroundColor: awbrnVars.okOnInk,
   },
-  // While cells lie past a side, the row fades into the table there as the
-  // board does. Your pinned cell (z 2) stands over the fade.
+  // Your pinned cell (z 2) stands over the fade.
   fade: {
     position: "absolute",
     zIndex: 1,
@@ -1838,8 +1653,7 @@ const orderStyles = stylex.create({
     insetInlineEnd: 0,
     backgroundImage: `linear-gradient(-90deg, ${matchLayout.boardFade}, transparent)`,
   },
-  // On your turn the band runs along the row's foot edge (over a pinned cell
-  // too), and your green foot stands on it so the row still says who moves.
+  // The green foot stands on the band so the row still says who moves.
   footOverBand: {
     insetBlockEnd: `${ORDER_BAND}px`,
   },

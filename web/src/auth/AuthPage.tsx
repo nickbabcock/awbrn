@@ -1,16 +1,8 @@
-/*
- * AUTH.
- *
- * No headline: the form (Sign in | Create account) centers against a board on
- * the ink table on desktop, and leads on a phone. An error is a title naming
- * the problem, with the key that recovers when there is one.
- */
-
 import { Banner } from "@astryxdesign/core/Banner";
-import { Heading } from "@astryxdesign/core/Heading";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Stack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import * as stylex from "@stylexjs/stylex";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
@@ -87,9 +79,9 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
     <Stack xstyle={styles.auth}>
       <BoardArt />
       <Stack aria-labelledby="auth-title" as="section" xstyle={styles.panel}>
-        <Heading id="auth-title" level={1} xstyle={styles.srOnly}>
+        <VisuallyHidden as="h1" id="auth-title">
           {action}
-        </Heading>
+        </VisuallyHidden>
         <Sheet xstyle={styles.form}>
           <SheetBody xstyle={styles.formBody}>
             {/* <form> has no Astryx component (FormLayout says to wrap it in a native one).
@@ -174,10 +166,7 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
   );
 }
 
-/**
- * A board on the ink table beside the form: the first S-ranked map, whole,
- * at 2x where it fits. Decoration only, and only on desktop.
- */
+/** The first S-ranked map, as decoration beside the form on desktop. */
 function BoardArt() {
   const { data } = useInfiniteQuery(mapCatalogQueryOptions("", { ranks: ["S"] }));
   const map = data?.pages[0]?.maps[0];
@@ -193,7 +182,6 @@ function BoardArt() {
             sourceHeight={picture.height}
             sourceWidth={picture.width}
             src={map.screenshot.full}
-            tone="bare"
           />
         </Stack>
       ) : null}
@@ -314,19 +302,10 @@ const styles = stylex.create({
   fill: {
     inlineSize: "100%",
   },
-  // On a phone a label sits 6px over its field.
   field: {
     gap: {
       default: null,
       [pageLayout.phoneMedia]: "6px",
     },
-  },
-  srOnly: {
-    position: "absolute",
-    inlineSize: "1px",
-    blockSize: "1px",
-    overflow: "hidden",
-    clipPath: "inset(50%)",
-    whiteSpace: "nowrap",
   },
 });

@@ -13,12 +13,6 @@ import { normalizeMapSearch } from "#/maps/map_catalog.ts";
 import { normalizeMapCatalogFilters } from "#/maps/map_taxonomy.ts";
 import type { MapCatalogFilter } from "#/maps/schemas.ts";
 
-/**
- * @deprecated Deal cards onto `MapCardGrid` (maps/components/MapPlate.tsx),
- * which holds the three, two and one column rule and the shared well rows.
- */
-export const MAP_BOARD_COLUMNS = { minWidth: 156, max: 7, repeat: "fill" } as const;
-
 /** Plates drawn while the first page of a board is still on its way. */
 export const MAP_BOARD_LOADING_PLATES = 8;
 
@@ -63,8 +57,6 @@ export function useMapBoardSummary({
   filters: Required<MapCatalogFilter>;
   hasMore: boolean;
   isError: boolean;
-  /** @deprecated The count says it alone; a narrowed set no longer says so. */
-  isNarrowed?: boolean;
   isPending: boolean;
   /** The search that the catalog query was made with. */
   search: string;

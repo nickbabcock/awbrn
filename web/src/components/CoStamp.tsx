@@ -11,31 +11,12 @@ import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { factionColorVar } from "#/ui/faction_colors.ts";
 
 /**
- * The CO stamp: a commander's pixel portrait on its army's field, in a white
- * perforated margin. A commander is a stamp everywhere in AWBRN.
+ * A commander's portrait on its army's field, in a perforated white margin,
+ * at a whole scale of the 32px portrait so it is never resampled.
  *
- * Sizes draw the 32px portrait at a whole scale: `sm` 32px (1x), `md` 64px
- * (2x), `lg` 96px (3x). Never resampled.
- *
- * States:
- * - `default`: the portrait on the army's field (`factionCode`).
- * - `canceled`: a fallen army. Grayed under violet cancellation lines.
- * - `banned`: a banned commander in a picker. Grayed and faded under the lines.
- * - `isOpenSeat`: an empty seat. A dashed outline holding the army's crest,
- *   grayed; pass `factionCode` for the crest. Only a seat someone can still
- *   take draws this way.
- *
- * A seat whose commander is not known (an opponent not yet revealed, or no
- * `coKey`, or the "no CO" key) is a stamp too: the game's "no CO" portrait on
- * the well's field, named "No commander". It is filled, so it never reads as
- * a seat to take.
- *
- * The stamp names the commander for assistive tech (`label` overrides the
- * name). Pass `isDecorative` when a name beside the stamp already says it.
- *
- *   <CoStamp coKey="sami" factionCode="os" size="md" />
- *   <CoStamp factionCode="bm" isOpenSeat size="sm" />
- *   <CoStamp coKey="kanbei" factionCode="yc" state="canceled" />
+ * `isOpenSeat` is only for a seat someone can still take. A seat whose
+ * commander is unknown draws the filled "no CO" portrait instead, so it never
+ * reads as a seat to take.
  */
 export function CoStamp({
   coKey,
@@ -74,12 +55,7 @@ export function CoStamp({
       >
         {factionCode ? (
           <Stack as="span" xstyle={styles.grayed}>
-            <FactionLogo
-              factionCode={factionCode}
-              isFramed={false}
-              isLabelHidden
-              size={14 * scale}
-            />
+            <FactionLogo factionCode={factionCode} isLabelHidden size={14 * scale} />
           </Stack>
         ) : null}
       </Stack>
@@ -151,12 +127,7 @@ export function PortraitSprite({
   );
 }
 
-/**
- * The stamp itself: a white perforated margin around a field, with the
- * stamp's shadow. The one definition of the stamp's paper; `CoStamp` fills it
- * with a portrait at a whole scale, and `CoPortrait` reuses it for portraits
- * sized freely. `overlay` draws over the stamp (the cancellation lines).
- */
+/** The stamp's perforated white margin around a field; `overlay` draws over it. */
 export function StampFrame({
   children,
   fieldXstyle,
@@ -189,15 +160,11 @@ export function StampFrame({
   );
 }
 
-export type CoStampSize = "sm" | "md" | "lg";
+type CoStampSize = "sm" | "md" | "lg";
 
 const STAMP_SCALE: Record<CoStampSize, number> = { sm: 1, md: 2, lg: 3 };
 
-/**
- * Violet cancellation lines: the wavy strokes a post office prints across a
- * used stamp. Over a fallen army's stamp, a banned commander, or beside a
- * postmark. Decorative; the surrounding words carry the meaning.
- */
+/** The wavy lines a post office prints across a used stamp. Decorative. */
 export function CancelMark({ xstyle }: { xstyle?: stylex.StyleXStyles }) {
   return (
     <svg aria-hidden="true" viewBox="0 0 46 30" {...stylex.props(styles.cancel, xstyle)}>
@@ -270,7 +237,6 @@ const styles = stylex.create({
   banned: {
     opacity: 0.45,
   },
-  // An open seat: the stamp's outline, waiting for a commander.
   openSeat: {
     display: "inline-grid",
     placeItems: "center",

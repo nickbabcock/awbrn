@@ -1,20 +1,13 @@
 import { Text } from "@astryxdesign/core/Text";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { colorVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 
 /**
- * A count, and nothing else.
- *
- * - `tone="red"` (default): the one nav count badge, on My games (top bar and
- *   tab bar). The shell draws it; screens should not add another red count.
- * - `tone="ink"` with `size="heading"`: the count after a page or sheet head,
- *   `Your move 3`, sized from the heading's own font size (`em`).
- *
- * The number reads as a bare number aloud, so pass `label` with what it counts
- * ("3 matches") whenever the surrounding words do not already say it.
- *
- *   <Heading level={1}>Your move <CountBadge count={3} label="3 matches" size="heading" tone="ink" /></Heading>
+ * The red tone is the shell's one nav count, on My games; screens should not
+ * add another. The number reads as a bare number aloud, so pass `label` with
+ * what it counts whenever the surrounding words do not already say it.
  */
 export function CountBadge({
   count,
@@ -43,6 +36,19 @@ export function CountBadge({
     >
       {count}
     </Text>
+  );
+}
+
+/** The nav count of matches waiting on the player, with its words for assistive tech. */
+export function AwaitingCount({ count, xstyle }: { count: number; xstyle?: stylex.StyleXStyles }) {
+  if (count <= 0) return null;
+  return (
+    <>
+      <CountBadge count={count} xstyle={xstyle} />
+      <VisuallyHidden>
+        {count === 1 ? "1 match waits on you" : `${count} matches wait on you`}
+      </VisuallyHidden>
+    </>
   );
 }
 

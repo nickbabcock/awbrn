@@ -1,5 +1,4 @@
 import { Stack } from "@astryxdesign/core/Stack";
-import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 
 /**
@@ -20,7 +19,6 @@ export function MapPicture({
   sourceHeight,
   sourceWidth,
   src,
-  tone = "well",
 }: {
   alt: string;
   /** The largest whole multiple the picture may take (a map's page opens at 2x). */
@@ -29,18 +27,9 @@ export function MapPicture({
   sourceHeight: number;
   sourceWidth: number;
   src: string;
-  /**
-   * `well` sits the picture in a recessed paper well; `bare` draws it with no
-   * ground of its own, for a well the caller paints (the ink board on a map's
-   * page).
-   */
-  tone?: "well" | "bare";
 }) {
   return (
-    <Stack
-      direction="horizontal"
-      xstyle={[styles.hugging, tone === "well" && [styles.well, styles.wellPadding]]}
-    >
+    <Stack direction="horizontal" xstyle={styles.hugging}>
       {/* A raw image: it must take a whole multiple of its own pixels, which no Astryx image component draws. */}
       <img
         alt={alt}
@@ -71,15 +60,6 @@ export function wholeScaleWidth(room: string, sourceWidth: number, maxScale?: nu
 }
 
 const styles = stylex.create({
-  // A well is recessed into the panel it sits in: the paper well, and none
-  // of the outline the panel already carries.
-  well: {
-    backgroundColor: colorVars["--color-background-muted"],
-    borderRadius: "var(--radius-element)",
-  },
-  wellPadding: {
-    padding: "var(--spacing-2)",
-  },
   hugging: {
     alignItems: "center",
     display: "flex",

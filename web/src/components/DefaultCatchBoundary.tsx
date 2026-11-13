@@ -14,12 +14,9 @@ import { Page } from "#/ui/Page.tsx";
 import { sectionForPath } from "#/ui/site_sections.ts";
 
 /**
- * A screen that failed to load: the problem as the title and the key that
- * recovers.
- *
- * A thing that does not exist ("match not found", "Map not found.") says so
- * and leads to its section, since trying again never finds it. Anything else
- * may be passing, so it keeps Try again, with the way out beside it.
+ * A thing that does not exist ("match not found", "Map not found.") leads to
+ * its section, since trying again never finds it. Anything else may be
+ * passing, so it keeps Try again.
  */
 export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
   const router = useRouter();
@@ -35,11 +32,7 @@ export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
   if (/\bnot found\.?$/i.test(message)) {
     const section = sectionForPath(pathname);
     const title = message.charAt(0).toUpperCase() + message.slice(1).replace(/\.$/, "");
-    return section ? (
-      <NotFound label={section.label} title={title} to={section.to} />
-    ) : (
-      <NotFound title={title} />
-    );
+    return <NotFound label={section?.label} title={title} to={section?.to} />;
   }
 
   function handleGoBack() {

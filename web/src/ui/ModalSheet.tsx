@@ -23,30 +23,9 @@ import { IconClose } from "#/ui/icons.tsx";
 import { useCompactTouch } from "#/ui/useCompactTouch.ts";
 
 /**
- * A letter on the table: paper with an ink head, floating over the page.
- *
- * On desktop it is a native modal `<dialog>` (Astryx `Dialog`: top layer,
- * focus trap, Escape and light dismiss, page scroll held). On a compact touch
- * screen it rises as a bottom sheet (Astryx `BottomSheet`: 16px top corners,
- * swipe to dismiss, safe-area padding). Both are chosen when it opens.
- *
- * The head carries the title, an optional mono line (`headMeta`: coordinates,
- * funds) and a 44px close key. Put `MenuRow`s in the body for a menu (48px
- * rows, 56px on touch), or any content with its own padding.
- *
- * Motion: the dialog appears in place in two steps over 120ms and leaves in
- * two over 90ms, its scrim stepping with it; the bottom sheet rises half way,
- * then all the way. Nothing moves under reduced motion. Focus is trapped, Escape
- * closes (except `required`) and focus returns to the key that opened it. A
- * confirmation opens on its safe key: mark that key `data-autofocus`.
- *
- * Use it for the match menu, the army sheet, the build list, the tile sheet,
- * End your turn? and other confirmations. Not for a task that needs neither
- * interruption nor protected focus.
- *
- *   <ModalSheet isOpen={open} onOpenChange={setOpen} title="Match">
- *     <MenuRow label="Plan this turn" onClick={plan} />
- *   </ModalSheet>
+ * A dialog on desktop and a bottom sheet on a compact touch screen, chosen
+ * when it opens. A confirmation opens on its safe key: mark that key
+ * `data-autofocus`.
  */
 export function ModalSheet({
   children,
@@ -61,16 +40,14 @@ export function ModalSheet({
   width = 420,
 }: {
   children: ReactNode;
-  /** Keys under the body: on paper, right-aligned (Keep playing, End turn). */
   footer?: ReactNode;
   hasCloseKey?: boolean;
   headMeta?: ReactNode;
-  /** A sprite, stamp or postmark before the title. */
   headStart?: ReactNode;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
-  /** `required` blocks every dismissal; `form` blocks light dismiss. */
-  purpose?: "info" | "form" | "required";
+  /** `form` blocks light dismiss. */
+  purpose?: "info" | "form";
   title: string;
   width?: number;
 }) {
@@ -93,7 +70,7 @@ export function ModalSheet({
           </Heading>
           {headMeta ? <Figure tone="on-ink-secondary">{headMeta}</Figure> : null}
         </HStack>
-        {hasCloseKey && purpose !== "required" ? (
+        {hasCloseKey ? (
           <Button
             icon={<Icon icon={IconClose} />}
             isIconOnly
@@ -151,16 +128,9 @@ export function ModalSheet({
   );
 }
 
-/**
- * One row of a menu: 48px (56px on a touch screen), a red caret and a red wash
- * on the chosen row, the text grayed when it cannot be chosen. `children`
- * holds anything under the label (a forecast: DEAL in green, TAKE).
- *
- *   <MenuRow isChosen label="Fire" onClick={fire}>{forecast}</MenuRow>
- */
+/** One row of a menu. `children` holds anything under the label. */
 export function MenuRow({
   children,
-  end,
   icon,
   isChosen = false,
   isDisabled = false,
@@ -168,7 +138,6 @@ export function MenuRow({
   onClick,
 }: {
   children?: ReactNode;
-  end?: ReactNode;
   /** A drawn icon or a sprite in place of the caret (the chosen caret then hides). */
   icon?: ReactNode;
   isChosen?: boolean;
@@ -197,11 +166,6 @@ export function MenuRow({
         <Text type="inherit">{label}</Text>
         {children}
       </VStack>
-      {end ? (
-        <HStack align="center" as="span" gap={2}>
-          {end}
-        </HStack>
-      ) : null}
     </button>
   );
 }
@@ -214,7 +178,6 @@ function CaretGlyph() {
   );
 }
 
-/** A 1px rule along a part's top edge. */
 const rule = {
   borderBlockStartColor: awbrnVars.rule,
   borderBlockStartStyle: "solid",
@@ -222,7 +185,6 @@ const rule = {
 } as const;
 
 const styles = stylex.create({
-  // The ink head is 56px: room for the 44px close key.
   head: {
     minBlockSize: "56px",
     flexShrink: 0,
@@ -251,7 +213,6 @@ const styles = stylex.create({
   headTitle: {
     minInlineSize: 0,
   },
-  // A long name (a map, a player) holds one line and ends in an ellipsis.
   title: {
     minInlineSize: 0,
     overflow: "hidden",
@@ -268,7 +229,6 @@ const styles = stylex.create({
     paddingInline: awbrnVars.spacing5_5,
     backgroundColor: awbrnVars.paper,
   },
-  // A menu row is 48px, 56px under a coarse pointer.
   row: {
     display: "grid",
     gridTemplateColumns: `${spacingVars["--spacing-5"]} minmax(0, 1fr) auto`,

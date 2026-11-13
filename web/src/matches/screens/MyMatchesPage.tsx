@@ -14,11 +14,6 @@ import { EmptySheet } from "#/ui/EmptySheet.tsx";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 import { Sheet, SheetHead, SheetRow, SheetRows } from "#/ui/Sheet.tsx";
 
-/**
- * My games, ongoing: every match the player sits in, as triage. What waits on
- * them is the owed sheet, its first key the one red key; what waits on
- * somebody else sits in the well below it.
- */
 export function MyMatchesPage() {
   const { data } = useSuspenseQuery(myMatchesQueryOptions());
   const session = useAppSession();

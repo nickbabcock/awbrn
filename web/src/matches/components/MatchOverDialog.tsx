@@ -270,7 +270,7 @@ const styles = stylex.create({
     borderRadius: radiusVars["--radius-inner"],
     backgroundColor: awbrnVars.paperWell,
   },
-  /** `1500 → 1516` at 13.5px mono. */
+  /** `1500 → 1516`. */
   wellFigures: {
     inlineSize: "11ch",
   },

@@ -1,15 +1,8 @@
 /**
- * Curation: where a map revision is ranked and a map is tagged.
- *
- * Ranking is a moderator's judgment, signed with a reason and written to the
- * log. The Curation sheet has no head: the rank control names it. It selects
- * no rank until the curator picks one different from the current rank, and
- * Set rank stays disabled until then. Nobody ranks their own map; a moderator
- * who wrote this one is told so in place of the control.
- *
- * Tags are edited from the Edit tags key beside the map's tags. An author
- * tags their own map with no record kept; a moderator retagging somebody
- * else's map signs the change with a reason.
+ * Ranking a map revision and tagging a map. A rank is a moderator's judgment,
+ * signed with a reason. Nobody ranks their own map. An author tags their own
+ * map with no record kept; a moderator retagging somebody else's map signs the
+ * change with a reason.
  */
 
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
@@ -44,7 +37,6 @@ import { ProblemBanner } from "#/ui/EmptySheet.tsx";
 import { ModalSheet } from "#/ui/ModalSheet.tsx";
 import { Sheet, SheetBody } from "#/ui/Sheet.tsx";
 
-/** The rank sheet, for a viewer who may rank this revision (or wrote it). */
 export function MapCurationPanel({ actor, map }: { actor: Actor | null; map: MapCatalogEntry }) {
   const rankGrant = mapRankGrant(map, actor);
   // A moderator who wrote the map holds the role and not the act. That is the
@@ -163,10 +155,6 @@ function RankBench({
   );
 }
 
-/**
- * The Edit tags key beside a map's tags, and the sheet it opens. Nothing for
- * a viewer who may not tag this map.
- */
 export function MapTagsKey({ actor, map }: { actor: Actor | null; map: MapCatalogEntry }) {
   const grant = mapTagGrant(map, actor);
   const [isOpen, setIsOpen] = useState(false);
@@ -290,10 +278,7 @@ function TagBench({
   );
 }
 
-/**
- * The map, the sets it sits in, and the log, all read again. A rank changes
- * which filtered sets hold this map, so the whole catalog is dropped.
- */
+/** A rank changes which filtered sets hold this map, so the whole catalog is dropped. */
 async function invalidateMap(queryClient: ReturnType<typeof useQueryClient>): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: mapKeys.all }),
@@ -305,7 +290,6 @@ function sameTags(left: readonly MapTag[], right: readonly MapTag[]): boolean {
   return left.length === right.length && left.every((tag, index) => tag === right[index]);
 }
 
-/** What a refused or failed write says, as a title naming the problem. */
 function writeFailure(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : "";
   if (/forbidden|403/i.test(message)) return "That is not yours to change";

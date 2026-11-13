@@ -1,13 +1,3 @@
-/*
- * MAP DETAIL.
- *
- * Desktop: the board on its ink table at the left; at the right the title
- * and medal, the postage line (`2P · 20×20 · Bamboozle · AWBW 61748`), the
- * tags, the red New match key, Curation and Record. Below 1180px it is one
- * column: the title block, the key, the board (full-bleed on a phone),
- * Curation, Record.
- */
-
 import { Heading } from "@astryxdesign/core/Heading";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
@@ -36,14 +26,11 @@ import { IconRefresh } from "#/ui/icons.tsx";
 import { Page } from "#/ui/Page.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
-/** Ink between the board and the sides of its table. */
 const BOARD_INSET = 22;
-/** Between the board's column and the rail. */
 const COLUMN_GAP = 32;
 /** The rail's own width, and the narrowest it gives way to for a 2x board. */
 const RAIL_WIDTH = 460;
 const RAIL_MIN_WIDTH = 392;
-/** Between a phone and the rail breakpoint: one column, wider than a phone. */
 const TABLET_MEDIA = "@media (min-width: 721px) and (max-width: 1180px)";
 
 export function MapPage({ mapId }: { mapId: string }) {
@@ -129,10 +116,7 @@ export function MapPage({ mapId }: { mapId: string }) {
   );
 }
 
-/**
- * The postage line, ending with the source and, once a map has been edited,
- * the revision its rank names.
- */
+/** Once a map has been edited, the line names the revision its rank names. */
 function postage(map: MapCatalogEntry): string {
   const parts = [mapPostage(map)];
   if (map.origin) parts.push(`AWBW ${map.origin.sourceMapId}`);
@@ -142,8 +126,8 @@ function postage(map: MapCatalogEntry): string {
 
 /**
  * The board's width, as CSS, in a space `space` wide: the map at the largest
- * whole scale up to 2x that fits inside the table's ink, and the ink around it.
- * The table hugs its map; it never pads a small map with spare ink.
+ * whole scale up to 2x that fits, plus the ink around it. The table hugs its
+ * map; it never pads a small map with spare ink.
  */
 function boardWidth(map: MapCatalogEntry, space: string): string {
   const picture = mapScreenshotSize("full", map.width, map.height);
@@ -152,22 +136,16 @@ function boardWidth(map: MapCatalogEntry, space: string): string {
 }
 
 /**
- * The desktop columns: the board, and the rail beside it.
- *
- * The board asks for its map at 2x with the rail at its narrowest (392px), so
- * a map a little wider than the usual column, a 22×18 say, still draws at 2x.
- * The rail then takes what is left up to 460px, and any width beyond that
- * opens between the board and the rail, so the rail ends at the page's edge
- * and the medal and the key stand in the same place on every map. A map
- * whose 2x needs more than the rail can give falls to the largest whole
- * scale that fits, and the board shrinks to it.
+ * The board asks for its map at 2x with the rail at its narrowest, so a map a
+ * little wider than usual still draws at 2x. The rail then takes what is left
+ * up to its full width, and any width beyond that opens between the two, so
+ * the medal and the key stand in the same place on every map.
  */
 function columnsFor(map: MapCatalogEntry): string {
   const board = boardWidth(map, `100% - ${COLUMN_GAP + RAIL_MIN_WIDTH}px`);
   return `${board} clamp(${RAIL_MIN_WIDTH}px, 100% - ${COLUMN_GAP}px - ${board}, ${RAIL_WIDTH}px)`;
 }
 
-/** The whole battlefield on the ink table, at 2x where it fits. */
 function MapBoard({ map }: { map: MapCatalogEntry }) {
   const picture = mapScreenshotSize("full", map.width, map.height);
   return (
@@ -183,7 +161,6 @@ function MapBoard({ map }: { map: MapCatalogEntry }) {
           sourceHeight={picture.height}
           sourceWidth={picture.width}
           src={map.screenshot.full}
-          tone="bare"
         />
       </Stack>
     </Stack>
@@ -205,7 +182,6 @@ function DetailSkeleton() {
 }
 
 const styles = stylex.create({
-  // The back link and the content below it, in block flow.
   flow: {
     display: "block",
   },
@@ -218,8 +194,7 @@ const styles = stylex.create({
       [pageLayout.belowRailMedia]: "flex",
     },
     flexDirection: "column",
-    // Below 1180px the children stack in source order (title block, key,
-    // board, Curation, Record) and an empty sheet slot leaves no gap.
+    // Below the rail breakpoint an empty sheet slot leaves no gap.
     gridTemplateAreas: '"board head" "board cta" "board curation" "board record" "board ."',
     gridTemplateRows: "auto auto auto auto 1fr",
     columnGap: `${COLUMN_GAP}px`,

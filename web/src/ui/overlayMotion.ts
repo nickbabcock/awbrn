@@ -3,27 +3,16 @@ import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
 /**
- * How what floats arrives and leaves: in over 120ms, out over 90ms, both in
- * two visible steps (`--ease-step`). A dialog or a popover appears in place;
- * nothing travels. Under reduced motion it cuts.
+ * A bottom sheet's scrim is Astryx's own `::backdrop`, out of reach of these
+ * styles: Astryx fades it out linearly, cut when the sheet has left.
  *
- * A dialog's scrim takes the dialog's opacity, so it steps with it. A bottom
- * sheet's scrim is Astryx's own `::backdrop`, out of reach of these styles: it
- * steps in over the theme's `--duration-medium` (120ms) on `--ease-standard`
- * (the step), with the sheet, but Astryx fades it out linearly, cut when the
- * sheet has left at 90ms.
+ * `transition-behavior: allow-discrete` on `display` and `overlay` keeps a
+ * closing layer in the top layer until its last step. Only a browser that can
+ * transition `overlay` holds `display` too: one that can hold only `display`
+ * (Safari) would drop the closing dialog out of the top layer, uncentered, for
+ * its last 90ms, so it hides the layer at once instead.
  *
- * `@starting-style` gives the first frame; `transition-behavior:
- * allow-discrete` on `display` and `overlay` keeps a closing layer in the top
- * layer until its last step. Only a browser that can transition `overlay`
- * holds `display` too: one that can hold only `display` (Safari) would drop
- * the closing dialog out of the top layer, uncentered, for its last 90ms, so
- * it hides the layer at once instead, as a browser with neither does.
- *
- * Pass `dialog` and `dialogOpen` to a native `<dialog>` (Astryx `Dialog`), the
- * second only while it is open:
- *
- *   <Dialog xstyle={[overlayMotion.dialog, isOpen && overlayMotion.dialogOpen]} />
+ * Pass `dialogOpen` only while the dialog is open.
  */
 const discrete = {
   transitionProperty: {
@@ -50,9 +39,7 @@ export const overlayMotion = stylex.create({
       opacity: "inherit",
     },
   },
-  // A bottom sheet (Astryx `BottomSheet`) rises on its own transition: half
-  // risen in the first frame, then there. Pass `sheetLeaving` once it is
-  // closed, so it drops in 90ms. A swipe still follows the finger.
+  // Pass `sheetLeaving` once the sheet is closed. A swipe still follows the finger.
   sheet: {
     transitionTimingFunction: awbrnVars.easeStep,
     transitionDuration: {

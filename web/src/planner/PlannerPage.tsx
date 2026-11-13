@@ -529,7 +529,6 @@ export function PlannerPage() {
     >
       <HStack align="center" gap={2} wrap="wrap">
         {playerRoster ? <Figure size="md">Day {playerRoster.day}</Figure> : null}
-        {/* The notice holds the line for a moment, then gives it back. */}
         {isImmersiveNotice ? (
           <ImmersiveNoticeLine xstyle={styles.noticeLine} />
         ) : (
@@ -641,7 +640,6 @@ export function PlannerPage() {
               </VStack>
               {!isBoardRequested ? (
                 <Center height="100%" width="100%" xstyle={styles.placeholder}>
-                  {/* The Replays empty state's ink well; the setup beside it loads a board. */}
                   <Center height="100%" width="100%" xstyle={styles.emptyWell}>
                     <Heading level={2} xstyle={styles.emptyTitle}>
                       No board yet
@@ -1139,7 +1137,6 @@ const styles = stylex.create({
     padding: spacingVars["--spacing-4"],
     backgroundColor: awbrnVars.ink950,
   },
-  // The Replays empty state on the board's ink: a dashed well and a title.
   emptyWell: {
     borderColor: awbrnVars.ink600,
     borderRadius: radiusVars["--radius-container"],

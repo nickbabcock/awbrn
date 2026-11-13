@@ -61,10 +61,8 @@ export function HomePage() {
 }
 
 /**
- * Home is triage. What waits on the player leads, with the first match as the
- * lead card and its key the only red one; what waits on somebody else is one
- * row into My games. The rail holds open lobbies, the newest ranked map, and
- * a quiet way into the planner.
+ * Home is triage: what waits on the player leads; what waits on somebody else
+ * is one row into My games.
  */
 function PlayerHome({ viewerId }: { viewerId: string }) {
   const { data } = useSuspenseQuery(myMatchesQueryOptions());
@@ -108,7 +106,7 @@ function PlayerHome({ viewerId }: { viewerId: string }) {
           {waiting.length > 0 ? <WaitingLink count={waiting.length} /> : null}
         </VStack>
         <aside aria-label="More to play" {...stylex.props(styles.column)}>
-          <LobbiesSheet headingLevel={2} lobbies={joinable} />
+          <LobbiesSheet lobbies={joinable} />
           <NewlyRanked />
           <PlanLink />
         </aside>
@@ -117,11 +115,7 @@ function PlayerHome({ viewerId }: { viewerId: string }) {
   );
 }
 
-/**
- * Home before the first match: no band and no count. The first match leads
- * with the CPU card and the lobbies the player could join; Newly ranked drops
- * to its row in the rail so the first match stays the brightest art.
- */
+/** Newly ranked drops to its row here so the first match stays the brightest art. */
 function FirstRunHome({ lobbies }: { lobbies: MatchBrowseSummary[] }) {
   const { data } = useSuspenseInfiniteQuery(rankedMapsQueryOptions());
   const map = useMemo(() => chooseFirstMatchMap(data.pages.flatMap((page) => page.maps)), [data]);
@@ -140,10 +134,6 @@ function FirstRunHome({ lobbies }: { lobbies: MatchBrowseSummary[] }) {
   );
 }
 
-/**
- * Your move: the airmail band, the count, the lead card, and every other match
- * that waits on the player as a row with a quiet key.
- */
 function OwedSheet({
   count,
   lead,
@@ -187,7 +177,6 @@ function OwedSheet({
   );
 }
 
-/** The match to play first: its map at 2x, who it is against, the clock, and the red key. */
 function LeadCard({ now, row, viewerId }: { now: number; row: MatchRowData; viewerId: string }) {
   const { match } = row;
   const remaining = row.deadlineAt === null ? null : row.deadlineAt - now;
@@ -228,9 +217,8 @@ function LeadCard({ now, row, viewerId }: { now: number; row: MatchRowData; view
 }
 
 /**
- * The lead's map well: paper until the minimap is drawn, then the minimap on
- * ink at the largest whole scale that fits (2x for a 20 by 20 map on desktop),
- * cropped to its middle when even 1x is larger.
+ * Paper until the minimap is drawn, then the minimap on ink at the largest
+ * whole scale that fits, cropped to its middle when even 1x is larger.
  */
 function LeadBoard({
   match,
@@ -294,7 +282,7 @@ function LeadMinimap({
   );
 }
 
-/** Matches waiting on someone else: one row into My games, not a second copy of that list. */
+/** One row into My games, not a second copy of that list. */
 function WaitingLink({ count }: { count: number }) {
   return (
     <Link
@@ -313,19 +301,12 @@ function WaitingLink({ count }: { count: number }) {
   );
 }
 
-/** Open lobbies: the head is the link to the full list; each row opens its lobby. */
-function LobbiesSheet({
-  headingLevel,
-  lobbies,
-}: {
-  headingLevel: 1 | 2;
-  lobbies: MatchBrowseSummary[];
-}) {
+function LobbiesSheet({ lobbies }: { lobbies: MatchBrowseSummary[] }) {
   const headingId = useId();
   return (
     <Sheet aria-labelledby={headingId}>
       <SheetHead>
-        <Heading id={headingId} level={headingLevel} xstyle={headingLooks.title}>
+        <Heading id={headingId} level={2} xstyle={headingLooks.title}>
           <Link to="/matches" {...stylex.props(styles.headLink)}>
             Open lobbies
             <Icon icon={IconNext} size="sm" xstyle={styles.headLinkIcon} />
@@ -359,9 +340,8 @@ function LobbiesSheet({
 }
 
 /**
- * The newest map in the catalog that holds a rank: the whole map on desktop,
- * linking to its page; a 64px row on a phone, and at every width when
- * `isCompact` (first-run home, where the first match is the art).
+ * The newest ranked map: the whole map on desktop; a row on a phone, and at
+ * every width when `isCompact`.
  */
 function NewlyRanked({ isCompact = false }: { isCompact?: boolean }) {
   const headingId = useId();
@@ -390,7 +370,6 @@ function NewlyRanked({ isCompact = false }: { isCompact?: boolean }) {
               sourceHeight={full.height}
               sourceWidth={full.width}
               src={map.screenshot.full}
-              tone="bare"
             />
           </VStack>
           <VStack as="span" xstyle={styles.featuredName}>
@@ -418,7 +397,6 @@ function NewlyRanked({ isCompact = false }: { isCompact?: boolean }) {
   );
 }
 
-/** The planner, as one quiet link rather than a grid of shortcuts. */
 function PlanLink() {
   return (
     <Link to="/planner" {...stylex.props(styles.quiet)}>
@@ -435,7 +413,6 @@ function useOpenLobbies(): MatchBrowseSummary[] {
 }
 
 const styles = stylex.create({
-  // The queue and a 392px rail; below 1180px the rail drops under the queue.
   grid: {
     display: "grid",
     gridTemplateColumns: {
@@ -539,7 +516,6 @@ const styles = stylex.create({
   leadAct: {
     gridArea: "act",
     alignSelf: "start",
-    display: "flex",
     alignItems: {
       default: "flex-end",
       [pageLayout.phoneMedia]: "center",
@@ -574,9 +550,7 @@ const styles = stylex.create({
       ":hover": { default: null, [pageLayout.hoverMedia]: awbrnVars.rule },
       ":active": awbrnVars.rule,
     },
-    color: {
-      default: colorVars["--color-text-secondary"],
-    },
+    color: colorVars["--color-text-secondary"],
     textDecoration: "none",
     transitionProperty: "background-color",
     transitionDuration: {
