@@ -21,7 +21,13 @@ import type {
   UnloadCommandRequested,
 } from "#/wasm/awbrn_wasm.js";
 import type { PlayerCommand } from "#/matches/match_protocol.ts";
-import type { LiveMatchPlayer, PlannerLuck } from "./worker_module";
+import type {
+  BoardColor,
+  BoardTile,
+  CanvasPoint,
+  LiveMatchPlayer,
+  PlannerLuck,
+} from "./worker_module";
 import { gameAssetPaths } from "./asset_manifest";
 import { useGameStore } from "./store";
 import type { GameWorker } from "./worker_types";
@@ -318,6 +324,10 @@ export class GameRunner {
       case "MapDimensions": {
         break;
       }
+      case "BoardView": {
+        useGameStore.getState().actions.setBoardView(event);
+        break;
+      }
       case "ReplayLoaded": {
         useGameStore.getState().actions.setReplayPosition(null);
         // A new archive is watched from outside it until somebody picks a
@@ -494,6 +504,50 @@ export class GameRunner {
   async replaySeekEnd(): Promise<void> {
     const game = await this.requireGame();
     await game.replaySeekEnd();
+  }
+
+  /**
+   * Zoom by `factor` (the board keys send 1.25 and 0.8), keeping the board
+   * under `anchor` still. The anchor is in canvas CSS pixels and defaults to
+   * the middle of the canvas; the scale stays within the limits
+   * {@link BoardView} reports.
+   */
+  async zoomBy(factor: number, anchor?: CanvasPoint): Promise<void> {
+    const game = await this.requireGame();
+    await game.zoomBy(factor, anchor);
+  }
+
+  /** Show the whole map. {@link restoreView} goes back to the view this left. */
+  async fitBoard(): Promise<void> {
+    const game = await this.requireGame();
+    await game.fitBoard();
+  }
+
+  /**
+   * Zoom to exactly `scale`, centered on `tile` when one is given.
+   * {@link restoreView} goes back to the view this left.
+   */
+  async zoomTo(scale: number, tile?: BoardTile): Promise<void> {
+    const game = await this.requireGame();
+    await game.zoomTo(scale, tile);
+  }
+
+  /** Go back to the view the last {@link fitBoard} or {@link zoomTo} left. */
+  async restoreView(): Promise<void> {
+    const game = await this.requireGame();
+    await game.restoreView();
+  }
+
+  /** Move the view to `tile` at the same scale, sliding there unless `ease` is false. */
+  async centerOn(tile: BoardTile, ease = true): Promise<void> {
+    const game = await this.requireGame();
+    await game.centerOn(tile, ease);
+  }
+
+  /** Paint the canvas outside the map in this color. The engine opens on `#0a1128`. */
+  async setClearColor(color: BoardColor): Promise<void> {
+    const game = await this.requireGame();
+    await game.setClearColor(color);
   }
 
   /** Dismiss the destination menu, stepping back to the selected unit. */

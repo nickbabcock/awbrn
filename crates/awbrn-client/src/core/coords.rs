@@ -240,6 +240,24 @@ fn tile_center_world(pos: MapPosition, map: &GameMap) -> WorldPos {
     )
 }
 
+/// World-space center of the tile cell at `position`.
+pub fn tile_center_world_position(position: Pos, map: &GameMap) -> WorldPos {
+    tile_center_world(position.into(), map)
+}
+
+/// Where a world-space position falls on the tile grid, in fractional tiles.
+///
+/// Unlike [`WorldPos::to_map_position`] this is not bounded by the map: the
+/// edge of a view can lie past the last tile, and the row of terrain overhang
+/// above the first tile row reads as `y` in `[-1, 0)`.
+pub fn world_to_tile_grid(world: WorldPos, map: &GameMap) -> Vec2 {
+    let tl = tile_grid_top_left_world(map);
+    Vec2::new(
+        (world.x() - tl.x()) / TILE_SIZE,
+        (tl.y() - world.y()) / TILE_SIZE,
+    )
+}
+
 /// Convert a world-space position to a tile-grid position.
 ///
 /// Returns `None` if `world` lies outside the map boundary.
@@ -366,6 +384,20 @@ mod tests {
             map_position_to_world_translation(&TILE_SPRITE, MapPosition::new(2, 1), &game_map)
                 .truncate()
                 .abs_diff_eq(Vec2::new(16.0, -16.0), 0.001),
+        );
+    }
+
+    #[test]
+    fn tile_grid_round_trips_tile_centers_and_reaches_past_the_map() {
+        let game_map = map_3x2();
+
+        let center = tile_center_world_position(Pos::new(2, 1), &game_map);
+        assert!(world_to_tile_grid(center, &game_map).abs_diff_eq(Vec2::new(2.5, 1.5), 0.001));
+
+        // The top of the overhang row sits one tile above the first tile row.
+        let overhang_top = WorldPos::new(-(3.0 * TILE_SIZE) / 2.0, 2.0 * TILE_SIZE / 2.0 + 8.0);
+        assert!(
+            world_to_tile_grid(overhang_top, &game_map).abs_diff_eq(Vec2::new(0.0, -1.0), 0.001)
         );
     }
 

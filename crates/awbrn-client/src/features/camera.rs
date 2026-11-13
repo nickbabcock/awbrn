@@ -1,11 +1,14 @@
-use crate::core::coords::{TILE_SIZE, map_visual_world_size};
-use crate::features::event_bus::{EventSink, MapDimensions};
+use crate::core::coords::{
+    TILE_SIZE, WorldPos, map_visual_world_size, tile_center_world_position, world_to_tile_grid,
+};
+use crate::features::event_bus::{BoardView, EventSink, MapDimensions, TileRect, TileSize};
 use crate::features::input::{
     DragOwner, PointerGesture, PointerGestureKind, PointerIsCoarse, PointerSet, ReturnToTouchFloor,
 };
 use crate::loading::ClientAssetLoader;
 use crate::render::UnitAtlasResource;
 use awbrn_bevy::world::GameMap;
+use awbrn_map::Pos;
 use bevy::input::{
     mouse::{MouseScrollUnit, MouseWheel},
     touch::TouchPhase,
@@ -70,6 +73,8 @@ pub const TOUCH_FLOOR_TILE_PX: f32 = 40.0;
 const DEFAULT_CAMERA_SCALE: f32 = 2.0;
 const KEYBOARD_ZOOM_FACTOR: f32 = 1.25;
 const MAX_CAMERA_SCALE: f32 = 4.0;
+/// What the canvas shows where there is no map: the ink the board sits on.
+const BOARD_CLEAR_COLOR: Color = Color::srgb_u8(0x0a, 0x11, 0x28);
 const MIN_CAMERA_SCALE: f32 = 0.2;
 const TOUCH_WHEEL_PIXEL_ZOOM_RATE: f32 = 0.0015;
 const TOUCH_WHEEL_LINE_ZOOM_RATE: f32 = 0.12;
@@ -99,6 +104,51 @@ pub struct FocusBoardOn {
 /// Where the camera is travelling to, if anywhere.
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 struct CameraGoal(Option<Vec2>);
+
+/// A request from the page to move the camera.
+///
+/// The page draws the board keys, the locator and the whole-map view, and
+/// these are what they ask for. The camera answers in [`BoardView`].
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub enum CameraCommand {
+    /// Multiply the scale by `factor`, keeping the board under `anchor` still.
+    ///
+    /// `anchor` is in canvas logical pixels, and the middle of the canvas when
+    /// absent. The result is clamped to the fit scale and the maximum.
+    ZoomBy { factor: f32, anchor: Option<Vec2> },
+    /// Show the whole map, in the middle of the canvas.
+    FitBoard,
+    /// Zoom to exactly `scale`, centered on `tile` when one is given.
+    ZoomTo { scale: f32, tile: Option<Pos> },
+    /// Move the view to `tile` at the same scale, sliding there when `ease`.
+    CenterOn { tile: Pos, ease: bool },
+    /// Go back to the view the last [`Self::FitBoard`] or [`Self::ZoomTo`]
+    /// left. Nothing happens when there is none.
+    RestoreView,
+}
+
+/// Where the camera stood and how close it was.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CameraPose {
+    scale: f32,
+    center: Vec2,
+}
+
+/// The view the last jump left, so Back can return to it.
+///
+/// A jump is a whole-map view or an exact zoom, which the player asked for
+/// from somewhere other than the board and expects to undo in one press.
+/// The pose belongs to the board it was taken on: it is dropped when the app
+/// leaves the game, because every new board loads through that exit.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+struct ViewToRestore(Option<CameraPose>);
+
+/// The last [`BoardView`] sent, so an unchanged view is not sent again.
+///
+/// Dropped with the board, like [`ViewToRestore`], so the first view of the
+/// next board is always sent even when it happens to match the last one.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+struct SentBoardView(Option<BoardView>);
 
 /// How much of the remaining distance the camera closes each second.
 ///
@@ -187,6 +237,70 @@ fn viewport_to_world(
         ) * world_units_per_viewport_pixel
 }
 
+fn world_to_viewport(
+    camera_translation: Vec2,
+    world_units_per_viewport_pixel: f32,
+    window: &Window,
+    world: Vec2,
+) -> Vec2 {
+    let offset = (world - camera_translation) / world_units_per_viewport_pixel;
+    Vec2::new(
+        offset.x + window.width() * 0.5,
+        window.height() * 0.5 - offset.y,
+    )
+}
+
+fn viewport_center(window: &Window) -> Vec2 {
+    Vec2::new(window.width() * 0.5, window.height() * 0.5)
+}
+
+/// The middle of the drawn map, terrain overhang included.
+///
+/// World space is centered on it by construction, which is also why the camera
+/// opens there.
+const MAP_CENTER_WORLD: Vec2 = Vec2::ZERO;
+
+/// The world-space center of `tile`, or `None` when it is not on the map.
+fn tile_center_on_map(tile: Pos, game_map: &GameMap) -> Option<Vec2> {
+    (tile.x < game_map.width() && tile.y < game_map.height())
+        .then(|| tile_center_world_position(tile, game_map).to_vec2())
+}
+
+/// What the camera shows of the board, or `None` before there is a map.
+fn compute_board_view(
+    game_map: &GameMap,
+    window: &Window,
+    camera_scale: f32,
+    camera_translation: Vec2,
+) -> Option<BoardView> {
+    if game_map.width() == 0 || game_map.height() == 0 || camera_scale <= 0.0 {
+        return None;
+    }
+
+    let world_size = Vec2::new(window.width(), window.height()) / camera_scale;
+    let top_left =
+        WorldPos::from_bevy(camera_translation + Vec2::new(-world_size.x, world_size.y) * 0.5);
+    let origin = world_to_tile_grid(top_left, game_map);
+    let size = world_size / TILE_SIZE;
+
+    Some(BoardView {
+        scale: camera_scale,
+        fit_scale: minimum_camera_scale(game_map, window),
+        max_scale: MAX_CAMERA_SCALE,
+        touch_floor_scale: touch_floor_scale(),
+        view: TileRect {
+            x: origin.x,
+            y: origin.y,
+            width: size.x,
+            height: size.y,
+        },
+        map: TileSize {
+            width: u32::from(game_map.width()),
+            height: u32::from(game_map.height()),
+        },
+    })
+}
+
 fn viewport_delta_to_world_delta(
     viewport_delta: Vec2,
     world_units_per_viewport_pixel: f32,
@@ -261,6 +375,21 @@ fn apply_camera_scale_to_projection(camera_scale: CameraScale, projection: &mut 
     if let Projection::Orthographic(orthographic) = projection {
         orthographic.scale = 1.0 / camera_scale.scale();
     }
+}
+
+/// Put the camera at `pose`, with the scale clamped to what this canvas allows.
+fn place_camera(
+    transform: &mut Transform,
+    projection: &mut Projection,
+    camera_scale: &mut CameraScale,
+    window: &Window,
+    game_map: &GameMap,
+    pose: CameraPose,
+) {
+    camera_scale.set_clamped(pose.scale, minimum_camera_scale(game_map, window));
+    apply_camera_scale_to_projection(*camera_scale, projection);
+    transform.translation.x = pose.center.x;
+    transform.translation.y = pose.center.y;
 }
 
 fn zoom_camera_at_viewport_position(
@@ -522,8 +651,10 @@ fn apply_touch_floor_on_first_board(
     mut camera_scale: ResMut<CameraScale>,
     mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
 ) {
-    let asked = requests.read().last().is_some();
-    if (!asked && !(coarse.is_changed() && coarse.0)) || !camera_scale.is_below_touch_floor() {
+    let request = requests.read().last().copied();
+    if (request.is_none() && !(coarse.is_changed() && coarse.0))
+        || !camera_scale.is_below_touch_floor()
+    {
         return;
     }
     let Ok(window) = windows.single() else {
@@ -533,15 +664,178 @@ fn apply_touch_floor_on_first_board(
         return;
     };
 
-    let viewport_center = Vec2::new(window.width() * 0.5, window.height() * 0.5);
+    // A tap that asked keeps its tile under the finger. The first touch names
+    // no tile, and the board grows about its middle.
+    let anchor = request
+        .and_then(|request| tile_center_on_map(request.tile, game_map.as_ref()))
+        .zip(projection_world_units_per_viewport_pixel(&projection))
+        .map(|(world, projection_scale)| {
+            world_to_viewport(
+                transform.translation.truncate(),
+                projection_scale,
+                window,
+                world,
+            )
+        })
+        .unwrap_or_else(|| viewport_center(window));
     zoom_camera_at_viewport_position(
         &mut transform,
         &mut projection,
         &mut camera_scale,
         window,
         game_map.as_ref(),
-        viewport_center,
+        anchor,
         touch_floor_scale(),
+    );
+}
+
+/// Do what the page asked of the camera.
+///
+/// Every command but an eased [`CameraCommand::CenterOn`] lands this frame:
+/// the page asked for a view, not a journey, and a scale that changes at once
+/// with a position that slides would read as two moves.
+fn apply_camera_commands(
+    mut requests: MessageReader<CameraCommand>,
+    windows: Query<&Window>,
+    game_map: Res<GameMap>,
+    mut camera_scale: ResMut<CameraScale>,
+    mut goal: ResMut<CameraGoal>,
+    mut view_to_restore: ResMut<ViewToRestore>,
+    mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
+) {
+    if requests.is_empty() {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        requests.clear();
+        return;
+    };
+    let Ok((mut projection, mut transform)) = query.single_mut() else {
+        requests.clear();
+        return;
+    };
+    let game_map = game_map.as_ref();
+
+    for request in requests.read() {
+        let current = CameraPose {
+            scale: camera_scale.scale(),
+            center: transform.translation.truncate(),
+        };
+        match *request {
+            CameraCommand::ZoomBy { factor, anchor } => {
+                if !factor.is_finite() || factor <= 0.0 {
+                    continue;
+                }
+                goal.0 = None;
+                zoom_camera_at_viewport_position(
+                    &mut transform,
+                    &mut projection,
+                    &mut camera_scale,
+                    window,
+                    game_map,
+                    anchor.unwrap_or_else(|| viewport_center(window)),
+                    current.scale * factor,
+                );
+            }
+            CameraCommand::FitBoard => {
+                goal.0 = None;
+                view_to_restore.0 = Some(current);
+                place_camera(
+                    &mut transform,
+                    &mut projection,
+                    &mut camera_scale,
+                    window,
+                    game_map,
+                    CameraPose {
+                        scale: minimum_camera_scale(game_map, window),
+                        center: MAP_CENTER_WORLD,
+                    },
+                );
+            }
+            CameraCommand::ZoomTo { scale, tile } => {
+                if !scale.is_finite() || scale <= 0.0 {
+                    continue;
+                }
+                goal.0 = None;
+                view_to_restore.0 = Some(current);
+                match tile.and_then(|tile| tile_center_on_map(tile, game_map)) {
+                    Some(center) => place_camera(
+                        &mut transform,
+                        &mut projection,
+                        &mut camera_scale,
+                        window,
+                        game_map,
+                        CameraPose { scale, center },
+                    ),
+                    None => zoom_camera_at_viewport_position(
+                        &mut transform,
+                        &mut projection,
+                        &mut camera_scale,
+                        window,
+                        game_map,
+                        viewport_center(window),
+                        scale,
+                    ),
+                }
+            }
+            CameraCommand::CenterOn { tile, ease } => {
+                let Some(center) = tile_center_on_map(tile, game_map) else {
+                    continue;
+                };
+                if ease {
+                    goal.0 = Some(center);
+                } else {
+                    goal.0 = None;
+                    transform.translation.x = center.x;
+                    transform.translation.y = center.y;
+                }
+            }
+            CameraCommand::RestoreView => {
+                let Some(pose) = view_to_restore.0.take() else {
+                    continue;
+                };
+                goal.0 = None;
+                place_camera(
+                    &mut transform,
+                    &mut projection,
+                    &mut camera_scale,
+                    window,
+                    game_map,
+                    pose,
+                );
+            }
+        }
+    }
+}
+
+/// Keep the board from being drawn smaller than the canvas it fills.
+///
+/// The fit scale moves when the canvas does, so a board left at the old fit is
+/// raised to the new one when the canvas grows. Zooming never goes below it.
+fn keep_scale_at_or_above_fit(
+    windows: Query<&Window>,
+    game_map: Res<GameMap>,
+    mut camera_scale: ResMut<CameraScale>,
+    mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let fit_scale = minimum_camera_scale(game_map.as_ref(), window);
+    if camera_scale.scale() >= fit_scale {
+        return;
+    }
+    let Ok((mut projection, mut transform)) = query.single_mut() else {
+        return;
+    };
+    zoom_camera_at_viewport_position(
+        &mut transform,
+        &mut projection,
+        &mut camera_scale,
+        window,
+        game_map.as_ref(),
+        viewport_center(window),
+        fit_scale,
     );
 }
 
@@ -595,6 +889,42 @@ fn snap_camera_to_device_pixels(
     snap_camera_translation_to_device_pixels(&mut transform, window, projection_scale);
 }
 
+/// Tell the page what the camera shows, once a frame at most and only on change.
+fn emit_board_view(
+    windows: Query<&Window>,
+    game_map: Res<GameMap>,
+    camera_scale: Res<CameraScale>,
+    cameras: Query<&Transform, With<Camera>>,
+    sink: Res<EventSink<BoardView>>,
+    mut sent: ResMut<SentBoardView>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok(transform) = cameras.single() else {
+        return;
+    };
+    let Some(view) = compute_board_view(
+        game_map.as_ref(),
+        window,
+        camera_scale.scale(),
+        transform.translation.truncate(),
+    ) else {
+        return;
+    };
+    if sent.0 == Some(view) {
+        return;
+    }
+    sent.0 = Some(view);
+    sink.emit(view);
+}
+
+/// Forget everything that described the board being left.
+fn forget_board_views(mut view_to_restore: ResMut<ViewToRestore>, mut sent: ResMut<SentBoardView>) {
+    view_to_restore.0 = None;
+    sent.0 = None;
+}
+
 fn emit_map_dimensions_on_scale_change(
     game_map: Res<GameMap>,
     camera_scale: Res<CameraScale>,
@@ -611,7 +941,11 @@ impl Plugin for CameraPlugin {
         app.init_resource::<CameraScale>()
             .init_resource::<TouchCameraState>()
             .init_resource::<CameraGoal>()
+            .init_resource::<ViewToRestore>()
+            .init_resource::<SentBoardView>()
+            .insert_resource(ClearColor(BOARD_CLEAR_COLOR))
             .add_message::<FocusBoardOn>()
+            .add_message::<CameraCommand>()
             .add_systems(Startup, (setup_camera, setup_unit_atlas))
             .add_systems(
                 Update,
@@ -621,13 +955,31 @@ impl Plugin for CameraPlugin {
                     pan_camera_on_unclaimed_drag
                         .before(crate::modes::play::handle_play_pointer_gestures),
                     accept_focus_requests.after(pan_camera_on_unclaimed_drag),
-                    ease_camera_toward_goal.after(accept_focus_requests),
+                    apply_camera_commands
+                        .after(accept_focus_requests)
+                        .after(handle_touch_camera)
+                        .after(handle_camera_scaling),
+                    keep_scale_at_or_above_fit
+                        .run_if(in_state(crate::core::AppState::InGame))
+                        .after(apply_camera_commands),
+                    ease_camera_toward_goal.after(apply_camera_commands),
                     snap_camera_to_device_pixels
                         .after(handle_touch_camera)
                         .after(handle_camera_scaling)
+                        .after(keep_scale_at_or_above_fit)
                         .after(ease_camera_toward_goal),
                 )
                     .in_set(PointerSet::Consume),
+            )
+            .add_systems(OnExit(crate::core::AppState::InGame), forget_board_views)
+            .add_systems(
+                Update,
+                emit_board_view
+                    .run_if(
+                        in_state(crate::core::AppState::InGame)
+                            .and_then(resource_exists::<EventSink<BoardView>>),
+                    )
+                    .after(PointerSet::Consume),
             )
             .add_systems(
                 Update,
@@ -655,6 +1007,7 @@ mod tests {
     use awbrn_map::AwbrnMap;
     use awbrn_types::GraphicalTerrain;
     use bevy::window::WindowResolution;
+    use std::sync::{Arc, Mutex};
 
     fn test_map(width: u8, height: u8) -> GameMap {
         let mut game_map = GameMap::default();
@@ -794,6 +1147,330 @@ mod tests {
         app.update();
 
         assert_eq!(app.world().resource::<CameraGoal>().0, None);
+    }
+
+    fn camera_command_app(window: Window, game_map: GameMap) -> App {
+        let mut app = App::new();
+        app.insert_resource(game_map)
+            .init_resource::<CameraScale>()
+            .init_resource::<CameraGoal>()
+            .init_resource::<ViewToRestore>()
+            .add_message::<CameraCommand>()
+            .add_systems(Update, apply_camera_commands);
+        app.world_mut().spawn(window);
+        app.world_mut().spawn((
+            Camera::default(),
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: bevy::camera::ScalingMode::WindowSize,
+                scale: 1.0 / DEFAULT_CAMERA_SCALE,
+                ..OrthographicProjection::default_2d()
+            }),
+            Transform::default(),
+        ));
+        app
+    }
+
+    fn send(app: &mut App, command: CameraCommand) {
+        app.world_mut().write_message(command);
+        app.update();
+    }
+
+    fn camera_pose(app: &mut App) -> CameraPose {
+        let world = app.world_mut();
+        let center = world
+            .query_filtered::<&Transform, With<Camera>>()
+            .single(world)
+            .unwrap()
+            .translation
+            .truncate();
+        CameraPose {
+            scale: world.resource::<CameraScale>().scale(),
+            center,
+        }
+    }
+
+    fn camera_board_view(app: &mut App) -> BoardView {
+        let pose = camera_pose(app);
+        let world = app.world_mut();
+        let window = world.query::<&Window>().single(world).unwrap().clone();
+        compute_board_view(
+            world.resource::<GameMap>(),
+            &window,
+            pose.scale,
+            pose.center,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn board_view_reports_the_canvas_in_tiles() {
+        let game_map = test_map(10, 10);
+        let window = test_window(320, 160);
+
+        let view = compute_board_view(&game_map, &window, 2.0, Vec2::ZERO).unwrap();
+
+        // The canvas spans 160 by 80 map pixels: ten tiles by five, around the
+        // middle of the drawn map, which sits half a tile above the grid's
+        // middle because of the overhang row.
+        assert_eq!(
+            view.view,
+            TileRect {
+                x: 0.0,
+                y: 2.0,
+                width: 10.0,
+                height: 5.0,
+            }
+        );
+        assert_eq!(
+            view.map,
+            TileSize {
+                width: 10,
+                height: 10
+            }
+        );
+        assert_eq!(view.scale, 2.0);
+        assert_eq!(view.max_scale, MAX_CAMERA_SCALE);
+        assert_eq!(view.touch_floor_scale, touch_floor_scale());
+        // 320 / 160 and 160 / 176 map pixels: the height binds.
+        assert!((view.fit_scale - 160.0 / 176.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn board_view_moves_with_the_camera() {
+        let game_map = test_map(10, 10);
+        let window = test_window(320, 160);
+
+        let view = compute_board_view(&game_map, &window, 2.0, Vec2::new(32.0, -16.0)).unwrap();
+
+        assert_eq!((view.view.x, view.view.y), (2.0, 3.0));
+    }
+
+    #[test]
+    fn fit_board_shows_the_whole_map_in_the_middle() {
+        let mut app = camera_command_app(test_window(400, 300), test_map(40, 40));
+        app.world_mut()
+            .query_filtered::<&mut Transform, With<Camera>>()
+            .single_mut(app.world_mut())
+            .unwrap()
+            .translation = Vec3::new(120.0, -80.0, 0.0);
+
+        send(&mut app, CameraCommand::FitBoard);
+
+        let view = camera_board_view(&mut app);
+        assert_eq!(view.scale, view.fit_scale);
+        assert!(camera_pose(&mut app).center.abs_diff_eq(Vec2::ZERO, 0.001));
+        // The whole map, overhang row included, is inside the canvas, and the
+        // axis that binds is filled exactly.
+        assert!(view.view.x <= 0.0 && view.view.x + view.view.width >= 40.0);
+        assert!(view.view.y >= -1.001 && view.view.y <= -0.999);
+        assert!((view.view.height - 41.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn zoom_by_clamps_to_the_fit_scale_and_the_maximum() {
+        let mut app = camera_command_app(test_window(400, 300), test_map(40, 40));
+
+        send(
+            &mut app,
+            CameraCommand::ZoomBy {
+                factor: 100.0,
+                anchor: None,
+            },
+        );
+        assert_eq!(camera_pose(&mut app).scale, MAX_CAMERA_SCALE);
+
+        send(
+            &mut app,
+            CameraCommand::ZoomBy {
+                factor: 0.0001,
+                anchor: None,
+            },
+        );
+        let view = camera_board_view(&mut app);
+        assert_eq!(view.scale, view.fit_scale);
+
+        send(
+            &mut app,
+            CameraCommand::ZoomBy {
+                factor: f32::NAN,
+                anchor: None,
+            },
+        );
+        assert_eq!(camera_pose(&mut app).scale, view.fit_scale);
+    }
+
+    #[test]
+    fn zoom_by_keeps_the_board_under_the_anchor_still() {
+        let mut app = camera_command_app(test_window(400, 300), test_map(40, 40));
+        let window = test_window(400, 300);
+        let anchor = Vec2::new(300.0, 60.0);
+        let before = camera_pose(&mut app);
+        let world_before = viewport_to_world(before.center, 1.0 / before.scale, &window, anchor);
+
+        send(
+            &mut app,
+            CameraCommand::ZoomBy {
+                factor: 1.25,
+                anchor: Some(anchor),
+            },
+        );
+
+        let after = camera_pose(&mut app);
+        assert!((after.scale - 2.5).abs() < 0.001);
+        let world_after = viewport_to_world(after.center, 1.0 / after.scale, &window, anchor);
+        assert!(world_before.abs_diff_eq(world_after, 0.001));
+    }
+
+    #[test]
+    fn zoom_to_a_tile_then_restore_view_returns_to_the_last_view() {
+        let game_map = test_map(40, 40);
+        let tile_center = tile_center_on_map(Pos::new(30, 5), &game_map).unwrap();
+        let mut app = camera_command_app(test_window(400, 300), game_map);
+        send(
+            &mut app,
+            CameraCommand::ZoomBy {
+                factor: 1.25,
+                anchor: Some(Vec2::new(10.0, 10.0)),
+            },
+        );
+        let left = camera_pose(&mut app);
+
+        send(
+            &mut app,
+            CameraCommand::ZoomTo {
+                scale: 3.0,
+                tile: Some(Pos::new(30, 5)),
+            },
+        );
+        let jumped = camera_pose(&mut app);
+        assert_eq!(jumped.scale, 3.0);
+        assert!(jumped.center.abs_diff_eq(tile_center, 0.001));
+
+        send(&mut app, CameraCommand::RestoreView);
+        assert_eq!(camera_pose(&mut app), left);
+
+        // Back is spent: a second press has nothing to return to.
+        send(&mut app, CameraCommand::FitBoard);
+        send(&mut app, CameraCommand::RestoreView);
+        send(&mut app, CameraCommand::RestoreView);
+        assert_eq!(camera_pose(&mut app), left);
+    }
+
+    #[test]
+    fn center_on_moves_at_the_same_scale_eased_or_not() {
+        let game_map = test_map(40, 40);
+        let tile_center = tile_center_on_map(Pos::new(3, 4), &game_map).unwrap();
+        let mut app = camera_command_app(test_window(400, 300), game_map);
+
+        send(
+            &mut app,
+            CameraCommand::CenterOn {
+                tile: Pos::new(3, 4),
+                ease: true,
+            },
+        );
+        assert_eq!(app.world().resource::<CameraGoal>().0, Some(tile_center));
+        assert_eq!(camera_pose(&mut app).center, Vec2::ZERO);
+
+        send(
+            &mut app,
+            CameraCommand::CenterOn {
+                tile: Pos::new(3, 4),
+                ease: false,
+            },
+        );
+        assert_eq!(app.world().resource::<CameraGoal>().0, None);
+        let pose = camera_pose(&mut app);
+        assert_eq!(pose.center, tile_center);
+        assert_eq!(pose.scale, DEFAULT_CAMERA_SCALE);
+
+        // A tile off the map is not a place to go.
+        send(
+            &mut app,
+            CameraCommand::CenterOn {
+                tile: Pos::new(40, 0),
+                ease: false,
+            },
+        );
+        assert_eq!(camera_pose(&mut app).center, tile_center);
+    }
+
+    #[test]
+    fn a_tap_below_the_floor_returns_to_it_with_the_tile_held_in_place() {
+        let game_map = test_map(40, 40);
+        let tile = Pos::new(30, 6);
+        let tile_world = tile_center_on_map(tile, &game_map).unwrap();
+        let window = test_window(400, 300);
+        let mut app = App::new();
+        app.insert_resource(game_map)
+            .insert_resource(CameraScale(0.5))
+            .init_resource::<PointerIsCoarse>()
+            .add_message::<ReturnToTouchFloor>()
+            .add_systems(Update, apply_touch_floor_on_first_board);
+        app.world_mut().spawn(window.clone());
+        app.world_mut().spawn((
+            Camera::default(),
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: bevy::camera::ScalingMode::WindowSize,
+                scale: 2.0,
+                ..OrthographicProjection::default_2d()
+            }),
+            Transform::default(),
+        ));
+        let on_screen_before = world_to_viewport(Vec2::ZERO, 2.0, &window, tile_world);
+
+        app.world_mut().write_message(ReturnToTouchFloor { tile });
+        app.update();
+
+        let pose = camera_pose(&mut app);
+        assert_eq!(pose.scale, touch_floor_scale());
+        let on_screen_after = world_to_viewport(pose.center, 1.0 / pose.scale, &window, tile_world);
+        assert!(on_screen_before.abs_diff_eq(on_screen_after, 0.001));
+    }
+
+    #[test]
+    fn a_grown_canvas_raises_the_scale_to_the_new_fit() {
+        let mut app = App::new();
+        app.insert_resource(test_map(40, 40))
+            .insert_resource(CameraScale(0.3))
+            .add_systems(Update, keep_scale_at_or_above_fit);
+        app.world_mut().spawn(test_window(400, 300));
+        app.world_mut().spawn((
+            Camera::default(),
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: bevy::camera::ScalingMode::WindowSize,
+                scale: 1.0 / 0.3,
+                ..OrthographicProjection::default_2d()
+            }),
+            Transform::default(),
+        ));
+
+        app.update();
+
+        let fit = minimum_camera_scale(&test_map(40, 40), &test_window(400, 300));
+        assert_eq!(camera_pose(&mut app).scale, fit);
+    }
+
+    #[test]
+    fn board_view_is_sent_once_per_change() {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let sink_sent = Arc::clone(&sent);
+        let mut app = camera_command_app(test_window(400, 300), test_map(40, 40));
+        app.init_resource::<SentBoardView>()
+            .insert_resource(EventSink::<BoardView>::new(move |view| {
+                sink_sent.lock().unwrap().push(view);
+            }))
+            .add_systems(Update, emit_board_view.after(apply_camera_commands));
+
+        app.update();
+        app.update();
+        assert_eq!(sent.lock().unwrap().len(), 1);
+
+        send(&mut app, CameraCommand::FitBoard);
+        app.update();
+        let sent = sent.lock().unwrap();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[1].scale, sent[1].fit_scale);
     }
 
     #[test]

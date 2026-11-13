@@ -5,6 +5,7 @@ import { GameRunner } from "./game_runner.ts";
 import type { CanvasCourierSurface, CanvasCourierTransport } from "#/canvas_courier/index.ts";
 import type { GameWorker } from "./worker_types.ts";
 import type { GameEvent } from "#/wasm/awbrn_wasm.js";
+import { useGameStore } from "./store.ts";
 
 type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;
 
@@ -101,6 +102,69 @@ describe("GameRunner live transitions", () => {
     expect(game.loadLiveMatch).toHaveBeenCalledOnce();
     expect(game.applyLiveTransition).toHaveBeenNthCalledWith(1, first);
     expect(game.applyLiveTransition).toHaveBeenNthCalledWith(2, second);
+    runner.dispose();
+  });
+});
+
+describe("GameRunner camera", () => {
+  function cameraFixture() {
+    const game = {
+      zoomBy: vi.fn().mockResolvedValue(undefined),
+      fitBoard: vi.fn().mockResolvedValue(undefined),
+      zoomTo: vi.fn().mockResolvedValue(undefined),
+      restoreView: vi.fn().mockResolvedValue(undefined),
+      centerOn: vi.fn().mockResolvedValue(undefined),
+      setClearColor: vi.fn().mockResolvedValue(undefined),
+    };
+    const runner = new GameRunner();
+    const internals = runner as unknown as {
+      game: typeof game;
+      handleGameEvent(event: GameEvent): void;
+    };
+    internals.game = game;
+    return { runner, internals, game };
+  }
+
+  it("forwards each camera command to the game", async () => {
+    const { runner, game } = cameraFixture();
+
+    await runner.zoomBy(1.25);
+    await runner.zoomBy(0.8, { x: 40, y: 12 });
+    await runner.fitBoard();
+    await runner.zoomTo(2.5, { x: 3, y: 4 });
+    await runner.restoreView();
+    await runner.centerOn({ x: 7, y: 9 });
+    await runner.centerOn({ x: 1, y: 2 }, false);
+    await runner.setClearColor({ r: 10, g: 17, b: 40, a: 1 });
+
+    expect(game.zoomBy).toHaveBeenNthCalledWith(1, 1.25, undefined);
+    expect(game.zoomBy).toHaveBeenNthCalledWith(2, 0.8, { x: 40, y: 12 });
+    expect(game.fitBoard).toHaveBeenCalledOnce();
+    expect(game.zoomTo).toHaveBeenCalledWith(2.5, { x: 3, y: 4 });
+    expect(game.restoreView).toHaveBeenCalledOnce();
+    expect(game.centerOn).toHaveBeenNthCalledWith(1, { x: 7, y: 9 }, true);
+    expect(game.centerOn).toHaveBeenNthCalledWith(2, { x: 1, y: 2 }, false);
+    expect(game.setClearColor).toHaveBeenCalledWith({ r: 10, g: 17, b: 40, a: 1 });
+    runner.dispose();
+  });
+
+  it("keeps the latest board view for the page to read", () => {
+    const { runner, internals } = cameraFixture();
+    useGameStore.getState().actions.reset();
+    const view = {
+      scale: 2,
+      fitScale: 0.71,
+      maxScale: 4,
+      touchFloorScale: 2.5,
+      view: { x: 4.5, y: -1, width: 12, height: 20 },
+      map: { width: 20, height: 20 },
+    };
+
+    internals.handleGameEvent({ type: "BoardView", ...view });
+
+    expect(useGameStore.getState().boardView).toEqual({ type: "BoardView", ...view });
+    useGameStore.getState().actions.reset();
+    expect(useGameStore.getState().boardView).toBeNull();
     runner.dispose();
   });
 });

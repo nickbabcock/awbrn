@@ -7,9 +7,9 @@ pub mod visibility;
 pub mod weather;
 
 pub use awbrn_bevy::world::{CurrentWeather, FriendlyFactions, ViewerVisibility};
-pub use camera::CameraScale;
+pub use camera::{CameraCommand, CameraScale};
 pub use event_bus::{
-    DeleteUnitCommandRequested, EventSink, HoveredCargoUnit, HoveredTile, HoveredUnit,
+    BoardView, DeleteUnitCommandRequested, EventSink, HoveredCargoUnit, HoveredTile, HoveredUnit,
     InspectedSight, InspectedUnitReadout, MapDimensions, MoveCommandRequested, NewDay,
     PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats, PostMoveAction, ProductionOption,
     ProductionOptionsChanged, ProductionSite, ReplayLoaded, ReplayLoadedPlayer, TileHoverChanged,

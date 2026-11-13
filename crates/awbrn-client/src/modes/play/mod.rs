@@ -1032,7 +1032,7 @@ fn handle_tap(
             selection.move_field.0.as_ref(),
         ) {
             if coarse && policy.camera_scale.is_below_touch_floor() {
-                policy.floor.write(ReturnToTouchFloor);
+                policy.floor.write(ReturnToTouchFloor { tile: tapped });
                 return;
             }
             // A pointer that is already aimed at this target has asked the
@@ -1087,7 +1087,7 @@ fn handle_tap(
             // selection survives and the board comes back up to a size the
             // finger can work at.
             if coarse && policy.camera_scale.is_below_touch_floor() {
-                policy.floor.write(ReturnToTouchFloor);
+                policy.floor.write(ReturnToTouchFloor { tile: tapped });
                 return;
             }
 
@@ -5529,11 +5529,17 @@ mod tests {
             app.world().resource::<SelectedUnit>().0.is_some(),
             "but the selection survives"
         );
-        assert!(
-            !app.world()
-                .resource::<Messages<ReturnToTouchFloor>>()
-                .is_empty(),
-            "and the board is asked to come back up"
+        let floor_requests = app
+            .world_mut()
+            .resource_mut::<Messages<ReturnToTouchFloor>>()
+            .drain()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            floor_requests,
+            vec![ReturnToTouchFloor {
+                tile: Pos::new(2, 1)
+            }],
+            "and the board is asked to come back up around the tapped tile"
         );
     }
 

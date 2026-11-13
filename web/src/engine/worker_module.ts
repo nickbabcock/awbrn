@@ -37,6 +37,26 @@ export interface LiveMatchPlayer {
   factionId: number;
 }
 
+/** A point on the board canvas, in CSS pixels from its top-left corner. */
+export interface CanvasPoint {
+  x: number;
+  y: number;
+}
+
+/** A tile on the map grid, from the top-left tile. */
+export interface BoardTile {
+  x: number;
+  y: number;
+}
+
+/** An sRGB color as CSS `rgba()` reads it: channels 0 to 255, alpha 0 to 1. */
+export interface BoardColor {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
 export interface GameInstance {
   newReplay: (source: File | FileSystemFileHandle | Uint8Array) => Promise<void>;
   loadMovePlanner: (data: Uint8Array, setup: MovePlannerSetup) => Promise<void>;
@@ -69,6 +89,12 @@ export interface GameInstance {
   replayStepTurn: (delta: number) => Promise<void>;
   replaySeek: (index: number) => Promise<void>;
   replaySeekEnd: () => Promise<void>;
+  zoomBy: (factor: number, anchor?: CanvasPoint) => Promise<void>;
+  fitBoard: () => Promise<void>;
+  zoomTo: (scale: number, tile?: BoardTile) => Promise<void>;
+  restoreView: () => Promise<void>;
+  centerOn: (tile: BoardTile, ease: boolean) => Promise<void>;
+  setClearColor: (color: BoardColor) => Promise<void>;
 }
 
 /**
@@ -326,6 +352,24 @@ export const createGame = async (
     },
     replaySeekEnd: async () => {
       app.replay_seek_end();
+    },
+    zoomBy: async (factor: number, anchor?: CanvasPoint) => {
+      app.zoom_by(factor, anchor?.x, anchor?.y);
+    },
+    fitBoard: async () => {
+      app.fit_board();
+    },
+    zoomTo: async (scale: number, tile?: BoardTile) => {
+      app.zoom_to(scale, tile?.x, tile?.y);
+    },
+    restoreView: async () => {
+      app.restore_view();
+    },
+    centerOn: async (tile: BoardTile, ease: boolean) => {
+      app.center_on(tile.x, tile.y, ease);
+    },
+    setClearColor: async ({ r, g, b, a }: BoardColor) => {
+      app.set_clear_color(r, g, b, a);
     },
   });
 };

@@ -179,9 +179,13 @@ pub(crate) fn release_keyboard_cursor_to_pointer(
 /// A tap landed on a board drawn too small to commit to.
 ///
 /// The tap selects and the camera comes back up to a size the finger can work
-/// at, rather than the tap being silently dropped or, worse, honoured.
+/// at, rather than the tap being silently dropped or, worse, honored. The
+/// tapped tile stays under the finger, so the player is still looking at what
+/// they reached for.
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReturnToTouchFloor;
+pub struct ReturnToTouchFloor {
+    pub tile: Pos,
+}
 
 fn tile_cursor_bundle(ui_atlas: UiAtlas) -> impl Bundle {
     (

@@ -1,5 +1,5 @@
 use awbrn_client::{
-    AreaStrikePreview, AreaStrikesPreviewed, AttackPreviewChanged, AwbrnPlugin,
+    AreaStrikePreview, AreaStrikesPreviewed, AttackPreviewChanged, AwbrnPlugin, BoardView,
     DeleteUnitCommandRequested, EndTurnRequested, EventSink, LiveMatchPlayer, MapAssetPathResolver,
     MapDimensions, MoveCommandRequested, MovePlannerToLoad, NewDay, PendingGameStart,
     PendingLiveMatch, PendingLiveTransitions, PendingMatchMap, PlannerAfterStrikes, PlannerEdit,
@@ -7,8 +7,9 @@ use awbrn_client::{
     ReplayLoaded, ReplayPositionChanged, ReplayToLoad, ReplayViewpointChanged,
     StaticAssetPathResolver, TileHoverChanged, TileSelected, TurnReadinessChanged,
     UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved, UnloadCommandRequested,
-    core::coords::LogicalPx,
+    core::coords::LogicalPx, features::CameraCommand,
 };
+use awbrn_map::Pos;
 use awbrn_map::ValidatedMapDocument;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
 use bevy::{
@@ -58,6 +59,7 @@ pub enum GameEvent {
     UnitInspectionChanged(UnitInspectionChanged),
     AttackPreviewChanged(AttackPreviewChanged),
     MapDimensions(MapDimensions),
+    BoardView(BoardView),
     ReplayLoaded(ReplayLoaded),
     ReplayPositionChanged(ReplayPositionChanged),
     ReplayViewpointChanged(ReplayViewpointChanged),
@@ -245,6 +247,7 @@ impl BevyApp {
             wasm_sink!(UnitInspectionChanged, UnitInspectionChanged);
             wasm_sink!(AttackPreviewChanged, AttackPreviewChanged);
             wasm_sink!(MapDimensions, MapDimensions);
+            wasm_sink!(BoardView, BoardView);
             wasm_sink!(ReplayLoaded, ReplayLoaded);
             wasm_sink!(ReplayPositionChanged, ReplayPositionChanged);
             wasm_sink!(ReplayViewpointChanged, ReplayViewpointChanged);
@@ -447,6 +450,74 @@ impl BevyApp {
             window,
             phase: TouchPhase::Moved,
         });
+    }
+
+    /// Zoom by `factor`, keeping the board under the anchor still.
+    ///
+    /// The anchor is in canvas CSS pixels, and the middle of the canvas when
+    /// either coordinate is absent. The scale stays between the fit scale and
+    /// the maximum that [`BoardView`] reports.
+    #[wasm_bindgen]
+    pub fn zoom_by(&mut self, factor: f32, anchor_x: Option<f32>, anchor_y: Option<f32>) {
+        self.app.world_mut().write_message(CameraCommand::ZoomBy {
+            factor,
+            anchor: anchor_x
+                .zip(anchor_y)
+                .map(|(x, y)| LogicalPx::new(x, y).to_vec2()),
+        });
+    }
+
+    /// Show the whole map in the middle of the canvas. [`Self::restore_view`]
+    /// goes back to the view this left.
+    #[wasm_bindgen]
+    pub fn fit_board(&mut self) {
+        self.app.world_mut().write_message(CameraCommand::FitBoard);
+    }
+
+    /// Zoom to exactly `scale`, centered on the tile when one is given.
+    /// [`Self::restore_view`] goes back to the view this left.
+    #[wasm_bindgen]
+    pub fn zoom_to(&mut self, scale: f32, tile_x: Option<u8>, tile_y: Option<u8>) {
+        self.app.world_mut().write_message(CameraCommand::ZoomTo {
+            scale,
+            tile: tile_x.zip(tile_y).map(|(x, y)| Pos::new(x, y)),
+        });
+    }
+
+    /// Go back to the view the last [`Self::fit_board`] or [`Self::zoom_to`]
+    /// left.
+    #[wasm_bindgen]
+    pub fn restore_view(&mut self) {
+        self.app
+            .world_mut()
+            .write_message(CameraCommand::RestoreView);
+    }
+
+    /// Move the view to a tile at the same scale, sliding there when `ease`.
+    #[wasm_bindgen]
+    pub fn center_on(&mut self, tile_x: u8, tile_y: u8, ease: bool) {
+        self.app.world_mut().write_message(CameraCommand::CenterOn {
+            tile: Pos::new(tile_x, tile_y),
+            ease,
+        });
+    }
+
+    /// Paint the canvas outside the map in this sRGB color, with `alpha`
+    /// from 0 to 1.
+    #[wasm_bindgen]
+    pub fn set_clear_color(&mut self, red: u8, green: u8, blue: u8, alpha: f32) {
+        self.app
+            .world_mut()
+            .insert_resource(ClearColor(Color::srgba(
+                f32::from(red) / 255.0,
+                f32::from(green) / 255.0,
+                f32::from(blue) / 255.0,
+                if alpha.is_finite() {
+                    alpha.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                },
+            )));
     }
 
     fn write_touch_input(&mut self, id: u32, phase: TouchPhase, x: f32, y: f32) {
