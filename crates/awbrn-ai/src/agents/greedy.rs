@@ -760,6 +760,11 @@ pub struct GreedyAgent {
     /// The board values of the move features. Built only when the move
     /// model is on or the features are collected.
     move_context: MoveContext,
+    /// Whether this policy plays the turn of the other seat on the
+    /// observation of this player: a simulated enemy reply. The known map
+    /// of the fog move features ([`Weights::move_fog_map`]) is the map of
+    /// the player that owns the observation, so a reply does not read it.
+    simulated_reply: bool,
 }
 
 /// One production site with legal builds.
@@ -1058,6 +1063,7 @@ impl GreedyAgent {
             selection: Selection::new(),
             build_sites: Vec::new(),
             move_context: MoveContext::new(),
+            simulated_reply: false,
         }
     }
 
@@ -1071,6 +1077,16 @@ impl GreedyAgent {
     pub fn set_fog(&mut self, estimate: Option<Arc<FogEstimate>>) {
         self.fog = estimate;
         self.selection.position = None;
+    }
+
+    /// Tell whether the next decisions are a simulated reply of the other
+    /// seat on the observation of this player
+    /// ([`GreedyAgent::simulated_reply`]).
+    pub(crate) fn set_simulated_reply(&mut self, reply: bool) {
+        if self.simulated_reply != reply {
+            self.simulated_reply = reply;
+            self.selection.position = None;
+        }
     }
 
     /// Hold the powers that `hold` names for its seat. `None` holds nothing.
@@ -1792,6 +1808,7 @@ impl GreedyAgent {
             selection,
             build_sites,
             move_context,
+            simulated_reply,
             ..
         } = self;
         let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
@@ -1918,7 +1935,7 @@ impl GreedyAgent {
         } else {
             (weights.move_policy != 0.0).then(|| (move_policy::model(), weights.move_policy))
         };
-        move_context.clear();
+        move_context.clear(!*simulated_reply);
         let scorer = Scorer {
             board: &board,
             movement_bounds,

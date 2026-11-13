@@ -156,6 +156,9 @@ pub(super) struct MoveContext {
     /// Whether the values other than `property_distance` are for the
     /// current position.
     built: bool,
+    /// Whether the acting seat owns the observation, so that the known map
+    /// of the fog features applies ([`MoveContext::clear`]).
+    viewer: bool,
     /// Whether `property_distance` is for the current position.
     properties_built: bool,
     width: usize,
@@ -196,6 +199,7 @@ impl MoveContext {
     pub(super) const fn new() -> Self {
         Self {
             built: false,
+            viewer: true,
             properties_built: false,
             width: 0,
             height: 0,
@@ -215,10 +219,12 @@ impl MoveContext {
         }
     }
 
-    /// Mark the values as out of date, for a new position.
-    pub(super) fn clear(&mut self) {
+    /// Mark the values as out of date, for a new position. `viewer` tells
+    /// whether the acting seat owns the observation.
+    pub(super) fn clear(&mut self, viewer: bool) {
         self.built = false;
         self.properties_built = false;
+        self.viewer = viewer;
     }
 
     /// Calculate the values that the features of a unit read, if they are
@@ -289,8 +295,11 @@ impl MoveContext {
         // `move_fog_map`, the features read the map that the player knows:
         // the properties of this player are always in sight, so a property
         // in fog is an enemy or neutral property, and a headquarters in fog
-        // is an enemy headquarters.
-        let fog_map = state.settings.fog && board.weights.move_fog_map;
+        // is an enemy headquarters. This is true only for the seat that owns
+        // the observation. For a simulated reply of the other seat, a tile
+        // in fog can be its own, so the features read only the tiles in
+        // sight.
+        let fog_map = state.settings.fog && board.weights.move_fog_map && self.viewer;
         for (position, tile) in state.board.iter() {
             if !ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
                 continue;
@@ -901,6 +910,158 @@ const _: () = assert!(Feature::UnitHp as usize == MOVE_FEATURE_COUNT - 1);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::agents::{GreedyAgent, Weights};
+    use awvm::semantic::{AwbwVisibility, State, observe};
+    use awvm::session::Session;
+
+    /// The first fog view of Amber Valley, as the agent reads it, and the
+    /// true state.
+    /// An infantry of the acting seat stands on its headquarters, so that
+    /// the seat has orders.
+    fn fog_view() -> (State, State, awvm::semantic::Observation) {
+        let mut truth = crate::board::amber_valley(true, 1);
+        let seat = truth.players.seat(&truth.turn.active_player).expect("seat");
+        let home = truth
+            .board
+            .iter()
+            .find(|(_, tile)| {
+                tile.terrain == ruleset::Terrain::Hq && tile.owner == TileOwner::Owned(seat)
+            })
+            .map(|(position, _)| position)
+            .expect("our headquarters");
+        let mut unit = truth.units.iter().next().expect("a unit").clone();
+        unit.id = UnitId::new(9_999);
+        unit.kind = UnitKind::Infantry;
+        unit.owner = seat;
+        unit.hp = 100;
+        unit.action = awvm::semantic::UnitAction::Ready;
+        unit.location = Location::Board { position: home };
+        truth.units.push(unit);
+        truth.next_unit_id = Some(10_000);
+        let view = observe(&AwbwVisibility, &truth, &truth.turn.active_player).expect("observe");
+        let session = Session::from_observation(&view).expect("session");
+        (truth, session.state().clone(), view)
+    }
+
+    /// The goals and capture targets of the move context for `state`.
+    fn targets(state: &State, map: bool, viewer: bool) -> (Vec<Pos>, Vec<Pos>, MoveContext) {
+        let weights = Weights {
+            move_fog_map: map,
+            ..crate::profile::V8_GREEDY_CONFIG.weights
+        };
+        let seat = state.players.seat(&state.turn.active_player).expect("seat");
+        let board = Board {
+            state,
+            seat,
+            weights: &weights,
+        };
+        let mut context = MoveContext::new();
+        context.clear(viewer);
+        context.prepare(&board, true);
+        let (mut goals, mut properties) =
+            (context.headquarters.clone(), context.properties.clone());
+        goals.sort();
+        properties.sort();
+        (goals, properties, context)
+    }
+
+    fn fogged(state: &State, position: Pos) -> bool {
+        state
+            .board
+            .get(position)
+            .is_some_and(|tile| tile.owner == TileOwner::NotOwnable)
+    }
+
+    /// For the seat that owns the observation, the enemy headquarters in
+    /// fog is a goal of the distance feature, and a city in fog is a
+    /// capture target.
+    #[test]
+    fn the_known_map_adds_the_fogged_headquarters_and_cities_for_the_viewer() {
+        let (truth, state, _) = fog_view();
+        let seat = truth.players.seat(&truth.turn.active_player).expect("seat");
+        let hq = truth
+            .board
+            .iter()
+            .find(|(_, tile)| {
+                tile.terrain == ruleset::Terrain::Hq
+                    && matches!(tile.owner, TileOwner::Owned(owner) if owner != seat)
+            })
+            .map(|(position, _)| position)
+            .expect("an enemy headquarters");
+        assert!(fogged(&state, hq), "the enemy headquarters is in fog");
+        let city = state
+            .board
+            .iter()
+            .find(|(position, tile)| {
+                tile.terrain == ruleset::Terrain::City && fogged(&state, *position)
+            })
+            .map(|(position, _)| position)
+            .expect("a city in fog");
+
+        let (goals_off, properties_off, off) = targets(&state, false, true);
+        let (goals_on, properties_on, on) = targets(&state, true, true);
+        assert!(!goals_off.contains(&hq));
+        assert!(goals_on.contains(&hq));
+        assert!(properties_on.contains(&city));
+        assert!(!properties_off.contains(&city));
+        let cell = |position: Pos| {
+            usize::from(
+                state
+                    .board
+                    .dimensions()
+                    .cell_index(position)
+                    .expect("cell")
+                    .get(),
+            )
+        };
+        assert_eq!(on.hq_distance[cell(hq)], 0);
+        assert_ne!(off.hq_distance[cell(hq)], 0);
+        assert_eq!(on.property_distance[cell(city)], 0);
+        assert_ne!(off.property_distance[cell(city)], 0);
+
+        // The tiles in sight do not change: the rule adds only tiles in fog.
+        let visible = |list: &[Pos]| -> Vec<Pos> {
+            list.iter()
+                .copied()
+                .filter(|position| !fogged(&state, *position))
+                .collect()
+        };
+        assert_eq!(visible(&goals_on), goals_off);
+        assert_eq!(visible(&properties_on), properties_off);
+    }
+
+    /// A simulated reply of the other seat does not read the known map: a
+    /// tile in fog can be its own.
+    #[test]
+    fn a_simulated_reply_does_not_read_the_known_map() {
+        let (_, state, view) = fog_view();
+        let (goals_off, properties_off, _) = targets(&state, false, true);
+        let (goals_reply, properties_reply, _) = targets(&state, true, false);
+        assert_eq!(goals_reply, goals_off);
+        assert_eq!(properties_reply, properties_off);
+
+        // The same through the policy: the features of a reply with the
+        // known map are the features without it.
+        let features = |map: bool, reply: bool| {
+            let weights = Weights {
+                move_fog_map: map,
+                ..crate::profile::V8_GREEDY_CONFIG.weights
+            };
+            let mut agent = GreedyAgent::with_generic_tactical_policy(1, weights);
+            agent.set_simulated_reply(reply);
+            agent
+                .move_candidates(&view)
+                .expect("candidates")
+                .into_iter()
+                .map(|candidate| candidate.features)
+                .collect::<Vec<_>>()
+        };
+        let plain = features(false, false);
+        assert!(!plain.is_empty());
+        assert_eq!(features(true, true), plain);
+        assert_ne!(features(true, false), plain);
+    }
 
     /// The distance field is the capped Manhattan distance to the nearest
     /// target.

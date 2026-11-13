@@ -1448,6 +1448,7 @@ impl TurnPlanner<'_> {
             .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
         hard.restart(Rng::mix(self.seed ^ 0x5eed));
         hard.set_fog(None);
+        hard.set_simulated_reply(true);
         hard.set_power_hold(self.march.hold);
         let mut entropy = MeanLuck;
         let root = session.state().clone();
@@ -1528,6 +1529,7 @@ impl TurnPlanner<'_> {
             .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
         hard.restart(self.seed);
         hard.set_fog(self.fog.clone());
+        hard.set_simulated_reply(false);
         hard.set_power_hold(self.march.hold);
         let mut plays = Vec::new();
         let mut root = None;
