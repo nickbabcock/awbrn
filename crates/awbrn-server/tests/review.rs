@@ -6,7 +6,7 @@
 //! through the cursor, once by replaying the log from its first action — and
 //! compare what a recipient is shown.
 
-use awbrn_ai::{HARD_V2, STANDARD, profile};
+use awbrn_ai::{HARD_V2, profile};
 use awbrn_map::{AwbrnMap, Dimensions, Pos};
 use awbrn_server::{
     AiSeat, Co, GameServer, GameSetup, MatchReview, PlayerId, PlayerSetup, StoredActionEvent,
@@ -108,9 +108,9 @@ fn played_match(fog: bool) -> (GameSetup, Vec<StoredActionEvent>) {
     let mut events = Vec::new();
     for day in 0..8 {
         for (slot, player) in [(0usize, p1()), (1, p2())] {
-            // The fixed v2 profile keeps this log the same when the Hard tier
+            // The fixed v2 profile keeps this log the same when a tier
             // changes.
-            let profile = if slot == 0 { STANDARD } else { HARD_V2 };
+            let profile = HARD_V2;
             play_ai_turn(
                 &mut server,
                 &mut events,

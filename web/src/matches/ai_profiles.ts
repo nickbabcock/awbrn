@@ -14,7 +14,7 @@
 import { aiProfileIds, type AiProfileId } from "./schemas.ts";
 
 /** How hard an opponent is, as a player reads it. */
-export type AiTier = "easy" | "standard" | "hard";
+export type AiTier = "easy" | "medium" | "hard";
 
 export interface AiProfileDisplay {
   id: AiProfileId;
@@ -27,23 +27,23 @@ export interface AiProfileDisplay {
 
 export const aiProfileDisplays: readonly AiProfileDisplay[] = [
   {
-    id: "ai-easy-v1",
+    id: "ai-easy-v2",
     tier: "easy",
     label: "Easy",
-    blurb: "Moves at random. It will take a property it stumbles onto and little else.",
+    blurb: "Scores one order at a time. In fog, values positions hidden from enemy sight.",
   },
   {
-    id: "ai-standard-v1",
-    tier: "standard",
-    label: "Standard",
-    blurb: "Scores every play and takes the best one. It captures, builds, and trades.",
-  },
-  {
-    id: "ai-hard-v3",
-    tier: "hard",
-    label: "Hard",
+    id: "ai-medium-v1",
+    tier: "medium",
+    label: "Medium",
     blurb:
       "Plans its whole turn. It sets up kills, guards its bases, and keeps units out of focused fire.",
+  },
+  {
+    id: "ai-hard-v4",
+    tier: "hard",
+    label: "Hard",
+    blurb: "Plans its whole turn, and moves its units the way strong human players do.",
   },
 ];
 
@@ -65,7 +65,7 @@ export function aiSeatName(id: AiProfileId): string {
 }
 
 /** The default opponent a host is offered. */
-export const DEFAULT_AI_PROFILE_ID: AiProfileId = "ai-standard-v1";
+export const DEFAULT_AI_PROFILE_ID: AiProfileId = "ai-medium-v1";
 
 /** Every identifier, in the order a picker offers them. */
 export const orderedAiProfileIds: readonly AiProfileId[] = aiProfileIds;

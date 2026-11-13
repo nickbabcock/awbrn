@@ -86,9 +86,9 @@ describe("seats a match is made with", () => {
   it("takes the opponents the host seated", () => {
     const parsed = matchCreateRequestSchema.parse({
       ...request,
-      aiSeats: [{ slotIndex: 1, profileId: "ai-hard-v3" }],
+      aiSeats: [{ slotIndex: 1, profileId: "ai-hard-v4" }],
     });
-    expect(parsed.aiSeats).toEqual([{ slotIndex: 1, profileId: "ai-hard-v3" }]);
+    expect(parsed.aiSeats).toEqual([{ slotIndex: 1, profileId: "ai-hard-v4" }]);
   });
 
   it("refuses an opponent this build has no profile for", () => {
@@ -108,8 +108,8 @@ describe("seats a match is made with", () => {
     const parsed = matchCreateRequestSchema.safeParse({
       ...request,
       aiSeats: [
-        { slotIndex: 1, profileId: "ai-easy-v1" },
-        { slotIndex: 1, profileId: "ai-hard-v3" },
+        { slotIndex: 1, profileId: "ai-easy-v2" },
+        { slotIndex: 1, profileId: "ai-hard-v4" },
       ],
     });
     expect(parsed.success).toBe(false);

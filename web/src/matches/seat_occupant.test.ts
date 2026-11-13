@@ -10,16 +10,16 @@ describe("who holds a seat", () => {
   });
 
   it("reads an opponent off the column that names one", () => {
-    expect(seatOccupant({ userId: null, aiProfileId: "ai-hard-v3" })).toEqual({
+    expect(seatOccupant({ userId: null, aiProfileId: "ai-hard-v4" })).toEqual({
       kind: "ai",
-      profileId: "ai-hard-v3",
+      profileId: "ai-hard-v4",
     });
   });
 
   it("writes back the columns it read", () => {
     for (const columns of [
       { userId: "alice", aiProfileId: null },
-      { userId: null, aiProfileId: "ai-easy-v1" },
+      { userId: null, aiProfileId: "ai-easy-v2" },
     ]) {
       expect(occupantColumns(seatOccupant(columns)!)).toEqual(columns);
     }
@@ -41,12 +41,12 @@ describe("who holds a seat", () => {
   });
 
   it("says which seats the server owes a turn", () => {
-    expect(isServerPlayed({ userId: null, aiProfileId: "ai-standard-v1" })).toBe(true);
+    expect(isServerPlayed({ userId: null, aiProfileId: "ai-medium-v1" })).toBe(true);
     expect(isServerPlayed({ userId: "alice", aiProfileId: null })).toBe(false);
   });
 
   it("finds the person in a seat, and none in the server's", () => {
     expect(occupantUserId({ kind: "human", userId: "alice" })).toBe("alice");
-    expect(occupantUserId({ kind: "ai", profileId: "ai-easy-v1" })).toBeNull();
+    expect(occupantUserId({ kind: "ai", profileId: "ai-easy-v2" })).toBeNull();
   });
 });

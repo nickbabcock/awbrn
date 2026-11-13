@@ -105,7 +105,7 @@ fn planner_counters_survive_serial_and_parallel_tournaments() {
     let mut plan = experiment_plan(
         "planner-counters",
         AgentSpec::AiProfile {
-            profile_id: "ai-hard-v3".into(),
+            profile_id: "ai-medium-v1".into(),
         },
     );
     plan.limits.node_budget = 16;

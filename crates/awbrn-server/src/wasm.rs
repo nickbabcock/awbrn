@@ -89,7 +89,7 @@ pub fn import_awbw_map_document(
 #[serde(rename_all = "lowercase")]
 pub enum AiTierWire {
     Easy,
-    Standard,
+    Medium,
     Hard,
 }
 
@@ -97,7 +97,7 @@ impl From<AiTier> for AiTierWire {
     fn from(tier: AiTier) -> Self {
         match tier {
             AiTier::Easy => Self::Easy,
-            AiTier::Standard => Self::Standard,
+            AiTier::Medium => Self::Medium,
             AiTier::Hard => Self::Hard,
         }
     }

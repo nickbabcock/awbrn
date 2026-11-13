@@ -86,13 +86,14 @@ stopping rule. A clean day-limit exit scores as a draw. Invalid commands or
 other missing outcomes stop the run with an error.
 
 The planner respects the plan's `node_budget`, including reply evaluations.
-Use `256` to match the current Hard profile, which uses `planner-v8`.
+Use `256` to match the Medium and Hard profiles, which use `planner-v8` and
+`planner-v8-move`.
 `planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
 it. A budget of `1` scores only the seed turn. Use a new run directory after a
 policy or budget change. The plan
 `assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json` recorded
-the promotion of `planner-v3` with 16 evaluations. Its profile now seats
-`planner-v8`, so it does not repeat that result. The earlier four-evaluation
+the promotion of `planner-v3` with 16 evaluations. Its profile `ai-hard-v3`
+was retired, so the plan no longer runs. The earlier four-evaluation
 plan remains available for historical runs.
 
 Use sequential runs for development. Keep the frozen gate and the sealed
@@ -182,7 +183,7 @@ cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
 
 `planner-v5` adds two changes to `planner-v4`. A power plan uses a legal
 commander power before all other orders, and the Hard policy plays the rest of
-the turn. The Hard scoring of `ai-hard-v3` adds a build floor, so a factory is
+the turn. The scoring `HARD_V3_CONFIG` adds a build floor, so a factory is
 not left empty while the funds can buy a unit. This configuration is an intermediate step. Use the final `planner-v6`
 comparison against `planner-v4` for the production decision.
 
@@ -225,9 +226,11 @@ Wall-clock limits are excluded from CI; tests check deterministic work limits.
 
 ## Measure planner-v8
 
-`planner-v8` is the planner of the Hard profile. The experiments that were
-not kept are in `crates/awbrn-ai/diagnostics/experiments-not-kept.md`. It is
-`planner-v7` with:
+`planner-v8` is the planner of the Medium profile. The Hard profile seats
+`planner-v8-move`, which adds the move model
+(`assets/ai-diagnostics/move-policy/README.md`). The experiments that were
+not kept are in `crates/awbrn-ai/diagnostics/experiments-not-kept.md`.
+`planner-v8` is `planner-v7` with:
 
 - the wider search of `planner-v7-wide`: no work threshold, and about four
   times the plans and reply checks. One plan uses at most 215 nodes, so its

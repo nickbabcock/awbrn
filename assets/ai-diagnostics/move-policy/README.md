@@ -5,7 +5,8 @@ models fitted to the unit orders of human players.
 `awbrn_ai::agents::move_policy` loads them. `planner-v8-move`
 (`PlannerConfig::V8_MOVE`) is `planner-v8` with a move model at strength 0.5
 in its greedy policy (`Weights::move_policy`): `human-move-v1-blend.json` in
-games without fog, and `human-move-fog.json` in fog games.
+games without fog, and `human-move-fog.json` in fog games. The Hard profile
+(`ai-hard-v4`) seats `planner-v8-move`.
 
 ## The model without fog
 

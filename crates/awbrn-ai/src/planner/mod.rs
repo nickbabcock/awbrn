@@ -278,8 +278,8 @@ impl PlannerConfig {
         ..Self::V3
     };
 
-    /// planner-v4 with power plans, on the scoring of `ai-hard-v3`, which
-    /// adds a build floor.
+    /// planner-v4 with power plans, on the scoring of
+    /// [`crate::profile::HARD_V3_CONFIG`], which adds a build floor.
     ///
     /// It uses the same node budget and work threshold as planner-v4.
     pub const V5: Self = Self {

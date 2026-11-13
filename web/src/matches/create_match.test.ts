@@ -96,7 +96,7 @@ describe("createMatch", () => {
       matchCreateRequestSchema.parse({
         ...request,
         map: mapRef,
-        aiSeats: [{ slotIndex: 1, profileId: "ai-standard-v1" }],
+        aiSeats: [{ slotIndex: 1, profileId: "ai-medium-v1" }],
       }),
       creator,
     );

@@ -18,7 +18,7 @@ describe("AI match action responses", () => {
           team: null,
           startingFunds: 10_000,
           coId: 2,
-          aiProfileId: "ai-easy-v1",
+          aiProfileId: "ai-easy-v2",
         },
       ],
       fogEnabled: false,
