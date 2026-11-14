@@ -38,7 +38,11 @@ type TierPickerProps = {
       /** The army whose field the chosen stamp takes. */
       factionCode: string | null;
       onPick: (coId: number) => void;
-      /** Pointing at or focusing a stamp, so the briefing can read it before it is chosen. */
+      /**
+       * Pointing at a stamp with a mouse, so the briefing can read it before it
+       * is chosen. Not on focus: a tap focuses even when it misses the click,
+       * and the briefing would then show a CO that is not the pick.
+       */
       onPreview?: (coId: number | null) => void;
     }
   | {
@@ -128,9 +132,7 @@ export function TierPicker(props: TierPickerProps) {
                     aria-pressed={isChosen}
                     disabled={isBanned || props.isDisabled}
                     key={co.key}
-                    onBlur={() => props.onPreview?.(null)}
                     onClick={() => props.onPick(co.awbwId)}
-                    onFocus={() => props.onPreview?.(co.awbwId)}
                     onPointerEnter={(event) => {
                       if (event.pointerType === "mouse") props.onPreview?.(co.awbwId);
                     }}

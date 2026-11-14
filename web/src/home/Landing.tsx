@@ -158,11 +158,11 @@ function Opponents({ lobby }: { lobby: MatchBrowseSummary | null }) {
             label="CPU"
             layout="fill"
             onChange={() => {}}
-            value="standard"
+            value="medium"
             xstyle={styles.tier}
           >
             <SegmentedControlItem label="Easy" value="easy" />
-            <SegmentedControlItem label="Standard" value="standard" />
+            <SegmentedControlItem label="Medium" value="medium" />
             <SegmentedControlItem label="Hard" value="hard" />
           </SegmentedControl>
         }

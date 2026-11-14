@@ -34,7 +34,6 @@ interface UnitActionMenuProps {
   anchor: { x: number; y: number } | null;
   /** The unit being commanded, named at the head of a menu that forecasts. */
   attacker?: UnitBadge;
-  destination: { x: number; y: number };
   /** Why the orders are inert, when they are. */
   disabledReason?: string;
   isEnabled: boolean;
@@ -63,7 +62,6 @@ interface UnitActionMenuProps {
 export function UnitActionMenu({
   anchor,
   attacker,
-  destination,
   disabledReason,
   isEnabled,
   onChoose,
@@ -104,7 +102,6 @@ export function UnitActionMenu({
     return (
       <OrderDock
         attacker={attacker}
-        destination={destination}
         disabledReason={disabledReason}
         isEnabled={isEnabled}
         onCancelPending={cancelConfirmation}
@@ -148,7 +145,7 @@ export function UnitActionMenu({
           </VStack>
         ) : undefined
       }
-      label={`Orders at ${destination.x}, ${destination.y}`}
+      label="Orders"
       onDismiss={onDismiss}
       // A menu with an engagement on it needs the width to hold one. Orders
       // that are only words keep the narrow menu they have always had.
@@ -172,9 +169,6 @@ export function UnitActionMenu({
                 {pending ? pending.name : "Orders"}
               </Text>
             )}
-            <Text type="label" xstyle={styles.coordinate}>
-              {destination.x}, {destination.y}
-            </Text>
           </HStack>
 
           {pending ? (
@@ -411,7 +405,6 @@ function orderKey(option: UnitActionOption): string {
  */
 function OrderDock({
   attacker,
-  destination,
   disabledReason,
   isEnabled,
   onCancelPending,
@@ -422,7 +415,6 @@ function OrderDock({
   pending,
 }: {
   attacker?: UnitBadge;
-  destination: { x: number; y: number };
   disabledReason?: string;
   isEnabled: boolean;
   onCancelPending: () => void;
@@ -434,7 +426,7 @@ function OrderDock({
 }) {
   return (
     <section
-      aria-label={`${attacker ? `${attacker.name}: orders` : "Orders"} at ${destination.x}, ${destination.y}`}
+      aria-label={attacker ? `${attacker.name}: orders` : "Orders"}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -622,13 +614,6 @@ const styles = stylex.create({
   heading: {
     fontSize: awbrnVars.text15,
     fontWeight: 750,
-  },
-  coordinate: {
-    color: awbrnVars.textOnInkSecondary,
-    fontFamily: awbrnVars.fontFigure,
-    fontSize: awbrnVars.text12_5,
-    fontStretch: "87.5%",
-    fontVariantNumeric: "tabular-nums",
   },
   // Which tile this order acts on, when the order alone does not say.
   target: {

@@ -111,19 +111,12 @@ export function RankedHubPage({
   );
 }
 
-/** Ranked play needs a verified address, so one player cannot hold several places. */
 function VerifyEmail() {
-  const session = useAppSession();
   return (
-    <EmptySheet
-      art={
-        session ? (
-          <Text color="secondary" xstyle={styles.verifyEmail}>
-            {session.user.email}
-          </Text>
-        ) : undefined
-      }
-      title="Verify your email"
+    <ProblemBanner
+      description="Ranked play needs a verified email address, so that one player cannot hold several places in the pool."
+      status="info"
+      title="Verify your email to play ranked"
     />
   );
 }
@@ -570,9 +563,6 @@ const styles = stylex.create({
   },
   season: {
     fontSize: awbrnVars.text12,
-  },
-  verifyEmail: {
-    order: 1,
   },
   slots: {
     display: "grid",

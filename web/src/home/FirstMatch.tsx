@@ -525,7 +525,7 @@ const styles = stylex.create({
       [pageLayout.phoneMedia]: "100%",
     },
   },
-  // Desktop: each segment hugs its label, so Standard always reads in full.
+  // Desktop: each segment hugs its label, so no label is cut short.
   // Phone: the segments share the row.
   tierItem: {
     flex: {

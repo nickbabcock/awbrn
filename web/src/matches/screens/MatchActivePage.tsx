@@ -1346,12 +1346,9 @@ function ActiveMatchScreen({
   // caret afresh.
   const ordersMenu = hasOrders ? (
     <UnitActionMenu
-      key={`${unitActions.destination!.x},${unitActions.destination!.y}:${unitActions.options
-        .map((option) => option.name)
-        .join("|")}`}
+      key={unitActions.options.map((option) => option.name).join("|")}
       anchor={null}
       attacker={unitActions.attacker ?? undefined}
-      destination={unitActions.destination!}
       disabledReason={buildBlockedReason}
       isEnabled={buildBlockedReason === undefined}
       onChoose={chooseUnitAction}
