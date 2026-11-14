@@ -30,6 +30,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
+      // The brand mark on ink, as the tab draws it (src/players/tab_badge.ts).
+      icon: "/icon-192.png",
       // One tag for every turn notification, so a later one replaces the
       // notification still on screen rather than stacking beneath it.
       tag: "awbrn-turn",

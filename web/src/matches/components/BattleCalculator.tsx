@@ -1,11 +1,15 @@
+import { Text } from "@astryxdesign/core/Text";
 import { Button } from "#/ui/Button.tsx";
+import { overlayMotion } from "#/ui/overlayMotion.ts";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { BottomSheet } from "@astryxdesign/core/BottomSheet";
 import { Grid } from "@astryxdesign/core/Grid";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack, Stack, VStack } from "@astryxdesign/core/Stack";
 import {
   borderVars,
   colorVars,
+  focusVars,
   fontWeightVars,
   radiusVars,
   shadowVars,
@@ -69,7 +73,7 @@ import type {
  * up. None of that is on the board, so none of it can be asked of the board.
  *
  * Its shape is the reference tool's own: two armies fully specified side by
- * side, a swap on the centreline between them, and the exchange read across it.
+ * side, a swap on the centerline between them, and the exchange read across it.
  * Each column carries everything that moves a damage figure for the army
  * standing in it — the commander, the power, the treasury, the properties, the
  * towers, and the unit itself — so the two are compared by reading across
@@ -101,6 +105,11 @@ export type BattleCalculatorPresentation = "board" | "sheet";
 export const BATTLE_CALCULATOR_SHEET_MEDIA = "(max-width: 1279px), (max-height: 899px)";
 
 interface BattleCalculatorProps {
+  /**
+   * The sheet only: false while it leaves, so its exit plays. The parent keeps
+   * it mounted that long (`useLeaving`). The window on the board cuts.
+   */
+  isOpen?: boolean;
   onDismiss: () => void;
   /** Hands the keyboard back to the board once the panel has closed. */
   onRestoreFocus: () => void;
@@ -146,6 +155,7 @@ const HP = uiAtlasSpriteStyle("HP.png");
 const AMMO = uiAtlasSpriteStyle("Ammo.png");
 
 export function BattleCalculator({
+  isOpen = true,
   onDismiss,
   onRestoreFocus,
   presentation,
@@ -182,21 +192,21 @@ export function BattleCalculator({
 
   useEffect(() => {
     if (!runner) return;
-    let cancelled = false;
+    let canceled = false;
 
     runner
       .loadBattleCatalog()
       .then((loaded) => {
-        if (!cancelled) setCatalog(loaded);
+        if (!canceled) setCatalog(loaded);
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
+        if (!canceled) {
           setCatalogError(error instanceof Error ? error.message : "The rules could not be read.");
         }
       });
 
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [runner]);
 
@@ -216,7 +226,7 @@ export function BattleCalculator({
       setReportError(null);
       return;
     }
-    let cancelled = false;
+    let canceled = false;
     setReport(null);
     setReportError(null);
 
@@ -228,7 +238,7 @@ export function BattleCalculator({
         defendingUnits: [defender],
       })
       .then((response) => {
-        if (cancelled) return;
+        if (canceled) return;
         if (response.status === "failure") {
           setReport(null);
           setReportError(errorMessage(response.error));
@@ -238,13 +248,13 @@ export function BattleCalculator({
         setReportError(null);
       })
       .catch((error: unknown) => {
-        if (cancelled) return;
+        if (canceled) return;
         setReport(null);
         setReportError(unexpectedErrorMessage(error, "The engagement could not be scored."));
       });
 
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [attacker, attackerSide, defender, defenderSide, runner]);
 
@@ -265,8 +275,8 @@ export function BattleCalculator({
     setDefender(attacker);
   }, [attacker, attackerSide, defender, defenderSide]);
 
-  // The catalogues are the ruleset's and do not change while the panel is
-  // open; only the colours the sprites are drawn in do. Building them once per
+  // The catalogs are the ruleset's and do not change while the panel is
+  // open; only the colors the sprites are drawn in do. Building them once per
   // army rather than once per control is what keeps a keystroke in a treasury
   // field from rebuilding two hundred sprites.
   const attackerUnits = useMemo(
@@ -282,6 +292,7 @@ export function BattleCalculator({
 
   const kit: PanelKit = {
     isSheet: presentation === "sheet",
+    isOpen,
     attacker,
     attackerFaction,
     attackerSide,
@@ -347,36 +358,44 @@ function DuelPanel({ kit }: { kit: PanelKit }) {
           <DuelColumn kit={kit} role="Attacking" />
 
           {/* The axis the exchange happens across, and the one command that
-              turns it around. It sits on the centreline rather than in the
+              turns it around. It sits on the centerline rather than in the
               head, because swapping is a thing done to the two columns. */}
           <VStack align="center" gap={0} justify="center" xstyle={styles.axis}>
-            <span {...stylex.props(styles.axisRule)} />
+            <Stack as="span" xstyle={styles.axisRule} />
             <button
               onClick={kit.onSwap}
               title="Swap the two armies"
               type="button"
               {...stylex.props(styles.swap)}
             >
-              <span aria-hidden="true">⇄</span>
-              <span {...stylex.props(styles.hiddenLabel)}>Swap the two armies</span>
+              <Text color="inherit" type="inherit" aria-hidden="true">
+                ⇄
+              </Text>
+              <Text color="inherit" type="inherit" xstyle={styles.hiddenLabel}>
+                Swap the two armies
+              </Text>
             </button>
           </VStack>
 
           <DuelColumn kit={kit} role="Defending" />
         </Grid>
 
-        <span {...stylex.props(styles.hiddenLabel)}>
+        <Text color="inherit" type="inherit" xstyle={styles.hiddenLabel}>
           {engagementLabel(attackerName, targetName, kit.defender, result, row?.impossible)}
-        </span>
+        </Text>
 
         {result ? (
           <Grid aria-hidden="true" align="start" columns={2} gap={2} xstyle={styles.duelOutput}>
             <VStack align="center" gap={0.5} xstyle={styles.duelFigure}>
-              <span {...stylex.props(styles.duelLabel)}>Deals</span>
-              <span {...stylex.props(styles.duelPercent)}>{formatDamage(result.damage)}</span>
-              <span {...stylex.props(styles.duelFunds)}>
+              <Text color="inherit" type="inherit" xstyle={styles.duelLabel}>
+                Deals
+              </Text>
+              <Text color="inherit" type="inherit" xstyle={styles.duelPercent}>
+                {formatDamage(result.damage)}
+              </Text>
+              <Text color="inherit" type="inherit" xstyle={styles.duelFunds}>
                 {formatFundsBracket(result.valueDealt)}
-              </span>
+              </Text>
             </VStack>
 
             {/* The reply, split the way the reference tool splits it. One
@@ -387,49 +406,61 @@ function DuelPanel({ kit }: { kit: PanelKit }) {
                 each carrying the luck alone. Below two rungs there is no
                 spread to show, so the single range says it better. */}
             <VStack align="center" gap={0.5} xstyle={styles.duelFigure}>
-              <span {...stylex.props(styles.duelLabel)}>
+              <Text color="inherit" type="inherit" xstyle={styles.duelLabel}>
                 {result.counterFirst ? "Takes 1st" : "Takes"}
-              </span>
+              </Text>
               {result.counterSteps.length > 1 ? (
                 <VStack as="ul" gap={0.5} xstyle={styles.rungs}>
                   {result.counterSteps.map((step) => (
                     <HStack align="center" as="li" gap={2} key={step.targetHealth}>
-                      <span {...stylex.props(styles.rungAt)}>
+                      <Text color="inherit" type="inherit" xstyle={styles.rungAt}>
                         @{pointsToBars(step.targetHealth)} HP
-                      </span>
-                      <span {...stylex.props(styles.rungPercent)}>
+                      </Text>
+                      <Text color="inherit" type="inherit" xstyle={styles.rungPercent}>
                         {formatDamage(step.counter)}
-                      </span>
+                      </Text>
                     </HStack>
                   ))}
                 </VStack>
               ) : (
-                <span {...stylex.props(styles.duelPercent, !result.counter && styles.muted)}>
+                <Text
+                  color="inherit"
+                  type="inherit"
+                  xstyle={[styles.duelPercent, !result.counter && styles.muted]}
+                >
                   {result.counter ? formatDamage(result.counter) : "—"}
-                </span>
+                </Text>
               )}
-              <span {...stylex.props(styles.duelFunds)}>
+              <Text color="inherit" type="inherit" xstyle={styles.duelFunds}>
                 {result.valueTaken ? formatFundsBracket(result.valueTaken) : "—"}
-              </span>
+              </Text>
             </VStack>
           </Grid>
         ) : (
           <Grid columns={1} xstyle={styles.duelOutput}>
-            <span {...stylex.props(styles.panelLabel)}>
+            <Text color="inherit" type="inherit" xstyle={styles.panelLabel}>
               {row
                 ? impossibleLabel(row.impossible ?? "no-weapon")
                 : (kit.missingFigures ?? (kit.isScoring ? "Scoring…" : "No score available."))}
-            </span>
+            </Text>
           </Grid>
         )}
 
         <HStack align="center" gap={2} justify="center" wrap="wrap" xstyle={styles.duelNet}>
-          <span {...stylex.props(styles.duelLabel)}>Net</span>
-          <span {...stylex.props(styles.netValue)}>{result ? formatNet(result.net) : "—"}</span>
+          <Text color="inherit" type="inherit" xstyle={styles.duelLabel}>
+            Net
+          </Text>
+          <Text color="inherit" type="inherit" xstyle={styles.netValue}>
+            {result ? formatNet(result.net) : "—"}
+          </Text>
           {result?.destroys ? (
-            <span {...stylex.props(styles.panelLabel)}>Destroys</span>
+            <Text color="inherit" type="inherit" xstyle={styles.panelLabel}>
+              Destroys
+            </Text>
           ) : result?.mayDestroy ? (
-            <span {...stylex.props(styles.panelLabel)}>May destroy</span>
+            <Text color="inherit" type="inherit" xstyle={styles.panelLabel}>
+              May destroy
+            </Text>
           ) : null}
         </HStack>
       </VStack>
@@ -441,7 +472,7 @@ function DuelPanel({ kit }: { kit: PanelKit }) {
  * One army, fully specified.
  *
  * The seat is named and the army is not. Which army is standing in a seat is
- * already told by the portrait, by the colours its unit sprite is drawn in,
+ * already told by the portrait, by the colors its unit sprite is drawn in,
  * and by the match the panel opened over; spelling out "Orange Star" beside
  * all three buys a line of height to repeat what is already on screen twice.
  *
@@ -531,6 +562,8 @@ interface PanelKit {
   isScoring: boolean;
   /** Whether the panel is a sheet on the viewport rather than a window on the board. */
   isSheet: boolean;
+  /** False while the sheet leaves. */
+  isOpen: boolean;
   onAttackerChange: (side: CalculatorSide) => void;
   onAttackerUnitChange: (fighter: BattleFighter) => void;
   onDefenderChange: (side: CalculatorSide) => void;
@@ -578,8 +611,16 @@ function PanelFrame({ children, kit }: { children: React.ReactNode; kit: PanelKi
 
   const panel = (
     <>
-      <HStack align="center" gap={2} justify="between" wrap="wrap" xstyle={styles.header}>
-        <span {...stylex.props(styles.panelLabel)}>Battle calculator</span>
+      <HStack
+        align="center"
+        gap={2}
+        justify="between"
+        wrap="wrap"
+        xstyle={[styles.header, kit.isSheet && styles.sheetHeader]}
+      >
+        <Text color="inherit" type="inherit" xstyle={styles.panelLabel}>
+          Battle calculator
+        </Text>
         <Button
           clickAction={kit.onDismiss}
           icon={<CloseIcon aria-hidden height={16} width={16} />}
@@ -593,13 +634,13 @@ function PanelFrame({ children, kit }: { children: React.ReactNode; kit: PanelKi
 
       <HStack align="center" gap={2} justify="between" wrap="wrap" xstyle={styles.footer}>
         {kit.failure ? (
-          <span role="alert" {...stylex.props(styles.failure)}>
+          <Text color="inherit" type="inherit" role="alert" xstyle={styles.failure}>
             {kit.failure}
-          </span>
+          </Text>
         ) : (
-          <span {...stylex.props(styles.hint)}>
+          <HStack as="span" xstyle={styles.hint}>
             Read the top of Deals with the bottom of Takes.
-          </span>
+          </HStack>
         )}
       </HStack>
     </>
@@ -609,14 +650,14 @@ function PanelFrame({ children, kit }: { children: React.ReactNode; kit: PanelKi
     return (
       <BottomSheet
         height="tall"
-        isOpen
+        isOpen={kit.isOpen}
         label="Battle calculator"
-        onOpenChange={(isOpen) => {
-          if (!isOpen) kit.onDismiss();
+        onOpenChange={(next) => {
+          if (!next) kit.onDismiss();
         }}
         purpose="form"
         snapPoints={[0.5]}
-        xstyle={styles.sheet}
+        xstyle={[styles.sheet, overlayMotion.sheet, !kit.isOpen && overlayMotion.sheetLeaving]}
         padding={0}
       >
         {/* The sheet takes the focus a modal has to place somewhere. Without a
@@ -804,10 +845,13 @@ function PowerSelect({
           type="button"
           {...stylex.props(styles.powerKey, key.value === value && styles.powerKeySelected)}
         >
+          {/* Raw span: an inline atlas crop, which no Astryx component takes. */}
           <span aria-hidden="true" style={key.art ?? undefined} {...stylex.props(styles.spriteArt)}>
             {key.art ? null : "D2D"}
           </span>
-          <span {...stylex.props(styles.hiddenLabel)}>{key.label}</span>
+          <Text color="inherit" type="inherit" xstyle={styles.hiddenLabel}>
+            {key.label}
+          </Text>
         </button>
       ))}
     </HStack>
@@ -893,6 +937,7 @@ function FighterFields({
         shape="terrain"
         triggerArt={
           ground ? (
+            // Raw span: an inline atlas crop, which no Astryx component takes.
             <span
               aria-hidden="true"
               style={terrainTileStyle(ground.spriteIndex)}
@@ -933,10 +978,11 @@ function FighterFields({
  */
 function StatIcon({ art }: { art: React.CSSProperties | null }) {
   if (!art) return null;
+  // Raw span: an inline atlas crop, which no Astryx component takes.
   return <span aria-hidden="true" style={art} {...stylex.props(styles.spriteArt)} />;
 }
 
-/** A unit in an army's colours, at a whole multiple of its own pixels. */
+/** A unit in an army's colors, at a whole multiple of its own pixels. */
 function UnitSprite({
   factionCode,
   scale,
@@ -950,9 +996,16 @@ function UnitSprite({
   if (!sprite) return null;
 
   return (
-    <span aria-hidden="true" {...stylex.props(styles.sprite)} style={unitSpriteSize(scale)}>
+    <Stack
+      aria-hidden="true"
+      as="span"
+      height={unitSpriteSize(scale).height}
+      width={unitSpriteSize(scale).width}
+      xstyle={styles.sprite}
+    >
+      {/* Raw span: an inline atlas crop. */}
       <span style={sprite} {...stylex.props(styles.spriteArt)} />
-    </span>
+    </Stack>
   );
 }
 
@@ -1001,6 +1054,7 @@ function terrainOptionsFor(catalog: BattleCatalog | null): SpritePickerOption[] 
     // figure on the cell rather than a suffix on the name.
     detail: `${terrain.stars}★`,
     art: (
+      // Raw span: an inline atlas crop, which no Astryx component takes.
       <span
         aria-hidden="true"
         style={terrainSpriteStyle(terrain.spriteIndex, 2)}
@@ -1226,7 +1280,7 @@ const styles = stylex.create({
     },
     outline: {
       default: "none",
-      ":focus-visible": `${borderVars["--border-width"]} solid ${colorVars["--color-accent"]}`,
+      ":focus-visible": `${borderVars["--border-width"]} solid ${focusVars["--focus-outline-color"]}`,
     },
     outlineOffset: { default: 0, ":focus-visible": `calc(-1 * ${borderVars["--border-width"]})` },
   },
@@ -1332,14 +1386,18 @@ const styles = stylex.create({
     borderRadius: `${radiusVars["--radius-container"]} ${radiusVars["--radius-container"]} 0 0`,
     borderBlockEndWidth: 0,
   },
+  // Close stands clear of the sheet's rounded edge, as other sheets' keys do.
+  sheetHeader: {
+    paddingInlineEnd: spacingVars["--spacing-4"],
+  },
   sheetBody: {
     minBlockSize: 0,
     outline: "none",
     // The BottomSheet handle is out of flow. Reserve its space above the form.
     paddingBlockStart: spacingVars["--spacing-6"],
-    // The sheet ends at the bottom edge of the device, not at the bottom edge
-    // of the screen.
-    paddingBlockEnd: "env(safe-area-inset-bottom)",
+    // The sheet ends at the bottom edge of the device, clear of the home
+    // indicator.
+    paddingBlockEnd: "env(safe-area-inset-bottom, 0px)",
   },
   fighterFields: {
     display: "flex",
@@ -1394,7 +1452,7 @@ const styles = stylex.create({
     borderInlineStartColor: colorVars["--color-border-emphasized"],
     backgroundColor: {
       default: "transparent",
-      ":hover": { "@media (hover: hover)": colorVars["--color-background-muted"] },
+      ":hover": { default: null, [pageLayout.hoverMedia]: colorVars["--color-background-muted"] },
     },
     color: colorVars["--color-text-secondary"],
     fontFamily: typographyVars["--font-family-code"],
@@ -1403,7 +1461,7 @@ const styles = stylex.create({
     cursor: "pointer",
     outline: {
       default: null,
-      ":focus-visible": `2px solid ${colorVars["--color-accent"]}`,
+      ":focus-visible": `2px solid ${focusVars["--focus-outline-color"]}`,
     },
     outlineOffset: { default: null, ":focus-visible": "-2px" },
     ":disabled": { cursor: "not-allowed" },
@@ -1411,7 +1469,7 @@ const styles = stylex.create({
   powerKeySelected: {
     backgroundColor: {
       default: colorVars["--color-accent"],
-      ":hover": { "@media (hover: hover)": colorVars["--color-accent"] },
+      ":hover": { default: null, [pageLayout.hoverMedia]: colorVars["--color-accent"] },
     },
     color: colorVars["--color-text-primary"],
   },
@@ -1425,7 +1483,7 @@ const styles = stylex.create({
     flex: "0 0 auto",
   },
   // The four field widths are fixed rather than fluid because the two armies
-  // are read across the centreline: a control sized to its own contents would
+  // are read across the centerline: a control sized to its own contents would
   // put the defender's health somewhere other than opposite the attacker's.
   //
   // Sized to hold the art, the name and the caret. "Battleship" and "Missile

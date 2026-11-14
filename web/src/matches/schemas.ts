@@ -218,6 +218,21 @@ export interface MatchCreateResponse {
   joinSlug: string | null;
 }
 
+/**
+ * A taken seat in an open lobby. No commander: a lobby seals every pick
+ * until the match starts, so the list has none to tell.
+ */
+export interface MatchBrowseSeat {
+  slotIndex: number;
+  factionId: number;
+  /** Null when the server plays this seat. */
+  userId: string | null;
+  /** The person's name, or the CPU's label. */
+  userName: string;
+  /** The lobby's creator holds this seat. */
+  isHost: boolean;
+}
+
 export interface MatchBrowseSummary {
   matchId: string;
   name: string;
@@ -227,7 +242,8 @@ export interface MatchBrowseSummary {
   maxPlayers: number;
   participantCount: number;
   openSlotCount: number;
-  joinedPlayerNames: string[];
+  /** The taken seats, in slot order. */
+  seats: MatchBrowseSeat[];
   settings: MatchSettings;
   createdAt: string;
 }
@@ -271,7 +287,10 @@ export interface MyMatchSummary {
 }
 
 export interface MyMatchesResponse {
+  /** The viewer's ongoing matches. */
   matches: MyMatchSummary[];
+  /** The viewer has held a seat in any match, finished ones included. */
+  hasPlayed: boolean;
 }
 
 /** How many of the viewer's matches are waiting on them to act. */
@@ -320,6 +339,8 @@ export interface MatchSnapshot {
    * pending, because no other phase has one.
    */
   confirmationDeadlineAt: string | null;
+  /** The ranked pool the match is played in, or null when it is not ranked. */
+  pool: RankedPool | null;
   /**
    * Set when the match does not count, with the reason the players are told.
    * Who voided it and why they did is in the moderation log, not here.

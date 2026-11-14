@@ -7,35 +7,52 @@
  * each second.
  */
 
-import { Text } from "@astryxdesign/core/Text";
-import { useEffect, useState } from "react";
-import { formatCompactDuration } from "#/utils/time.ts";
-
-/** Below this, the window is closing and the number takes the accent color. */
-export const URGENT_REMAINDER_MS = 4 * 60 * 60 * 1000;
+import { useEffect, useRef, useState } from "react";
+import { clockTickMs } from "#/matches/match_clock.ts";
+import { timeLeftFigure, timeLeftLabel } from "#/play/terms.ts";
+import { TimeLeft } from "#/ui/TimeLeft.tsx";
 
 export function Countdown({
   deadlineAt,
-  type = "supporting",
+  isOnInk = false,
+  onExpire,
+  size = "row",
+  tone = "default",
 }: {
   deadlineAt: string;
-  /** The briefing screen sets the clock at reading size; a row keeps it small. */
-  type?: "supporting" | "large";
+  isOnInk?: boolean;
+  /** Called once when the deadline passes, so the page can ask what became of it. */
+  onExpire?: () => void;
+  size?: "row" | "lead" | "strip";
+  /** `urgent` while the window waits on the viewer; `theirs` once it waits on someone else. */
+  tone?: "default" | "urgent" | "theirs";
 }) {
   const deadlineMs = Date.parse(deadlineAt);
-  const [remaining, setRemaining] = useState(() => deadlineMs - Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  const remaining = deadlineMs - now;
+
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  });
+  const isExpired = remaining <= 0;
+  useEffect(() => {
+    if (isExpired) onExpireRef.current?.();
+  }, [isExpired]);
 
   useEffect(() => {
-    setRemaining(deadlineMs - Date.now());
-    const timer = setInterval(() => setRemaining(deadlineMs - Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [deadlineMs]);
-
-  const isUrgent = remaining <= URGENT_REMAINDER_MS;
+    if (remaining <= 0) return;
+    const timer = setTimeout(() => setNow(Date.now()), clockTickMs(remaining));
+    return () => clearTimeout(timer);
+  }, [remaining]);
 
   return (
-    <Text color={isUrgent ? "accent" : "secondary"} type={type} weight="bold">
-      {remaining <= 0 ? "Window closed" : `${formatCompactDuration(remaining)} left`}
-    </Text>
+    <TimeLeft
+      isOnInk={isOnInk}
+      label={remaining <= 0 ? "Window closed" : timeLeftLabel(remaining)}
+      size={size}
+      tone={tone}
+      value={timeLeftFigure(remaining)}
+    />
   );
 }

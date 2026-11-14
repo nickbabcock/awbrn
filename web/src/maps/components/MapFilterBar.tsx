@@ -1,22 +1,16 @@
 /**
- * The console above the map board.
- *
- * A catalog that only answers to a name makes a player who wants "a two
- * player fog map" read every plate. These are the three questions worth
- * asking of a map before its shape: how many armies it seats, how it plays,
- * and how good it is. All three are always visible, because a filter behind a
- * menu is a filter nobody presses.
+ * Search and filters over a set of maps. The filters open in a popover, or a
+ * bottom sheet on a compact touch screen. Each press narrows the set at once,
+ * so the sheet's last key only closes it on the result it already counts.
  */
 
-import { Button } from "#/ui/Button.tsx";
-import { Divider } from "@astryxdesign/core/Divider";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Popover } from "@astryxdesign/core/Popover";
+import { Stack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { ToggleButton, ToggleButtonGroup } from "@astryxdesign/core/ToggleButton";
-import { borderVars, colorVars, radiusVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { Close as CloseIcon } from "pixelarticons/react/Close";
+import { useState } from "react";
 import { MAP_RANK_FILTERS } from "#/maps/map_taxonomy.ts";
 import {
   MAP_PLAYER_COUNT_FILTER_LABELS,
@@ -25,10 +19,19 @@ import {
   MAP_TAG_LABELS,
   MAP_TAGS,
   type MapCatalogFilter,
-  type MapPlayerCountFilter,
-  type MapRankFilter,
-  type MapTag,
 } from "#/maps/schemas.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { Button } from "#/ui/Button.tsx";
+import { Chip, ChipGroup } from "#/ui/Chip.tsx";
+import { Figure } from "#/ui/Figure.tsx";
+import { IconFilter } from "#/ui/icons.tsx";
+import { ModalSheet } from "#/ui/ModalSheet.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { useCompactTouch } from "#/ui/useCompactTouch.ts";
+
+type Filters = Required<MapCatalogFilter>;
+
+const NO_FILTERS: Filters = { playerCounts: [], ranks: [], tags: [] };
 
 export function MapFilterBar({
   filterCount,
@@ -38,81 +41,166 @@ export function MapFilterBar({
   search,
   summary,
 }: {
-  /** How many filter buttons are pressed, which decides the reset key. */
   filterCount: number;
-  filters: Required<MapCatalogFilter>;
-  onFiltersChange: (filters: Required<MapCatalogFilter>) => void;
+  filters: Filters;
+  onFiltersChange: (filters: Filters) => void;
   onSearchChange: (search: string) => void;
   search: string;
-  /** What the board holds right now, in the HUD voice. */
+  /** The result count, said as a figure (`8 maps`). */
   summary: string;
 }) {
   return (
-    <VStack gap={4}>
-      <HStack align="end" gap={4} justify="between" wrap="wrap">
-        <TextInput
-          enterKeyHint="search"
-          hasAutoCorrect={false}
-          hasClear
-          label="Search the map catalog"
-          onChange={onSearchChange}
-          placeholder="Map name or author"
-          startIcon="search"
-          value={search}
-          width={320}
-        />
-        <Text type="label">{summary}</Text>
-      </HStack>
+    <Stack direction="horizontal" xstyle={styles.bar}>
+      <TextInput
+        containerXstyle={styles.search}
+        enterKeyHint="search"
+        hasAutoCorrect={false}
+        hasClear
+        isLabelHidden
+        label="Search the map catalog"
+        onChange={onSearchChange}
+        placeholder="Map name or author"
+        startIcon="search"
+        type="search"
+        value={search}
+      />
+      <FiltersKey
+        filterCount={filterCount}
+        filters={filters}
+        onFiltersChange={onFiltersChange}
+        summary={summary}
+      />
+      {/* useMapBoardSummary announces each settled count, so this is not a live region. */}
+      <Figure tone="secondary" xstyle={styles.count}>
+        {summary}
+      </Figure>
+    </Stack>
+  );
+}
 
-      <Divider />
+function FiltersKey({
+  filterCount,
+  filters,
+  onFiltersChange,
+  summary,
+}: {
+  filterCount: number;
+  filters: Filters;
+  onFiltersChange: (filters: Filters) => void;
+  summary: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const isCompactTouch = useCompactTouch();
+  const isOn = filterCount > 0;
 
-      <HStack gap={6} wrap="wrap">
-        <FilterRow
-          label="Armies"
-          options={MAP_PLAYER_COUNT_FILTERS}
-          labels={MAP_PLAYER_COUNT_FILTER_LABELS}
-          onChange={(playerCounts: MapPlayerCountFilter[]) =>
-            onFiltersChange({ ...filters, playerCounts })
+  const key = (
+    <Button
+      endContent={isOn ? <Badge label={String(filterCount)} /> : undefined}
+      icon={<Icon icon={IconFilter} />}
+      label={isOn ? `Filters, ${filterCount} on` : "Filters"}
+      onClick={isCompactTouch ? () => setIsOpen(true) : undefined}
+      variant="secondary"
+      xstyle={styles.key}
+    >
+      Filters
+    </Button>
+  );
+
+  const groups = <FilterGroups filters={filters} onFiltersChange={onFiltersChange} />;
+  const clear = isOn ? (
+    <Button label="Clear" onClick={() => onFiltersChange(NO_FILTERS)} size="sm" variant="ghost" />
+  ) : null;
+
+  if (isCompactTouch) {
+    return (
+      <>
+        {key}
+        <ModalSheet
+          footer={
+            <>
+              {clear}
+              <Button
+                label={summary ? `Show ${summary}` : "Show maps"}
+                onClick={() => setIsOpen(false)}
+                size="lg"
+                variant="ink"
+                xstyle={styles.show}
+              />
+            </>
           }
-          value={filters.playerCounts}
-        />
-        <FilterRow
-          label="Plays as"
-          options={MAP_TAGS}
-          labels={MAP_TAG_LABELS}
-          onChange={(tags: MapTag[]) => onFiltersChange({ ...filters, tags })}
-          value={filters.tags}
-        />
-        <FilterRow
-          label="Rank"
-          options={MAP_RANK_FILTERS}
-          labels={MAP_RANK_FILTER_LABELS}
-          onChange={(ranks: MapRankFilter[]) => onFiltersChange({ ...filters, ranks })}
-          value={filters.ranks}
-        />
-        {filterCount > 0 ? (
-          <VStack gap={1} justify="end" xstyle={styles.reset}>
-            <Button
-              clickAction={() => onFiltersChange({ playerCounts: [], ranks: [], tags: [] })}
-              icon={<CloseIcon aria-hidden height={14} width={14} />}
-              label={`Clear ${filterCount} filter${filterCount === 1 ? "" : "s"}`}
-              size="sm"
-              variant="ghost"
-            />
-          </VStack>
-        ) : null}
-      </HStack>
-    </VStack>
+          isOpen={isOpen}
+          onOpenChange={setIsOpen}
+          title="Filters"
+        >
+          <Stack xstyle={styles.sheetBody}>{groups}</Stack>
+        </ModalSheet>
+      </>
+    );
+  }
+
+  return (
+    <Popover
+      alignment="start"
+      content={
+        <Stack xstyle={styles.popover}>
+          {groups}
+          {clear ? (
+            <Stack direction="horizontal" xstyle={styles.popoverFoot}>
+              {clear}
+            </Stack>
+          ) : null}
+        </Stack>
+      }
+      isOpen={isOpen}
+      label="Filters"
+      onOpenChange={setIsOpen}
+      padding={4}
+      width={380}
+    >
+      {key}
+    </Popover>
+  );
+}
+
+function FilterGroups({
+  filters,
+  onFiltersChange,
+}: {
+  filters: Filters;
+  onFiltersChange: (filters: Filters) => void;
+}) {
+  return (
+    <Stack xstyle={styles.groups}>
+      <ChipRow
+        label="Armies"
+        labels={MAP_PLAYER_COUNT_FILTER_LABELS}
+        onChange={(playerCounts) => onFiltersChange({ ...filters, playerCounts })}
+        options={MAP_PLAYER_COUNT_FILTERS}
+        value={filters.playerCounts}
+      />
+      <ChipRow
+        label="Plays as"
+        labels={MAP_TAG_LABELS}
+        onChange={(tags) => onFiltersChange({ ...filters, tags })}
+        options={MAP_TAGS}
+        value={filters.tags}
+      />
+      <ChipRow
+        label="Rank"
+        labels={MAP_RANK_FILTER_LABELS}
+        onChange={(ranks) => onFiltersChange({ ...filters, ranks })}
+        options={MAP_RANK_FILTERS}
+        value={filters.ranks}
+      />
+    </Stack>
   );
 }
 
 /**
- * One question and the answers to it.
- *
- * Pressing nothing means every answer, which is why no row carries an "any"
- * button: the row at rest already is it.
+ * One question and its answers. Pressing nothing means every answer, so no
+ * group carries an "any" chip: the group at rest already is it.
  */
-function FilterRow<T extends string>({
+function ChipRow<T extends string>({
   label,
   labels,
   onChange,
@@ -126,54 +214,70 @@ function FilterRow<T extends string>({
   value: readonly T[];
 }) {
   return (
-    <VStack gap={1.5}>
-      <Text color="secondary" type="label">
-        {label}
-      </Text>
-      <ToggleButtonGroup
-        label={label}
-        onChange={(next) => onChange((next as T[]) ?? [])}
-        size="sm"
-        type="multiple"
-        value={[...value]}
-        xstyle={styles.keys}
-      >
-        {options.map((option) => (
-          <ToggleButton
-            key={option}
-            label={labels[option]}
-            value={option}
-            xstyle={[styles.key, value.includes(option) && styles.keyOn]}
-          />
-        ))}
-      </ToggleButtonGroup>
-    </VStack>
+    <ChipGroup label={label}>
+      {options.map((option) => (
+        <Chip
+          isPressed={value.includes(option)}
+          key={option}
+          label={labels[option]}
+          onPressedChange={(isPressed) =>
+            onChange(options.filter((item) => (item === option ? isPressed : value.includes(item))))
+          }
+        />
+      ))}
+    </ChipGroup>
   );
 }
 
 const styles = stylex.create({
-  // A row of keys wraps rather than running off the panel. At phone width the
-  // "plays as" row is wider than the screen, and a filter key that cannot be
-  // reached is a filter nobody has.
-  keys: {
-    flexWrap: "wrap",
+  bar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    minInlineSize: 0,
   },
-  // A filter is a key: the ink outline every control carries, so an
-  // unpressed filter reads as a control and not as a word on the panel. A
-  // pressed one wears the cursor.
+  search: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: {
+      default: "420px",
+      [pageLayout.phoneMedia]: "0%",
+    },
+    maxInlineSize: {
+      default: "420px",
+      [pageLayout.phoneMedia]: "none",
+    },
+    minInlineSize: 0,
+  },
   key: {
-    borderColor: colorVars["--color-border-emphasized"],
-    borderStyle: "solid",
-    borderWidth: borderVars["--border-width"],
-    borderRadius: radiusVars["--radius-element"],
-    backgroundColor: colorVars["--color-background-surface"],
+    flexShrink: 0,
+    minBlockSize: "44px",
   },
-  keyOn: {
-    backgroundColor: colorVars["--color-accent"],
+  count: {
+    flexShrink: 0,
+    paddingInlineStart: "8px",
   },
-  // The reset key lines up with the buttons beside it rather than with the
-  // labels above them, so the row still reads as one rule.
-  reset: {
-    marginBlockStart: "auto",
+  groups: {
+    display: "grid",
+    gap: "18px",
+  },
+  popover: {
+    display: "grid",
+    gap: "16px",
+  },
+  popoverFoot: {
+    display: "flex",
+    justifyContent: "flex-end",
+    paddingBlockStart: "12px",
+    borderBlockStartColor: awbrnVars.rule,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: "1px",
+  },
+  sheetBody: {
+    display: "block",
+    padding: "16px",
+  },
+  show: {
+    flexGrow: 1,
   },
 });

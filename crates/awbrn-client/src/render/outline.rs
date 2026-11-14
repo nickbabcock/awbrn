@@ -24,10 +24,10 @@ pub(crate) const OUTLINE_WIDTH: f32 = 1.0;
 /// The ink every field boundary is drawn on.
 ///
 /// The board underneath is pixel art in every hue the tileset owns, and a
-/// coloured hairline laid straight onto it disappears — amber over grass, red
+/// colored hairline laid straight onto it disappears — amber over grass, red
 /// over a road, and either one over the cyan glass the movement field already
 /// put there. Sprite art has always solved this by outlining a shape in dark
-/// ink before colouring it, so the fields do the same: a boundary reads against
+/// ink before coloring it, so the fields do the same: a boundary reads against
 /// the map rather than against luck.
 pub(crate) const OUTLINE_CASING_COLOR: Color = Color::srgba(0.05, 0.06, 0.08, 0.6);
 /// How far the casing stands out past its line, across both axes. Half a world

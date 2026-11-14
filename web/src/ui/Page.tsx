@@ -1,78 +1,43 @@
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
-import {
-  borderVars,
-  colorVars,
-  spacingVars,
-  textSizeVars,
-  typographyVars,
-} from "@astryxdesign/core/theme/tokens.stylex";
+import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
-import { RouterTextLink } from "#/ui/astryx-links.tsx";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { sectionForPath, type SiteSection } from "#/ui/site_sections.ts";
 
-type PageWidth = "standard" | "wide" | "narrow" | "full";
-
-/**
- * The frame of one screen: a centered measure on the terrain with one gutter.
- *
- * Every page sits in the same frame, so the title, the first panel, and the
- * edge of the content land in the same place on every screen. A board that
- * needs the whole window asks for `full`; a map set beside a panel asks for
- * `wide`; prose and single forms ask for `narrow`.
- */
-export function Page({ children, width = "standard" }: { children: ReactNode; width?: PageWidth }) {
+/** One paper page: a centered measure with gutters that respect the safe-area insets. */
+export function Page({
+  children,
+  width = "standard",
+}: {
+  children: ReactNode;
+  width?: "standard" | "narrow";
+}) {
   return (
-    <VStack
-      gap={8}
-      xstyle={[
-        styles.frame,
-        width === "standard" && styles.standard,
-        width === "wide" && styles.wide,
-        width === "narrow" && styles.narrow,
-      ]}
-    >
+    <VStack gap={6} xstyle={[styles.frame, width === "standard" ? styles.standard : styles.narrow]}>
       {children}
     </VStack>
   );
 }
 
-/**
- * The head of a page: its title, one line on what it is for, its commands, and
- * the other pages of its section.
- *
- * The title is the same size on every page. A page that is a section of the
- * site gets the section's tabs under its title, so a player can see where they
- * are and move sideways without going back to the bar.
- */
-export function PageHeader({
-  actions,
-  description,
-  title,
-}: {
-  actions?: ReactNode;
-  description?: ReactNode;
-  title: ReactNode;
-}) {
+/** The page title, its commands, and the other pages of its section as tabs. */
+export function PageHeader({ actions, title }: { actions?: ReactNode; title: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isSignedIn = useAppSession() !== null;
   const section = sectionForPath(pathname);
 
   return (
-    <VStack gap={4} as="header">
-      <HStack align="end" gap={4} justify="between" wrap="wrap">
+    <VStack gap={0} as="header">
+      <HStack align="end" gap={6} justify="between" wrap="wrap" xstyle={styles.head}>
         <VStack gap={2} xstyle={styles.titleBlock}>
-          <Heading level={1}>{title}</Heading>
-          {description ? (
-            <Text color="secondary" type="large" xstyle={styles.description}>
-              {description}
-            </Text>
-          ) : null}
+          {/* Focus lands here after a route change (`#/ui/arrivalFocus.ts`). */}
+          <Heading level={1} tabIndex={-1} xstyle={styles.title}>
+            {title}
+          </Heading>
         </VStack>
         {actions ? (
           <HStack align="center" gap={2} wrap="wrap">
@@ -103,20 +68,19 @@ function SectionTabs({
   const selected = pages.find((page) => page.matches(pathname))?.to ?? "";
 
   return (
-    <HStack as="nav" aria-label={section.label} gap={0} wrap="wrap" xstyle={styles.tabs}>
+    <nav aria-label={section.label} {...stylex.props(styles.tabs)}>
       {pages.map((page) => (
-        <RouterTextLink
+        <Link
           activeOptions={{ exact: true }}
           aria-current={page.to === selected ? "page" : undefined}
-          isStandalone
           key={page.to}
           to={page.to}
-          xstyle={[styles.tab, page.to === selected && styles.tabSelected]}
+          {...stylex.props(styles.tab, page.to === selected && styles.tabSelected)}
         >
           {page.label}
-        </RouterTextLink>
+        </Link>
       ))}
-    </HStack>
+    </nav>
   );
 }
 
@@ -125,54 +89,94 @@ const styles = stylex.create({
     boxSizing: "border-box",
     inlineSize: "100%",
     marginInline: "auto",
-    paddingInline: {
-      default: spacingVars["--spacing-8"],
-      [pageLayout.phoneMedia]: spacingVars["--spacing-4"],
+    paddingInlineStart: {
+      default: `max(${pageLayout.gutterDesktop}, ${pageLayout.safeInsetLeft})`,
+      [pageLayout.phoneMedia]: `max(${pageLayout.gutterPhone}, ${pageLayout.safeInsetLeft})`,
+    },
+    paddingInlineEnd: {
+      default: `max(${pageLayout.gutterDesktop}, ${pageLayout.safeInsetRight})`,
+      [pageLayout.phoneMedia]: `max(${pageLayout.gutterPhone}, ${pageLayout.safeInsetRight})`,
     },
     paddingBlockStart: {
-      default: spacingVars["--spacing-8"],
-      [pageLayout.phoneMedia]: spacingVars["--spacing-5"],
+      default: "36px",
+      [pageLayout.phoneMedia]: "20px",
     },
-    paddingBlockEnd: spacingVars["--spacing-10"],
+    paddingBlockEnd: {
+      default: "72px",
+      [pageLayout.phoneMedia]: "40px",
+    },
   },
+  // The standard measure holds its gutters; the narrow one sets them outside.
   standard: {
-    maxInlineSize: `calc(${pageLayout.standardWidth} + 2 * ${spacingVars["--spacing-8"]})`,
-  },
-  wide: {
-    maxInlineSize: `calc(${pageLayout.wideWidth} + 2 * ${spacingVars["--spacing-8"]})`,
+    maxInlineSize: pageLayout.standardWidth,
   },
   narrow: {
-    maxInlineSize: `calc(${pageLayout.narrowWidth} + 2 * ${spacingVars["--spacing-8"]})`,
+    maxInlineSize: `calc(${pageLayout.narrowWidth} + 2 * ${pageLayout.gutterDesktop})`,
   },
+  head: {
+    marginBlockEnd: "16px",
+  },
+  // As wide as its words, so the focus ring on arrival hugs the title.
+  title: {
+    alignSelf: "flex-start",
+    maxInlineSize: "100%",
+  },
+  // On a phone the title takes its own width, so a short title and its key
+  // share one row and a long one still wraps the key under it.
   titleBlock: {
     minInlineSize: 0,
-    flexBasis: "32rem",
+    flexBasis: {
+      default: "32rem",
+      [pageLayout.phoneMedia]: "auto",
+    },
     flexGrow: 1,
   },
-  // A description is one sentence, and a sentence stretched across a desktop
-  // window is read as two separate lines of text.
-  description: {
-    maxInlineSize: "60ch",
-  },
-  // The tabs sit on the sky, where the rail under them is the only edge the
-  // strip has. It takes the one ink the rest of the chrome is drawn in.
+  // On a phone the strip bleeds to the screen edges and scrolls sideways
+  // rather than wrapping.
   tabs: {
-    borderColor: colorVars["--color-border-emphasized"],
+    display: "flex",
+    gap: "4px",
+    marginInline: {
+      default: 0,
+      [pageLayout.phoneMedia]: `calc(${pageLayout.gutterPhone} * -1)`,
+    },
+    paddingInline: {
+      default: 0,
+      [pageLayout.phoneMedia]: `calc(${pageLayout.gutterPhone} - 6px)`,
+    },
+    overflowX: "auto",
+    scrollbarWidth: "none",
+    borderBlockEndColor: awbrnVars.rule,
     borderBlockEndStyle: "solid",
-    borderBlockEndWidth: borderVars["--border-width"],
+    borderBlockEndWidth: "1px",
   },
-  // A tab is a HUD label, the same voice as the bar above it, so the two
-  // levels of navigation read as one system.
   tab: {
-    paddingBlock: spacingVars["--spacing-3"],
-    paddingInline: spacingVars["--spacing-4"],
-    fontFamily: typographyVars["--font-family-code"],
-    fontSize: textSizeVars["--font-size-sm"],
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
-    color: colorVars["--color-text-secondary"],
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    minBlockSize: "44px",
+    paddingBlock: "10px 12px",
+    paddingInline: "14px",
+    color: {
+      default: colorVars["--color-text-secondary"],
+      ":hover": { default: null, [pageLayout.hoverMedia]: colorVars["--color-text-primary"] },
+      ":active": colorVars["--color-text-primary"],
+    },
+    textDecoration: "none",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
   },
   tabSelected: {
     color: colorVars["--color-text-primary"],
+    "::after": {
+      content: '""',
+      position: "absolute",
+      insetInline: "10px",
+      insetBlockEnd: "-1px",
+      blockSize: awbrnVars.currentMark,
+      backgroundColor: awbrnVars.ink900,
+      borderStartStartRadius: awbrnVars.currentMark,
+      borderStartEndRadius: awbrnVars.currentMark,
+    },
   },
 });

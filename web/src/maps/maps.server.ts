@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -12,7 +12,7 @@ import { generateMapId } from "./map_id.ts";
 import { getFactionByCode } from "#/factions.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
 import type { AwbrnMapDocument, ImportedMapDocument } from "./map_document.ts";
-import { catalogFilterConditions } from "./map_catalog_query.ts";
+import { catalogFilterConditions, catalogRankPlace } from "./map_catalog_query.ts";
 import type {
   MapCatalogEntry,
   MapCatalogRequest,
@@ -211,7 +211,7 @@ function contentKey(hash: string): string {
 }
 
 /**
- * A page of the catalog, newest map first.
+ * A page of the catalog, best rank first and newest first within a rank.
  *
  * Every row is a map at its current revision, with the addresses of the two
  * pictures that revision was drawn into. One extra row is read to learn
@@ -223,8 +223,14 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
   const afterCursor =
     cursor && cursorCreatedAt && !Number.isNaN(cursorCreatedAt.getTime())
       ? or(
-          lt(maps.createdAt, cursorCreatedAt),
-          and(eq(maps.createdAt, cursorCreatedAt), lt(maps.id, cursor.mapId)),
+          gt(catalogRankPlace, cursor.rankPlace),
+          and(
+            eq(catalogRankPlace, cursor.rankPlace),
+            or(
+              lt(maps.createdAt, cursorCreatedAt),
+              and(eq(maps.createdAt, cursorCreatedAt), lt(maps.id, cursor.mapId)),
+            ),
+          ),
         )
       : undefined;
 
@@ -254,6 +260,7 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
       height: mapRevisions.height,
       playerCount: mapRevisions.playerCount,
       rank: mapRevisions.rank,
+      rankPlace: catalogRankPlace,
       source: mapSources.source,
       sourceMapId: mapSources.sourceMapId,
     })
@@ -264,7 +271,7 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
     )
     .leftJoin(mapSources, eq(mapSources.mapId, maps.id))
     .where(and(afterCursor, matchesSearch, ...catalogFilterConditions(filters)))
-    .orderBy(desc(maps.createdAt), desc(maps.id))
+    .orderBy(asc(catalogRankPlace), desc(maps.createdAt), desc(maps.id))
     .limit(MAP_CATALOG_PAGE_SIZE + 1)
     .all();
 
@@ -280,6 +287,7 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
     nextCursor:
       hasNextPage && lastVisibleRow
         ? encodeMapCatalogCursor({
+            rankPlace: lastVisibleRow.rankPlace,
             createdAt: lastVisibleRow.createdAt.toISOString(),
             mapId: lastVisibleRow.mapId,
           })

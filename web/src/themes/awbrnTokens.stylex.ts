@@ -1,13 +1,80 @@
 import * as stylex from "@stylexjs/stylex";
 
-/** Typed references to AWBRN tokens that Astryx does not provide. */
+/**
+ * `var()` references to the tokens Astryx has no name for. The values live in
+ * `awbrnTheme.ts`. Reach for the Astryx token sets (`colorVars`, ...) first.
+ */
 export const awbrnVars = stylex.defineConsts({
-  colorBorderDisabled: "var(--color-border-disabled)",
-  colorBorderSoft: "var(--color-border-soft)",
-  offsetControlPressed: "var(--offset-control-pressed)",
-});
-
-/** Match report dimensions that do not map to the Astryx core scale. */
-export const matchHistoryVars = stylex.defineConsts({
-  briefWidth: "300px",
+  ink950: "var(--color-ink-950)",
+  ink900: "var(--color-ink-900)",
+  ink850: "var(--color-ink-850)",
+  ink800: "var(--color-ink-800)",
+  ink700: "var(--color-ink-700)",
+  ink600: "var(--color-ink-600)",
+  ink300: "var(--color-ink-300)",
+  ink100: "var(--color-ink-100)",
+  paper: "var(--color-paper)",
+  paperWell: "var(--color-paper-well)",
+  sheet: "var(--color-sheet)",
+  rule: "var(--color-rule)",
+  ruleStrong: "var(--color-rule-strong)",
+  textTertiary: "var(--color-text-tertiary)",
+  textOnInk: "var(--color-text-on-ink)",
+  textOnInkSecondary: "var(--color-text-on-ink-secondary)",
+  textOnInkStrong: "var(--color-text-on-ink-strong)",
+  red: "var(--color-airmail-red)",
+  redWash: "var(--color-airmail-red-wash)",
+  blue: "var(--color-airmail-blue)",
+  blueOnInk: "var(--color-airmail-blue-on-ink)",
+  violet: "var(--color-stamp-violet)",
+  violetOnInk: "var(--color-stamp-violet-on-ink)",
+  ok: "var(--color-ok)",
+  okOnInk: "var(--color-ok-on-ink)",
+  warn: "var(--color-warn)",
+  warnFill: "var(--color-warn-fill)",
+  danger: "var(--color-danger)",
+  gold: "var(--color-power-gold)",
+  goldDim: "var(--color-power-gold-dim)",
+  goldOnPaper: "var(--color-power-gold-on-paper)",
+  goldTrackOnPaper: "var(--color-power-gold-track-on-paper)",
+  band: "var(--airmail-band)",
+  shadowSheet: "var(--shadow-sheet)",
+  shadowBoard: "var(--shadow-board)",
+  /** A `filter`. */
+  shadowBoardPicture: "var(--shadow-board-picture)",
+  /** A `backgroundImage`. */
+  hatchWell: "var(--hatch-well)",
+  shadowStamp: "var(--shadow-stamp)",
+  /** A `filter`. */
+  shadowPennant: "var(--shadow-pennant)",
+  shadowSlot: "var(--shadow-slot)",
+  shadowDock: "var(--shadow-dock)",
+  stampWhite: "var(--color-stamp-white)",
+  inkHairline: "var(--color-ink-hairline)",
+  wellHairline: "var(--color-well-hairline)",
+  easeStep: "var(--ease-step)",
+  // Half steps of the spacing scale (Astryx `spacingVars` holds the rest).
+  spacing2_5: "var(--spacing-2-5)",
+  spacing3_5: "var(--spacing-3-5)",
+  spacing4_5: "var(--spacing-4-5)",
+  spacing5_5: "var(--spacing-5-5)",
+  textNav: "var(--text-nav-size)",
+  textMicro: "var(--text-micro-size)",
+  // Sizes by their pixels, for a size that is not one of the named styles
+  // (`typeScaleVars`). 11px is `textMicro`.
+  text11_5: "var(--text-11-5-size)",
+  text12: "var(--text-12-size)",
+  text12_5: "var(--text-12-5-size)",
+  text13: "var(--text-13-size)",
+  text13_5: "var(--text-13-5-size)",
+  text14: "var(--text-14-size)",
+  text14_5: "var(--text-14-5-size)",
+  text15: "var(--text-15-size)",
+  text15_5: "var(--text-15-5-size)",
+  text16: "var(--text-16-size)",
+  text17: "var(--text-17-size)",
+  text26: "var(--text-26-size)",
+  currentMark: "var(--size-current-mark)",
+  fontUi: "var(--font-family-body)",
+  fontFigure: "var(--font-family-code)",
 });

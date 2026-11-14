@@ -1,62 +1,58 @@
 /*
- * THE PAIRING BRIEFING
+ * A ranked pairing to confirm. The server chose the map, the army and the
+ * turn order; the player chooses a commander.
  *
- * THESIS: this is the one moment in ranked play a player can walk away from at
- *   no cost, so it is a briefing rather than a form. The map is the subject of
- *   the page, the clock is the only urgent thing on it, and there is one key
- *   to press.
- * RULE: the pairing shows the match and not the person. The server withholds
- *   the other player's name, rating and commander until both players are ready,
- *   so a player cannot decline the opponents they do not want and take the
- *   rest. The page says so in a sentence rather than leaving an empty seat
- *   unexplained.
- * OWN-WORLD: the same briefing screen the lobby uses, with the host controls
- *   taken out and a clock put in their place. Nothing about the pairing is the
- *   player's to arrange: the server chose the map, the army and the turn order.
+ * The pairing shows the match and not the person. The server withholds the
+ * other player's name, rating and commander until both are ready, so nobody
+ * can decline the opponents they do not want and take the rest.
  */
 
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "#/ui/Button.tsx";
-import { Card } from "@astryxdesign/core/Card";
-import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { Section } from "@astryxdesign/core/Section";
-import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { Icon } from "@astryxdesign/core/Icon";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { coTierListFor } from "#/co_tiers.ts";
-import { CoBoard } from "#/components/CoBoard.tsx";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
-import { coDisplayName } from "#/co_roster.ts";
 import { getFactionById } from "#/factions.ts";
-import { MapPicture } from "#/maps/components/MapPicture.tsx";
-import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { mapCatalogEntryQueryOptions, mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
+import type { MatchSnapshot, RankedConfirmationRequest } from "#/matches/schemas.ts";
 import { projectSeatChanges } from "#/matches/seat_changes.ts";
 import { useSeatChanges } from "#/matches/useSeatChanges.ts";
-import type { RankedConfirmationRequest } from "#/matches/schemas.ts";
 import { Countdown } from "#/matchmaking/components/Countdown.tsx";
 import { updateRankedConfirmationFn } from "#/matchmaking/matchmaking.functions.ts";
 import { rankedKeys } from "#/matchmaking/matchmaking.keys.ts";
-import { rankedOverviewQueryOptions } from "#/matchmaking/matchmaking.queries.ts";
-import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { rankedPoolCopy } from "#/matchmaking/ranked_display.ts";
+import { CoBrief } from "#/play/CoBrief.tsx";
+import { useOpeningCo } from "#/play/opening_co.ts";
+import { SeatStamp } from "#/play/Opponents.tsx";
+import {
+  BattlefieldPeek,
+  BattlefieldPicture,
+  Fact,
+  SetupClock,
+  setupStyles,
+} from "#/play/setup.tsx";
+import { TaskDock } from "#/play/TaskDock.tsx";
+import { TierPicker } from "#/play/TierPicker.tsx";
+import { Button } from "#/ui/Button.tsx";
+import { RouterButton } from "#/ui/astryx-links.tsx";
+import { BackLink } from "#/ui/BackKey.tsx";
+import { ProblemBanner } from "#/ui/EmptySheet.tsx";
+import { IconCheck } from "#/ui/icons.tsx";
+import { ModalSheet } from "#/ui/ModalSheet.tsx";
 import { Page } from "#/ui/Page.tsx";
+import { Sheet, SheetBody, SheetFoot } from "#/ui/Sheet.tsx";
 
 /** How often the page asks whether the other player has readied. */
 const CONFIRMATION_POLL_INTERVAL_MS = 15_000;
-
-/** How long an armed "Confirm decline" stays armed before it disarms itself. */
-const DECLINE_CONFIRM_TIMEOUT_MS = 5_000;
-
-const SEAT_CREST_SIZE = 32;
 
 export function RankedPendingPage({
   joinSlug,
@@ -68,6 +64,7 @@ export function RankedPendingPage({
   const session = useAppSession();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const briefId = useId();
   const detailQueryOptions = matchDetailQueryOptions(matchId, joinSlug);
   const { data: match } = useSuspenseQuery({
     ...detailQueryOptions,
@@ -80,9 +77,7 @@ export function RankedPendingPage({
 
   const mapQuery = useQuery(mapRevisionQueryOptions(match.mapId, match.mapRevision));
   const mapEntryQuery = useQuery(mapCatalogEntryQueryOptions(match.mapId, match.mapRevision));
-  const mapData = mapQuery.data ?? null;
-  const mapEntry = mapEntryQuery.data ?? null;
-  const mapName = mapData?.metadata.name ?? mapEntry?.name ?? `Map ${match.mapId}`;
+  const mapName = mapQuery.data?.metadata.name ?? mapEntryQuery.data?.name ?? `Map ${match.mapId}`;
 
   const currentUserId = session?.user.id ?? null;
   const seatChanges = useSeatChanges(
@@ -117,23 +112,35 @@ export function RankedPendingPage({
   const seatError = Array.from(seatChanges.intents.values()).find((intent) => intent.error)?.error;
   const faction = seat ? getFactionById(seat.factionId) : null;
   const bannedCoIds = useMemo(() => new Set(match.settings.bannedCoIds), [match.settings]);
+  const tierList = coTierListFor({
+    fogEnabled: match.settings.fogEnabled,
+    playerCount: match.maxPlayers,
+  });
 
   const [error, setError] = useState<string | null>(null);
-  const [isDeclineArmed, setIsDeclineArmed] = useState(false);
+  const [isDeclineOpen, setIsDeclineOpen] = useState(false);
+  const [previewCoId, setPreviewCoId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (!isDeclineArmed) return;
-    const timer = setTimeout(() => setIsDeclineArmed(false), DECLINE_CONFIRM_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [isDeclineArmed]);
+  // The briefing opens on a commander (the player's last, else Andy) rather
+  // than an empty box, so Ready is the red key from the first look. It is
+  // only shown until the player acts: Ready saves it first, and a tap on
+  // another stamp replaces it. Looking at a pairing never writes to it.
+  const needsOpeningCo =
+    seat !== undefined && seat.coId === null && !seat.ready && match.phase === "pending";
+  const openingCo = useOpeningCo(bannedCoIds, matchId, { isEnabled: needsOpeningCo });
+  const shownCoId = seat?.coId ?? (needsOpeningCo ? (openingCo ?? null) : null);
 
+  // One press can send two requests: the opening commander, then Ready.
   const confirmation = useMutation({
-    mutationFn: (action: RankedConfirmationRequest) =>
-      updateRankedConfirmationFn({ data: { matchId, action } }),
+    mutationFn: async (actions: RankedConfirmationRequest[]) => {
+      for (const action of actions) {
+        await updateRankedConfirmationFn({ data: { matchId, action } });
+      }
+    },
     onError: (mutationError: Error) => {
       setError(mutationError.message);
     },
-    onSuccess: async (_result, action) => {
+    onSuccess: async (_result, actions) => {
       setError(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: detailQueryOptions.queryKey }),
@@ -141,20 +148,20 @@ export function RankedPendingPage({
         queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
         queryClient.invalidateQueries({ queryKey: matchKeys.awaiting() }),
       ]);
-      if (action.action === "refuse") {
-        await queryClient.invalidateQueries({ queryKey: rankedOverviewQueryOptions().queryKey });
+      if (actions.some((action) => action.action === "refuse")) {
         await navigate({ to: "/ranked" });
       }
     },
   });
 
+  // The window ran out or the other player declined: nothing is owed now.
+  if (match.phase === "cancelled") return <ClosedPairing match={match} />;
+
   if (!seat) {
     return (
       <Page>
-        <Banner
-          collapsible={false}
-          description="A ranked pairing is readable only by the two players in it."
-          status="error"
+        <ProblemBanner
+          action={<BackLink label="Ranked" to="/ranked" />}
           title="This pairing is not yours"
         />
       </Page>
@@ -162,191 +169,275 @@ export function RankedPendingPage({
   }
 
   const deadlineAt = match.confirmationDeadlineAt;
+  // At the deadline the server closes the window; ask at once rather than at
+  // the next poll, so the page does not offer Ready for up to 15 seconds more.
+  const recheck = () => {
+    void queryClient.invalidateQueries({ queryKey: detailQueryOptions.queryKey });
+  };
   const isReady = seat.ready;
+  const isOpen = match.phase === "pending";
   const isBusy = confirmation.isPending || seatChanges.isSaving;
   const hasUnsavedChoice = seatChanges.intents.size > 0;
+  const canReady = shownCoId !== null && !hasUnsavedChoice && !isBusy && isOpen;
+
+  function ready() {
+    if (seatChanges.changes.getSnapshot().intents.size > 0 || shownCoId === null) return;
+    confirmation.mutate(
+      seat?.coId === null
+        ? [{ action: "selectCommander", coId: shownCoId }, { action: "ready" }]
+        : [{ action: "ready" }],
+    );
+  }
+
+  function askDecline() {
+    if (seatChanges.changes.getSnapshot().isSaving || confirmation.isPending) return;
+    setIsDeclineOpen(true);
+  }
+
+  // Until a commander is chosen, Ready waits as a plain key on the well.
+  const isWaitingForCo = shownCoId === null && !isBusy;
+  const readyKey = (dockStyle?: boolean) => (
+    <Button
+      clickAction={ready}
+      isDisabled={!canReady}
+      isLoading={isBusy}
+      label="Ready"
+      size="lg"
+      variant={isWaitingForCo ? "secondary" : "primary"}
+      xstyle={[
+        dockStyle && [setupStyles.dockKey, setupStyles.dockKeyMain],
+        isWaitingForCo && setupStyles.waitingKey,
+      ]}
+    />
+  );
+  const declineKey = (dockStyle?: boolean) => (
+    <Button
+      isDisabled={isBusy || !isOpen}
+      label="Decline"
+      onClick={askDecline}
+      size="lg"
+      variant="destructive"
+      xstyle={dockStyle ? setupStyles.dockKey : undefined}
+    />
+  );
 
   return (
     <Page>
-      <VStack gap={6}>
-        <Grid
-          align="end"
-          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-          gap={5}
-        >
-          <VStack gap={2}>
-            <Heading level={1} xstyle={styles.breakAnywhere}>
-              {mapName}
-            </Heading>
-            <Text color="secondary" type="large">
-              A ranked pairing. The server chose the map, your army, and the turn order.
-            </Text>
-          </VStack>
-          {deadlineAt ? (
-            <Card padding={4} variant="muted">
-              <VStack gap={1}>
-                <Text type="supporting" weight="bold">
-                  Confirm within
-                </Text>
-                <Countdown deadlineAt={deadlineAt} type="large" />
-                <Text color="secondary" type="supporting">
-                  The pairing is voided if either player does not start in time.
-                </Text>
-              </VStack>
-            </Card>
-          ) : null}
-        </Grid>
-
-        <Grid
-          align="start"
-          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-          gap={6}
-        >
-          <Card padding={5}>
-            <VStack gap={4}>
-              <VStack gap={1}>
-                <Heading level={2}>The battlefield</Heading>
-                <Text color="secondary" type="supporting">
-                  {mapData
-                    ? `${mapData.metadata.author} · ${mapData.width} × ${mapData.height}`
-                    : "Reading the battlefield…"}
-                </Text>
-              </VStack>
-
-              {mapEntry ? (
-                <MapPicture
-                  alt={`The battlefield of ${mapEntry.name}`}
-                  sourceHeight={mapScreenshotSize("full", mapEntry.width, mapEntry.height).height}
-                  sourceWidth={mapScreenshotSize("full", mapEntry.width, mapEntry.height).width}
-                  src={mapEntry.screenshot.full}
+      <header>
+        <BackLink label="Ranked" to="/ranked" />
+        <HStack xstyle={setupStyles.head}>
+          <Heading level={1} xstyle={setupStyles.title}>
+            {mapName}
+          </Heading>
+          {deadlineAt && !isReady ? (
+            <VStack xstyle={setupStyles.phoneHidden}>
+              <SetupClock>
+                <Countdown
+                  deadlineAt={deadlineAt}
+                  isOnInk
+                  onExpire={recheck}
+                  size="lead"
+                  tone="urgent"
                 />
-              ) : (
-                <Section height={280} padding={0} variant="muted">
-                  <Skeleton height="100%" radius="none" />
-                </Section>
-              )}
-
-              <MetadataList columns={3} label={{ position: "top" }}>
-                <MetadataListItem label="Your army">
-                  {faction?.displayName ?? "Unknown army"}
-                </MetadataListItem>
-                <MetadataListItem label="Turn order">
-                  {seat.slotIndex === 0 ? "You move first" : "You move second"}
-                </MetadataListItem>
-                <MetadataListItem label="Visibility">
-                  {match.settings.fogEnabled ? "Fog enabled" : "Clear vision"}
-                </MetadataListItem>
-              </MetadataList>
+              </SetupClock>
             </VStack>
-          </Card>
+          ) : null}
+        </HStack>
+      </header>
 
-          <Card padding={5}>
-            <VStack gap={5}>
-              <HStack align="center" gap={3}>
-                {faction ? <FactionLogo factionCode={faction.code} size={SEAT_CREST_SIZE} /> : null}
-                <VStack gap={0}>
-                  <Heading level={2}>Your commander</Heading>
-                  <Text color="secondary" type="supporting">
-                    {seat.coId === null
-                      ? "Choose one to start the match."
-                      : coDisplayName(seat.coId)}
-                  </Text>
+      {error ? <ProblemBanner title={error} /> : null}
+      {seatError ? (
+        <ProblemBanner
+          action={
+            <Button
+              isDisabled={isBusy || !isOpen}
+              label="Retry"
+              onClick={() => seatChanges.changes.retry()}
+              size="sm"
+            />
+          }
+          title="Your commander was not saved"
+        />
+      ) : null}
+      {isReady ? (
+        <ProblemBanner
+          icon={<Icon icon={IconCheck} />}
+          status="success"
+          title={
+            <HStack as="span" xstyle={styles.readyLine}>
+              Ready
+              {deadlineAt ? (
+                <Countdown deadlineAt={deadlineAt} onExpire={recheck} tone="theirs" />
+              ) : null}
+            </HStack>
+          }
+        />
+      ) : null}
+
+      <VStack xstyle={setupStyles.grid}>
+        <VStack xstyle={setupStyles.side}>
+          <VStack xstyle={setupStyles.first}>
+            <Sheet aria-labelledby={briefId}>
+              <BattlefieldPeek
+                facts={
+                  <>
+                    <Fact isStrong>
+                      {faction ? (
+                        <FactionLogo factionCode={faction.code} isLabelHidden size={14} />
+                      ) : null}
+                      {faction?.displayName ?? "Unknown army"}
+                    </Fact>
+                    <Fact>{seat.slotIndex === 0 ? "Moves first" : "Moves second"}</Fact>
+                    <Fact>
+                      {match.pool
+                        ? rankedPoolCopy(match.pool).name
+                        : match.settings.fogEnabled
+                          ? "Fog"
+                          : "Ranked"}
+                    </Fact>
+                  </>
+                }
+                mapId={match.mapId}
+                mapName={mapName}
+                revision={match.mapRevision}
+              />
+              <SheetBody xstyle={setupStyles.pickerBody}>
+                <CoBrief
+                  coId={previewCoId ?? shownCoId}
+                  factionCode={faction?.code ?? null}
+                  headingId={briefId}
+                />
+              </SheetBody>
+              {isReady ? null : (
+                <VStack xstyle={setupStyles.phoneHidden}>
+                  <SheetFoot>
+                    {declineKey()}
+                    {readyKey()}
+                  </SheetFoot>
                 </VStack>
-              </HStack>
-
-              <Text color="secondary" type="supporting">
-                You are matched on rating alone. The other player's name and commander appear when
-                the match starts, so neither of you can pick an opponent.
-              </Text>
-
-              <CoBoard
+              )}
+            </Sheet>
+          </VStack>
+          <VStack xstyle={[setupStyles.after, setupStyles.phoneHidden]}>
+            <Sheet aria-label="Battlefield">
+              <SheetBody xstyle={setupStyles.pickerBody}>
+                <BattlefieldPicture mapId={match.mapId} revision={match.mapRevision} />
+              </SheetBody>
+            </Sheet>
+          </VStack>
+        </VStack>
+        <VStack xstyle={setupStyles.picker}>
+          <Sheet aria-label="Commander">
+            <SheetBody xstyle={setupStyles.pickerBody}>
+              <TierPicker
                 bannedCoIds={bannedCoIds}
-                isDisabled={isReady || confirmation.isPending || match.phase !== "pending"}
-                isSaving={isBusy}
+                chosenCoId={shownCoId}
+                factionCode={faction?.code ?? null}
+                isDisabled={isReady || confirmation.isPending || !isOpen}
                 mode="pick"
                 onPick={(coId) => {
-                  if (!confirmation.isPending)
+                  if (!confirmation.isPending) {
                     seatChanges.changes.select(seat.slotIndex, { coId, ready: false });
+                  }
                 }}
-                selectedCoId={seat.coId}
-                size="sm"
-                tierList={coTierListFor({
-                  fogEnabled: match.settings.fogEnabled,
-                  playerCount: match.maxPlayers,
-                })}
+                onPreview={setPreviewCoId}
+                tierList={tierList}
               />
-
-              {isReady ? (
-                <Banner
-                  collapsible={false}
-                  description="The match opens as soon as the other player is ready."
-                  role="status"
-                  status="success"
-                  title="You are ready"
-                />
-              ) : (
-                <HStack gap={3} wrap="wrap">
-                  <Button
-                    clickAction={() => {
-                      if (seatChanges.changes.getSnapshot().intents.size === 0)
-                        confirmation.mutate({ action: "ready" });
-                    }}
-                    isDisabled={
-                      seat.coId === null || hasUnsavedChoice || isBusy || match.phase !== "pending"
-                    }
-                    isLoading={isBusy}
-                    label="Ready"
-                    variant="primary"
-                  />
-                  <Button
-                    clickAction={() => {
-                      if (seatChanges.changes.getSnapshot().isSaving || confirmation.isPending)
-                        return;
-                      if (!isDeclineArmed) {
-                        setIsDeclineArmed(true);
-                        return;
-                      }
-                      confirmation.mutate({ action: "refuse" });
-                    }}
-                    isDisabled={isBusy || match.phase !== "pending"}
-                    label={isDeclineArmed ? "Confirm decline" : "Decline this pairing"}
-                    variant={isDeclineArmed ? "destructive" : "ghost"}
-                  />
-                </HStack>
-              )}
-
-              {isDeclineArmed ? (
-                <Text color="secondary" type="supporting">
-                  Declining voids this match and returns you to the pool. It does not change your
-                  rating.
-                </Text>
-              ) : null}
-
-              {seatError ? (
-                <HStack gap={3}>
-                  <Text role="alert">Could not save your choice: {seatError}</Text>
-                  <Button
-                    label="Retry"
-                    isDisabled={isBusy || match.phase !== "pending"}
-                    clickAction={() => seatChanges.changes.retry()}
-                  />
-                </HStack>
-              ) : null}
-              {error ? (
-                <Text color="accent" role="alert" type="supporting">
-                  {error}
-                </Text>
-              ) : null}
-            </VStack>
-          </Card>
-        </Grid>
+            </SheetBody>
+          </Sheet>
+        </VStack>
       </VStack>
+
+      {isReady ? null : (
+        <TaskDock
+          isOwed
+          keys={
+            <>
+              {declineKey(true)}
+              {readyKey(true)}
+            </>
+          }
+          label="Your pick"
+          line={
+            <>
+              <SeatStamp coId={shownCoId} factionCode={faction?.code ?? null} />
+              {deadlineAt ? <Countdown deadlineAt={deadlineAt} tone="urgent" /> : null}
+            </>
+          }
+        />
+      )}
+
+      <ModalSheet
+        footer={
+          <>
+            <Button label="Keep pairing" onClick={() => setIsDeclineOpen(false)} />
+            <Button
+              clickAction={async () => {
+                setIsDeclineOpen(false);
+                confirmation.mutate([{ action: "refuse" }]);
+              }}
+              label="Confirm decline"
+              variant="destructive"
+              xstyle={styles.armed}
+            />
+          </>
+        }
+        isOpen={isDeclineOpen}
+        onOpenChange={setIsDeclineOpen}
+        purpose="form"
+        title="Void this pairing?"
+      >
+        <Text as="p" color="secondary" xstyle={styles.declineBody}>
+          Your rating is unchanged.
+        </Text>
+      </ModalSheet>
+    </Page>
+  );
+}
+
+/**
+ * A pairing whose window has closed, run out or declined. The band, Ready and
+ * Decline go with it, and the page is a banner with the way back to Ranked.
+ */
+export function ClosedPairing({ match }: { match: MatchSnapshot }) {
+  const mapQuery = useQuery(mapRevisionQueryOptions(match.mapId, match.mapRevision));
+  const mapEntryQuery = useQuery(mapCatalogEntryQueryOptions(match.mapId, match.mapRevision));
+  const mapName = mapQuery.data?.metadata.name ?? mapEntryQuery.data?.name ?? `Map ${match.mapId}`;
+  return (
+    <Page>
+      <header>
+        <HStack xstyle={setupStyles.head}>
+          <Heading level={1} xstyle={setupStyles.title}>
+            {mapName}
+          </Heading>
+        </HStack>
+      </header>
+      <ProblemBanner
+        action={<RouterButton label="Ranked" size="sm" to="/ranked" />}
+        status="warning"
+        title="This pairing has closed"
+      />
     </Page>
   );
 }
 
 const styles = stylex.create({
-  breakAnywhere: {
-    overflowWrap: "anywhere",
+  readyLine: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    inlineSize: "100%",
+  },
+  declineBody: {
+    paddingBlock: "16px",
+    paddingInline: "22px",
+    color: colorVars["--color-text-secondary"],
+  },
+  // Armed: the destructive key fills with danger.
+  armed: {
+    backgroundColor: "var(--color-danger)",
+    borderColor: "var(--color-danger)",
+    color: colorVars["--color-on-error"],
   },
 });

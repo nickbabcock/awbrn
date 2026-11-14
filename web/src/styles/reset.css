@@ -6,14 +6,11 @@
 
 /* Modern CSS reset adapted from https://piccalil.li/blog/a-more-modern-css-reset/ */
 
-/* Font assets. Three voices, one per surface of the source game:
-   Bungee is the box art, Silkscreen is the in-game HUD, Nunito is the briefing text. */
-@import "@fontsource/bungee";
-@import "@fontsource/silkscreen/400.css";
-@import "@fontsource/silkscreen/700.css";
-@import "@fontsource/nunito/400.css";
-@import "@fontsource/nunito/700.css";
-@import "@fontsource/nunito/800.css";
+/* Font assets. Archivo (wdth 62 to 125) for everything read; Martian Mono
+   (wdth 75 to 112.5), tabular, for every counted or running figure. The
+   "standard" files carry both the weight and the width axes. */
+@import "@fontsource-variable/archivo/standard.css";
+@import "@fontsource-variable/martian-mono/standard.css";
 
 @layer reset {
   /* Box sizing rules */
@@ -30,7 +27,7 @@
     text-size-adjust: none;
   }
 
-  /* Remove default margin in favour of better control in authored CSS */
+  /* Remove default margin in favor of better control in authored CSS */
   body,
   h1,
   h2,
@@ -50,10 +47,28 @@
     list-style: none;
   }
 
-  /* Set core body defaults */
+  /* Set core body defaults. Paper is the ground; the fallback face is scaled
+     to Archivo's x-height so text holds its size while the font loads. */
   body {
-    min-height: 100vh;
+    min-height: 100dvh;
     line-height: 1.5;
+    background-color: var(--color-background-body, #e6edf7);
+    color: var(--color-text-primary, #101b3a);
+    font-family: var(--font-family-body, "Archivo Variable", ui-sans-serif, system-ui, sans-serif);
+    font-size-adjust: from-font;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The browser's own surfaces wear the palette: selection, caret, scrollbars. */
+  ::selection {
+    background-color: #ffd2d8;
+    color: #0a1128;
+  }
+
+  html {
+    scrollbar-color: var(--color-rule-strong, #8f9dbf) transparent;
+    caret-color: var(--color-airmail-blue, #2747b0);
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* Set shorter line heights on headings and interactive elements */
@@ -100,6 +115,17 @@
   /* Make sure textareas without a rows attribute are not tiny */
   textarea:not([rows]) {
     min-height: 10em;
+  }
+
+  /* A title or turn line that takes focus on arrival shows the system ring
+     when the keyboard brought it there, and none after a tap or a click. */
+  [tabindex="-1"]:focus {
+    outline: none;
+  }
+
+  [tabindex="-1"]:focus-visible {
+    outline: 2px solid var(--focus-outline-color, #2747b0);
+    outline-offset: var(--focus-outline-offset, 2px);
   }
 
   /* Anything that has been anchored to should have extra scroll margin */

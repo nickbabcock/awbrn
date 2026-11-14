@@ -1,25 +1,35 @@
 import * as stylex from "@stylexjs/stylex";
 
 /**
- * The page frame every screen shares.
- *
- * One measure, one gutter, and one breakpoint, so a page reads as part of the
- * same product as the page before it. Structural widths are the one place raw
+ * The page frame every screen shares. Structural widths are the one place raw
  * px belongs; everything inside a page uses the spacing scale.
  */
 export const pageLayout = stylex.defineConsts({
-  /** The measure of an ordinary page: wide enough for a briefing beside a queue. */
   standardWidth: "1240px",
+  /** Content width; the gutters sit outside it. */
+  narrowWidth: "880px",
+  railWidth: "392px",
+  gutterDesktop: "32px",
+  gutterPhone: "16px",
   /**
-   * The measure of a page that sets a map at twice its size beside a panel,
-   * such as a lobby: a 20 by 20 map at its second pixel step, and eight faces
-   * to a row beside it.
+   * A notched phone held sideways is desktop-wide, with its camera housing in
+   * one side inset. A gutter is never narrower than the inset on its side.
    */
-  wideWidth: "1360px",
-  /** The measure of a page that is mostly prose or one form. */
-  narrowWidth: "760px",
-  /** Where a page takes its desktop arrangement. */
-  desktopMedia: "@media (min-width: 960px)",
-  /** Where a page is a phone, and its gutter closes in. */
-  phoneMedia: "@media (max-width: 599px)",
+  safeInsetLeft: "env(safe-area-inset-left, 0px)",
+  safeInsetRight: "env(safe-area-inset-right, 0px)",
+  topBarHeight: "56px",
+  topBarHeightPhone: "52px",
+  tabBarHeight: "64px",
+  /** Where a page sets its rail beside its main column. */
+  desktopMedia: "@media (min-width: 1181px)",
+  belowRailMedia: "@media (max-width: 1180px)",
+  tabletMedia: "@media (min-width: 721px) and (max-width: 1180px)",
+  phoneMedia: "@media (max-width: 720px)",
+  coarseMedia: "@media (pointer: coarse)",
+  /**
+   * Hover tones live only under this, so a tap never leaves one behind; pair
+   * each with the same tone on `:active` for touch.
+   */
+  hoverMedia: "@media (hover: hover)",
+  reducedMotionMedia: "@media (prefers-reduced-motion: reduce)",
 });

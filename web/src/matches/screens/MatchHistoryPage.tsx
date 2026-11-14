@@ -1,460 +1,347 @@
-import { useSuspenseInfiniteQuery } from "@tanstack/react-query";
-import { Banner } from "@astryxdesign/core/Banner";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Heading } from "@astryxdesign/core/Heading";
-import { Section } from "@astryxdesign/core/Section";
+import { Icon } from "@astryxdesign/core/Icon";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
-import { Download as DownloadIcon } from "pixelarticons/react/Download";
+import { colorVars, textSizeVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { useQuery, useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
-import { useState } from "react";
-import { awbwSmallMapAssetPath } from "#/awbw/paths.ts";
-import { CoPortrait } from "#/components/CoPortrait.tsx";
-import { getCoPortraitByAwbwId, loadCoPortraitCatalog } from "#/components/co_portraits.ts";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
 import { getFactionById } from "#/factions.ts";
-import {
-  formatMatchDuration,
-  formatRatingChange,
-  formatSeatResultReason,
-  formatVerdict,
-  opposingSeats,
-  viewerOutcome,
-} from "#/matches/match_history.ts";
+import { mapCatalogEntryQueryOptions } from "#/maps/maps.queries.ts";
+import { formatSeatResultReason, opposingSeats, viewerOutcome } from "#/matches/match_history.ts";
 import { myCompletedMatchesQueryOptions } from "#/matches/matches.queries.ts";
 import { matchReplayDownloadPath } from "#/matches/replay_archive.ts";
-import type {
-  MatchHistoryEntry,
-  MatchHistorySeat,
-  MatchOutcome,
-  RankedPool,
-} from "#/matches/schemas.ts";
-import { awbrnVars, matchHistoryVars } from "#/themes/awbrnTokens.stylex.ts";
+import type { MatchHistoryEntry, MatchHistorySeat, MatchOutcome } from "#/matches/schemas.ts";
+import { SeatStamp } from "#/play/Opponents.tsx";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
-import { RouterButton, RouterTextLink } from "#/ui/astryx-links.tsx";
-import { Thumbnail } from "#/ui/Thumbnail.tsx";
-import { MATCH_REPORT_MEDIA_SIZE } from "#/ui/layout.ts";
-import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
-import { formatClockSummary } from "#/matches/match_clock.ts";
+import { RouterButton } from "#/ui/astryx-links.tsx";
+import { EmptySheet, ProblemBanner } from "#/ui/EmptySheet.tsx";
+import { Figure } from "#/ui/Figure.tsx";
+import { IconDownload } from "#/ui/icons.tsx";
 import { Page, PageHeader } from "#/ui/Page.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { Postmark } from "#/ui/Postmark.tsx";
+import { Sheet, SheetRow, SheetRows } from "#/ui/Sheet.tsx";
 
-const dateFormat = new Intl.DateTimeFormat(undefined, {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
+const monthFormat = new Intl.DateTimeFormat("en-US", { month: "short" });
+const longDateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "long" });
 
-/**
- * Every battle the player has finished, each one as its own after action
- * report.
- *
- * The page is a stack of debriefs and nothing else: no filters and no tally
- * above them, because the reports are what the player came back for. Each one
- * opens on a band of the armies that fought it, so the matchup reads before the
- * name does, and closes on the two things a finished battle is still good for —
- * opening it again, and taking the replay away.
- */
 export function MatchHistoryPage() {
   const historyQuery = useSuspenseInfiniteQuery(myCompletedMatchesQueryOptions());
-  const [paginationError, setPaginationError] = useState<string | null>(null);
   const matches = historyQuery.data.pages.flatMap((page) => page.matches);
-  const portraitCatalog = loadCoPortraitCatalog();
 
   async function handleLoadMore(): Promise<void> {
     if (historyQuery.isFetchingNextPage || !historyQuery.hasNextPage) return;
-
-    setPaginationError(null);
-    try {
-      await historyQuery.fetchNextPage();
-    } catch (nextError) {
-      setPaginationError(
-        nextError instanceof Error ? nextError.message : "More completed games failed to load.",
-      );
-    }
+    await historyQuery.fetchNextPage();
   }
 
   return (
-    <Page>
-      <VStack gap={6}>
-        <PageHeader
-          description="Every battle you have finished, and the replay archive it left behind."
-          title="My games"
+    <Page width="narrow">
+      <PageHeader title="My games" />
+
+      {matches.length === 0 ? (
+        <EmptySheet title="No finished battles yet" />
+      ) : (
+        <Sheet aria-label="History">
+          <SheetRows hasTopRule={false}>
+            {matches.map((entry) => (
+              <SheetRow key={entry.matchId}>
+                <Report entry={entry} />
+              </SheetRow>
+            ))}
+          </SheetRows>
+        </Sheet>
+      )}
+
+      {historyQuery.isFetchNextPageError ? (
+        <ProblemBanner
+          action={<Button clickAction={handleLoadMore} label="Retry" size="sm" />}
+          title="More finished battles failed to load"
         />
+      ) : null}
 
-        {paginationError ? (
-          <Banner
-            description={paginationError}
-            endContent={
-              <Button clickAction={handleLoadMore} label="Retry" size="sm" variant="secondary" />
-            }
-            role="alert"
-            status="error"
-            title="More completed games failed to load"
+      {matches.length > 0 && historyQuery.hasNextPage ? (
+        <HStack justify="center">
+          <Button
+            clickAction={handleLoadMore}
+            isLoading={historyQuery.isFetchingNextPage}
+            label="Load more"
           />
-        ) : null}
-
-        {matches.length === 0 ? (
-          <EmptyState
-            actions={
-              <HStack gap={2} justify="center" wrap="wrap">
-                <RouterButton label="Browse lobbies" to="/matches" variant="primary" />
-                <RouterButton label="Ongoing games" to="/my/matches" variant="secondary" />
-              </HStack>
-            }
-            description="Play a match to the end and its report lands here, with the replay archive beside it."
-            headingLevel={2}
-            title="You have not finished a battle yet"
-          />
-        ) : (
-          <Section padding={0} variant="section">
-            <VStack as="ul" gap={0}>
-              {matches.map((entry, index) => (
-                <AfterActionReport
-                  entry={entry}
-                  hasRuleAbove={index > 0}
-                  key={entry.matchId}
-                  portraitCatalog={portraitCatalog}
-                />
-              ))}
-            </VStack>
-          </Section>
-        )}
-
-        {matches.length > 0 && historyQuery.hasNextPage ? (
-          <HStack justify="center">
-            <Button
-              clickAction={handleLoadMore}
-              isLoading={historyQuery.isFetchingNextPage}
-              label="Load more"
-              size="sm"
-              variant="secondary"
-            />
-          </HStack>
-        ) : null}
-      </VStack>
+        </HStack>
+      ) : null}
     </Page>
   );
 }
 
-/**
- * One finished battle.
- *
- * The band across the top is the armies that fought, in seat order and in their
- * own colors. It is also the rule between one report and the next, so the stack
- * divides on the matchup rather than on a neutral line. Color is never the only
- * carrier: every army named in the band is named again below it, beside its
- * insignia and its CO.
- */
-function AfterActionReport({
-  entry,
-  hasRuleAbove,
-  portraitCatalog,
-}: {
-  entry: MatchHistoryEntry;
-  hasRuleAbove: boolean;
-  portraitCatalog: ReturnType<typeof loadCoPortraitCatalog>;
-}) {
+/** One finished battle. */
+function Report({ entry }: { entry: MatchHistoryEntry }) {
+  const { data: map } = useQuery(mapCatalogEntryQueryOptions(entry.mapId, entry.mapRevision));
   const viewerSeats = entry.seats.filter((seat) =>
     entry.viewerSlotIndexes.includes(seat.slotIndex),
   );
   const opponents = opposingSeats(entry.seats, entry.viewerSlotIndexes);
-  const outcome = viewerOutcome(viewerSeats);
   const isHotseat = viewerSeats.length > 1;
-  const duration = formatMatchDuration(entry.startedAt, entry.completedAt);
+  const outcome = viewerOutcome(viewerSeats);
+  const mapName = map?.name ?? null;
+  const isRanked = entry.pool !== null;
+  const title = isRanked ? `Ranked · ${mapName ?? entry.name}` : entry.name;
+  const completed = new Date(entry.completedAt);
 
-  const details = [
-    dateFormat.format(new Date(entry.completedAt)),
-    duration,
-    `Map ${entry.mapId}`,
-    entry.settings.fogEnabled ? "Fog on" : "Fog off",
-    `${entry.settings.startingFunds.toLocaleString()} funds`,
-    formatClockSummary(entry.settings.clock),
-    entry.isPrivate ? "Private" : null,
-  ].filter((detail): detail is string => detail !== null);
+  // A ranked match is titled by its map, and a match named for its map says
+  // it once. The result is the tag and each seat says why it ended, so the
+  // line under the title is the map alone.
+  const meta = isRanked || mapName === entry.name ? null : mapName;
 
   return (
-    <VStack as="li" gap={0} xstyle={[styles.report, hasRuleAbove && styles.reportRule]}>
-      <ArmyBand seats={entry.seats} />
-      <HStack align="start" gap={4} wrap="wrap" xstyle={styles.reportBody}>
-        <HStack align="start" gap={3} xstyle={styles.brief}>
-          <Thumbnail
-            alt={`Map preview for ${entry.name}`}
-            label={`${entry.name} map`}
-            src={entry.awbwMapId === null ? undefined : awbwSmallMapAssetPath(entry.awbwMapId)}
-          />
-          <VStack gap={2} xstyle={styles.briefText}>
-            <Heading level={2}>
-              <RouterTextLink params={{ matchId: entry.matchId }} to="/matches/$matchId">
-                {entry.name}
-              </RouterTextLink>
-            </Heading>
-            <HStack align="center" gap={3} wrap="wrap">
-              {viewerSeats.map((seat) => (
-                <SeatMark
-                  isViewer
-                  key={seat.slotIndex}
-                  portraitCatalog={portraitCatalog}
-                  seat={seat}
-                />
-              ))}
-              {opponents.length > 0 ? (
-                <Text color="secondary" type="label" xstyle={styles.versus}>
-                  vs
-                </Text>
-              ) : null}
-              {opponents.map((seat) => (
-                <SeatMark key={seat.slotIndex} portraitCatalog={portraitCatalog} seat={seat} />
-              ))}
-            </HStack>
-            <Text color="secondary" type="label">
-              {details.join(" · ")}
-            </Text>
-          </VStack>
+    <VStack xstyle={styles.report}>
+      <Postmark
+        figure={completed.getDate()}
+        label={`Finished ${longDateFormat.format(completed)}`}
+        ringText={String(completed.getFullYear())}
+        size={72}
+        word={monthFormat.format(completed).toUpperCase()}
+        xstyle={styles.postmark}
+      />
+      <VStack xstyle={styles.main}>
+        <HStack xstyle={styles.titleLine}>
+          <Text color="inherit" type="inherit" xstyle={styles.title}>
+            {title}
+          </Text>
+          <ResultTag isHotseat={isHotseat} outcome={outcome} />
         </HStack>
-
-        <VStack align="end" gap={2} xstyle={styles.verdictColumn}>
-          <Verdict isHotseat={isHotseat} outcome={outcome} pool={entry.pool} seats={viewerSeats} />
+        {meta !== null ? (
+          <Text as="div" color="inherit" display="block" type="inherit" xstyle={styles.meta}>
+            {meta}
+          </Text>
+        ) : null}
+        <ul aria-label="Seats" {...stylex.props(styles.seats)}>
+          {[...viewerSeats, ...opponents].map((seat) => (
+            <ReportSeat isHotseat={isHotseat} key={seat.slotIndex} seat={seat} />
+          ))}
+        </ul>
+      </VStack>
+      <HStack xstyle={styles.end}>
+        {isRanked && !isHotseat ? <RatingMove seat={viewerSeats[0]} /> : null}
+        <HStack as="span" xstyle={styles.keys}>
           {entry.hasReplay ? (
-            <Button
-              as="a"
-              href={matchReplayDownloadPath(entry.matchId)}
-              icon={<DownloadIcon />}
-              label={`Replay archive for ${entry.name}`}
-              size="sm"
-              variant="secondary"
-            >
-              Replay
-            </Button>
-          ) : (
-            <Text color="secondary" type="label">
-              No replay stored
-            </Text>
-          )}
-        </VStack>
+            <>
+              <Button
+                as="a"
+                href={matchReplayDownloadPath(entry.matchId)}
+                icon={<Icon icon={IconDownload} />}
+                isIconOnly
+                label={`Download the replay archive for ${title}`}
+                tooltip="Replay archive"
+              />
+              <RouterButton
+                aria-label={`Watch ${title}`}
+                label="Watch"
+                params={{ matchId: entry.matchId }}
+                to="/matches/$matchId"
+                xstyle={styles.watch}
+              />
+            </>
+          ) : null}
+        </HStack>
       </HStack>
     </VStack>
   );
 }
 
-/**
- * The armies that fought, as one band across the top of the report.
- *
- * Decorative on purpose: it repeats what the seats below already say in words,
- * so nothing here has to be read to understand the battle.
- */
-function ArmyBand({ seats }: { seats: readonly MatchHistorySeat[] }) {
+/** The result in words, on a tag: "You won" in green, "You lost" plain. */
+function ResultTag({ isHotseat, outcome }: { isHotseat: boolean; outcome: MatchOutcome | null }) {
+  const label = isHotseat
+    ? "Hotseat"
+    : outcome === "win"
+      ? "You won"
+      : outcome === "loss"
+        ? "You lost"
+        : outcome === "draw"
+          ? "A draw"
+          : "No result";
   return (
-    <HStack aria-hidden="true" gap={0} xstyle={styles.band}>
-      {seats.map((seat) => {
-        const faction = getFactionById(seat.factionId);
-        return (
-          <HStack
-            as="span"
-            gap={0}
-            key={seat.slotIndex}
-            xstyle={[
-              styles.bandSegment,
-              faction && styles.factionBandSegment(`var(--color-faction-${faction.code}-accent)`),
-            ]}
-          />
-        );
-      })}
+    <HStack as="span" xstyle={[styles.tag, outcome === "win" && !isHotseat && styles.tagWin]}>
+      {label}
     </HStack>
   );
 }
 
-/** One army in the matchup: its insignia, its CO, and the player who ran it. */
-function SeatMark({
-  isViewer = false,
-  portraitCatalog,
-  seat,
-}: {
-  isViewer?: boolean;
-  portraitCatalog: ReturnType<typeof loadCoPortraitCatalog>;
-  seat: MatchHistorySeat;
-}) {
+/**
+ * A seat with no recorded reason says nothing, except a hotseat's winner: its
+ * tag says "Hotseat", so the seat says who won.
+ */
+function ReportSeat({ isHotseat, seat }: { isHotseat: boolean; seat: MatchHistorySeat }) {
   const faction = getFactionById(seat.factionId);
-  const co = seat.coId === null ? null : getCoPortraitByAwbwId(seat.coId);
-  const armyName = faction?.displayName ?? "Unknown army";
-
+  const reason =
+    seat.reason !== null
+      ? formatSeatResultReason(seat.outcome, seat.reason)
+      : isHotseat && seat.outcome === "win"
+        ? "Won"
+        : null;
   return (
-    <HStack align="center" gap={1.5}>
-      <CoPortrait
-        catalog={portraitCatalog}
-        coKey={co?.key ?? null}
-        fallbackLabel={co?.displayName ?? "No CO"}
-        size={MATCH_REPORT_MEDIA_SIZE.portrait}
-      />
-      <VStack gap={0.5}>
-        <Text maxLines={1} type="label" weight={isViewer ? "bold" : undefined}>
-          {seat.userName}
-          {isViewer ? <VisuallyHidden> (you)</VisuallyHidden> : null}
+    <li {...stylex.props(styles.seat)}>
+      {faction ? <FactionLogo factionCode={faction.code} isLabelHidden size={14} /> : null}
+      <SeatStamp coId={seat.coId} factionCode={faction?.code ?? null} />
+      <b>{seat.userName}</b>
+      {reason !== null ? (
+        <Text color="inherit" type="inherit" xstyle={styles.seatReason}>
+          {reason}
         </Text>
-        <HStack align="center" gap={1}>
-          {faction ? (
-            <FactionLogo
-              factionCode={faction.code}
-              isFramed={false}
-              isLabelHidden
-              size={MATCH_REPORT_MEDIA_SIZE.crest}
-            />
-          ) : null}
-          <Text color="secondary" maxLines={1} type="label">
-            {armyName}
-            {co ? ` · ${co.displayName}` : ""}
-          </Text>
-        </HStack>
-      </VStack>
-    </HStack>
+      ) : null}
+    </li>
   );
 }
 
-/**
- * How the battle ended for the player.
- *
- * A hotseat match the player ran from every seat has no personal verdict, so it
- * reports the army that won instead of claiming a victory nobody contested.
- */
-function Verdict({
-  isHotseat,
-  outcome,
-  pool,
-  seats,
-}: {
-  isHotseat: boolean;
-  outcome: MatchOutcome | null;
-  pool: RankedPool | null;
-  seats: readonly MatchHistorySeat[];
-}) {
-  if (isHotseat) {
-    const winner = seats.find((seat) => seat.outcome === "win");
-    const winningArmy = winner ? getFactionById(winner.factionId)?.displayName : null;
-    return (
-      <VStack align="end" gap={0.5}>
-        <Text type="label" xstyle={[styles.verdict, styles.verdictNeutral]}>
-          Hotseat
-        </Text>
-        <Text color="secondary" type="label">
-          {winningArmy ? `${winningArmy} won` : "No result recorded"}
-        </Text>
-      </VStack>
-    );
+/** What a ranked match did to the viewer's rating: `1500 → 1516` over `+16`. */
+function RatingMove({ seat }: { seat: MatchHistorySeat | undefined }) {
+  if (!seat || seat.ratingBefore === null || seat.ratingAfter === null) {
+    return <Figure tone="secondary">Rating pending</Figure>;
   }
-
-  const seat = seats[0];
-  const ratingChange = formatRatingChange(seat, pool);
+  const before = Math.round(seat.ratingBefore);
+  const after = Math.round(seat.ratingAfter);
+  const change = after - before;
   return (
-    <VStack align="end" gap={0.5}>
-      <Text type="label" xstyle={[styles.verdict, verdictStyle(outcome)]}>
-        {formatVerdict(outcome)}
-      </Text>
-      <Text color="secondary" type="label">
-        {formatSeatResultReason(outcome, seat?.reason ?? null)}
-      </Text>
-      {ratingChange === null ? null : (
-        <Text color="secondary" type="label">
-          {ratingChange}
-        </Text>
-      )}
+    <VStack as="span" xstyle={styles.rating}>
+      <Figure size="lg">
+        {before} → {after}
+      </Figure>
+      <Figure tone={change >= 0 ? "ok" : "danger"} xstyle={styles.ratingChange}>
+        {change >= 0 ? `+${change}` : `−${Math.abs(change)}`}
+      </Figure>
     </VStack>
   );
 }
 
-function verdictStyle(outcome: MatchOutcome | null) {
-  switch (outcome) {
-    case "win":
-      return styles.verdictWin;
-    case "loss":
-      return styles.verdictLoss;
-    case "draw":
-      return styles.verdictDraw;
-    case null:
-      return styles.verdictNeutral;
-  }
-}
-
 const styles = stylex.create({
-  // Once the armies stack, the separator takes its own line; left at the end of
-  // a wrapped row it reads as a stray label rather than as a matchup.
-  versus: {
-    flexBasis: {
-      default: "auto",
-      [rosterLayout.stackedMedia]: "100%",
+  report: {
+    display: "grid",
+    gridTemplateColumns: {
+      default: "auto minmax(0, 1fr) auto",
+      [pageLayout.phoneMedia]: "auto minmax(0, 1fr)",
+    },
+    alignItems: "center",
+    gap: {
+      default: "20px",
+      [pageLayout.phoneMedia]: "12px",
+    },
+    paddingBlock: {
+      default: "16px",
+      [pageLayout.phoneMedia]: "14px",
+    },
+    paddingInline: {
+      default: "20px",
+      [pageLayout.phoneMedia]: "16px",
     },
   },
-  report: {
+  postmark: {
+    inlineSize: {
+      default: "72px",
+      [pageLayout.phoneMedia]: "56px",
+    },
+    blockSize: {
+      default: "72px",
+      [pageLayout.phoneMedia]: "56px",
+    },
+  },
+  main: {
+    display: "grid",
+    gap: "6px",
+    minInlineSize: 0,
+  },
+  titleLine: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "8px",
+  },
+  title: {
+    fontSize: awbrnVars.text16,
+    fontWeight: 700,
+    lineHeight: 1.25,
+    minInlineSize: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  tag: {
+    display: "inline-flex",
+    alignItems: "center",
+    blockSize: "22px",
+    paddingInline: "8px",
+    borderRadius: "4px",
+    backgroundColor: awbrnVars.paperWell,
+    color: colorVars["--color-text-secondary"],
+    fontSize: awbrnVars.text12,
+    fontWeight: 650,
+    letterSpacing: "0.02em",
+    whiteSpace: "nowrap",
+  },
+  tagWin: {
+    backgroundColor: "var(--color-success-muted)",
+    color: awbrnVars.ok,
+  },
+  meta: {
+    color: colorVars["--color-text-secondary"],
+    fontSize: awbrnVars.text13_5,
+  },
+  seats: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    rowGap: "8px",
+    columnGap: "20px",
+    margin: 0,
+    marginBlockStart: "4px",
+    padding: 0,
     listStyle: "none",
   },
-  // The band is the rule between reports, so no second line is drawn above it.
-  reportRule: {
-    borderTopWidth: "var(--border-width)",
-    borderTopStyle: "solid",
-    borderTopColor: awbrnVars.colorBorderSoft,
+  seat: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    fontSize: awbrnVars.text14_5,
   },
-  reportBody: {
-    paddingBlock: spacingVars["--spacing-4"],
-    paddingInline: spacingVars["--spacing-4"],
+  seatReason: {
+    color: colorVars["--color-text-secondary"],
+    fontSize: textSizeVars["--font-size-sm"],
   },
-  // Wide enough that the map, the matchup, and the metadata hold one column
-  // together, and narrow enough that the verdict wraps beneath them on a phone.
-  brief: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: matchHistoryVars.briefWidth,
-    minWidth: 0,
+  end: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "16px",
+    gridColumn: {
+      default: "auto",
+      [pageLayout.phoneMedia]: "1 / -1",
+    },
   },
-  briefText: {
-    minWidth: 0,
+  keys: {
+    display: "flex",
+    gap: "8px",
+    flexGrow: {
+      default: 0,
+      [pageLayout.phoneMedia]: 1,
+    },
   },
-  verdictColumn: {
-    flexGrow: 1,
-    flexShrink: 0,
-    flexBasis: "auto",
+  watch: {
+    flexGrow: {
+      default: 0,
+      [pageLayout.phoneMedia]: 1,
+    },
   },
-  band: {
-    height: spacingVars["--spacing-1-5"],
-    width: "100%",
+  rating: {
+    display: "grid",
+    justifyItems: {
+      default: "end",
+      [pageLayout.phoneMedia]: "start",
+    },
+    gap: "4px",
+    marginInlineEnd: {
+      default: 0,
+      [pageLayout.phoneMedia]: "auto",
+    },
   },
-  bandSegment: {
-    flexGrow: 1,
-    flexBasis: 0,
-    backgroundColor: colorVars["--color-background-muted"],
-  },
-  factionBandSegment: (backgroundColor: string) => ({
-    backgroundColor,
-  }),
-  // The verdict is a stamp: outlined, filled, and named. It never depends on
-  // its fill to be read.
-  verdict: {
-    borderWidth: "var(--border-width)",
-    borderStyle: "solid",
-    borderRadius: "var(--radius-inner)",
-    paddingBlock: spacingVars["--spacing-1"],
-    paddingInline: spacingVars["--spacing-2"],
-  },
-  // The status color outlines and fills the stamp, but the word is set in ink:
-  // a verdict has to clear its own ground, and no status hue does that at
-  // label size against its own tint.
-  verdictWin: {
-    backgroundColor: "var(--color-success-muted)",
-    borderColor: "var(--color-success)",
-    color: colorVars["--color-text-primary"],
-  },
-  verdictLoss: {
-    backgroundColor: "var(--color-error-muted)",
-    borderColor: "var(--color-error)",
-    color: colorVars["--color-text-primary"],
-  },
-  verdictDraw: {
-    backgroundColor: "var(--color-warning-muted)",
-    borderColor: "var(--color-warning)",
-    color: colorVars["--color-text-primary"],
-  },
-  verdictNeutral: {
-    backgroundColor: colorVars["--color-background-muted"],
-    borderColor: "var(--color-border-emphasized)",
-    color: colorVars["--color-text-primary"],
+  ratingChange: {
+    fontWeight: 650,
   },
 });

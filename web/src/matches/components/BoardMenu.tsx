@@ -1,6 +1,8 @@
 import { spacingDefaults } from "@astryxdesign/core";
 import { Button } from "#/ui/Button.tsx";
+import { overlayMotion } from "#/ui/overlayMotion.ts";
 import { BottomSheet } from "@astryxdesign/core/BottomSheet";
+import { Icon } from "@astryxdesign/core/Icon";
 import { VStack } from "@astryxdesign/core/Stack";
 import {
   borderVars,
@@ -8,8 +10,6 @@ import {
   radiusVars,
   shadowVars,
   spacingVars,
-  textSizeVars,
-  typographyVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { StyleXStyles } from "@stylexjs/stylex";
@@ -26,7 +26,11 @@ import {
   type RefObject,
 } from "react";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
-import { boardMenuLayout } from "./boardMenuLayout.stylex.ts";
+import { IconClose } from "#/ui/icons.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { boardMenuLayout, menuRowMarker } from "./boardMenuLayout.stylex.ts";
+
+export { menuRowMarker };
 
 /**
  * How a menu the board opened is drawn, which follows the input that opened it
@@ -36,7 +40,7 @@ import { boardMenuLayout } from "./boardMenuLayout.stylex.ts";
  * cannot read, and because a sheet is the shape a phone already uses for a
  * choice.
  */
-export type BoardMenuPresentation = "board" | "sheet";
+export type BoardMenuPresentation = "board" | "sheet" | "docked";
 
 /** The gap between the menu and the point it was opened from, and the frame. */
 const BOARD_MENU_INSET = Number.parseFloat(spacingDefaults["--spacing-2"]);
@@ -45,6 +49,11 @@ const BOARD_MENU_CURSOR_OFFSET = Number.parseFloat(spacingDefaults["--spacing-3"
 export interface BoardMenuShellProps {
   /** Where the board was pressed, in surface pixels. Null when no pointer opened it. */
   anchor: { x: number; y: number } | null;
+  /**
+   * The sheet only: false while it leaves, so its exit plays. The parent keeps
+   * it mounted that long (`useLeaving`). The other shapes cut and ignore it.
+   */
+  isOpen?: boolean;
   /** Names the menu for assistive technology. */
   label: string;
   onDismiss: () => void;
@@ -83,10 +92,27 @@ export interface BoardMenuShellProps {
  * so they are one component here, differing only in what they list.
  */
 export function BoardMenuShell(props: BoardMenuShellProps) {
+  if (props.presentation === "docked") return <DockedMenu {...props} />;
   return props.presentation === "sheet" ? (
     <MenuSheet {...props} />
   ) : (
     <BoardAnchoredMenu {...props} />
+  );
+}
+
+/**
+ * The menu docked in the table's column beside the board. It never stands
+ * over a tile, so the board stays tappable for another target. The page keys
+ * it by the selection so each new one lands.
+ */
+function DockedMenu({ children, footer, label, onDismiss, onRestoreFocus }: BoardMenuShellProps) {
+  return (
+    <VStack aria-label={label} gap={0} role="dialog" xstyle={styles.dockedMenu}>
+      <MenuKeyboardScope onDismiss={onDismiss} onRestoreFocus={onRestoreFocus} takesCursor>
+        {children({ isSheet: false, spriteScale: 1, takesCursor: true })}
+      </MenuKeyboardScope>
+      {footer}
+    </VStack>
   );
 }
 
@@ -216,14 +242,13 @@ export function BoardAnchoredPanel({
       role={role}
       // The panel is measured at its natural size on the first pass, so it is
       // held out of view until the frame it must fit inside is known.
-      style={{
-        ...(inlineSize ? { inlineSize } : {}),
-        ...(frame
-          ? { insetBlockStart: frame.top, insetInlineStart: frame.left, maxHeight: frame.maxHeight }
-          : { opacity: 0 }),
-      }}
       ref={panelRef}
-      xstyle={[styles.boardMenu, xstyle]}
+      xstyle={[
+        styles.boardMenu,
+        xstyle,
+        inlineSize ? styles.panelInlineSize(inlineSize) : null,
+        frame ? styles.panelFrame(frame.top, frame.left, frame.maxHeight) : styles.panelUnplaced,
+      ]}
     >
       {children}
     </VStack>
@@ -237,10 +262,17 @@ export function BoardAnchoredPanel({
  * than leaving two live surfaces, and the sheet keeps the phone's own dismissal
  * habits: press outside, press Cancel, or send Escape from a keyboard.
  */
-function MenuSheet({ children, footer, label, onDismiss, onRestoreFocus }: BoardMenuShellProps) {
+function MenuSheet({
+  children,
+  footer,
+  isOpen = true,
+  label,
+  onDismiss,
+  onRestoreFocus,
+}: BoardMenuShellProps) {
   const handleOpenChange = useCallback(
-    (isOpen: boolean) => {
-      if (!isOpen) onDismiss();
+    (next: boolean) => {
+      if (!next) onDismiss();
     },
     [onDismiss],
   );
@@ -248,30 +280,26 @@ function MenuSheet({ children, footer, label, onDismiss, onRestoreFocus }: Board
   return (
     <BottomSheet
       height="capped"
-      isOpen
+      isOpen={isOpen}
       label={label}
       onOpenChange={handleOpenChange}
       purpose="info"
-      xstyle={styles.sheet}
+      xstyle={[styles.sheet, overlayMotion.sheet, !isOpen && overlayMotion.sheetLeaving]}
       padding={0}
     >
       {/* The sheet itself takes the focus a modal must place somewhere. Without
           a target the browser falls to the scrolling list, which then wears a
           focus ring nobody asked for the moment the sheet opens. */}
+      <Button
+        icon={<Icon icon={IconClose} />}
+        isIconOnly
+        label="Close"
+        onClick={onDismiss}
+        variant="ghost-on-ink"
+        xstyle={styles.sheetClose}
+      />
       <MenuKeyboardScope
-        footer={
-          footer ?? (
-            <VStack gap={0} paddingBlock={3} paddingInline={3} xstyle={styles.sheetFooter}>
-              <Button
-                clickAction={onDismiss}
-                label="Cancel"
-                size="lg"
-                variant="secondary"
-                width="100%"
-              />
-            </VStack>
-          )
-        }
+        footer={footer}
         onDismiss={onDismiss}
         onRestoreFocus={onRestoreFocus}
         takesCursor={false}
@@ -450,51 +478,82 @@ export const boardMenuStyles = stylex.create({
   body: {
     minBlockSize: 0,
   },
-  // The readout strip at the head of a menu.
   header: {
-    borderBlockEndWidth: borderVars["--border-width"],
-    borderBlockEndStyle: "solid",
-    borderBlockEndColor: colorVars["--color-border-emphasized"],
-    backgroundColor: colorVars["--color-background-muted"],
+    minBlockSize: "44px",
+    paddingBlock: awbrnVars.spacing2_5,
+    paddingInlineStart: awbrnVars.spacing3_5,
+    paddingInlineEnd: awbrnVars.spacing3_5,
+    backgroundColor: awbrnVars.ink900,
+    color: awbrnVars.textOnInkStrong,
+    "--color-text-primary": awbrnVars.textOnInkStrong,
+    "--color-text-secondary": awbrnVars.textOnInkSecondary,
   },
   list: {
     minBlockSize: 0,
     overflowY: "auto",
     overscrollBehavior: "contain",
   },
-  // The order itself. Rows run edge to edge and divide with the same soft rule
-  // the roster uses; the row under the cursor wears the orange selection.
   row: {
     display: "flex",
     alignItems: "center",
     gap: spacingVars["--spacing-2"],
     inlineSize: "100%",
-    minBlockSize: boardMenuLayout.buildRowMinBlockSize,
-    paddingBlock: spacingVars["--spacing-1"],
-    paddingInline: spacingVars["--spacing-3"],
+    minBlockSize: "48px",
+    paddingBlock: spacingVars["--spacing-1-5"],
+    paddingInlineStart: awbrnVars.spacing2_5,
+    paddingInlineEnd: awbrnVars.spacing3_5,
     margin: 0,
     borderWidth: 0,
-    borderBlockEndStyle: "solid",
-    borderBlockEndColor: awbrnVars.colorBorderSoft,
-    borderBlockEndWidth: { default: borderVars["--border-width"], ":last-child": 0 },
-    // The cursor: the same orange fill a chosen tab wears, flush on the panel
-    // rather than raised above it.
-    backgroundColor: { default: "transparent", ":focus": colorVars["--color-accent"] },
+    borderBlockStartStyle: "solid",
+    borderBlockStartColor: awbrnVars.rule,
+    borderBlockStartWidth: { default: "1px", ":first-child": 0 },
+    backgroundColor: {
+      default: awbrnVars.sheet,
+      // Under a pointer that hovers only: a tap in the sheet never leaves a
+      // row lit as the cursor, which the sheet opens without.
+      ":hover": { default: null, [pageLayout.hoverMedia]: awbrnVars.redWash },
+      ":focus": awbrnVars.redWash,
+      ":active": awbrnVars.redWash,
+    },
     color: colorVars["--color-text-primary"],
+    fontFamily: "inherit",
+    fontSize: awbrnVars.text15_5,
+    fontWeight: 650,
     cursor: "pointer",
     outline: "none",
     textAlign: "start",
+    transitionDuration: {
+      default: "90ms",
+      [pageLayout.reducedMotionMedia]: "0s",
+    },
+    transitionProperty: "background-color",
+    transitionTimingFunction: awbrnVars.easeStep,
   },
   rowSpacious: {
-    minBlockSize: boardMenuLayout.buildRowSpaciousMinBlockSize,
-    paddingBlock: spacingVars["--spacing-1-5"],
+    minBlockSize: "56px",
+    fontSize: awbrnVars.text16,
   },
   // A command that cannot be sent stays legible and stays a key on the menu; it
   // simply refuses the cursor.
   rowInert: {
-    backgroundColor: "transparent",
+    backgroundColor: awbrnVars.sheet,
     cursor: "not-allowed",
-    opacity: 0.45,
+    color: awbrnVars.textTertiary,
+  },
+  // The red caret on the row under the cursor.
+  caret: {
+    flexShrink: 0,
+    inlineSize: "16px",
+    blockSize: "16px",
+    color: awbrnVars.red,
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":focus", menuRowMarker)]: 1,
+      [pageLayout.hoverMedia]: {
+        default: 0,
+        [stylex.when.ancestor(":hover", menuRowMarker)]: 1,
+      },
+    },
   },
   sprite: {
     display: "block",
@@ -503,10 +562,6 @@ export const boardMenuStyles = stylex.create({
   rowName: {
     flex: "1 1 auto",
     minInlineSize: 0,
-    fontFamily: typographyVars["--font-family-code"],
-    fontSize: textSizeVars["--font-size-sm"],
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -514,14 +569,43 @@ export const boardMenuStyles = stylex.create({
   notice: {
     borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
-    borderBlockStartColor: awbrnVars.colorBorderSoft,
-    backgroundColor: colorVars["--color-background-muted"],
+    borderBlockStartColor: awbrnVars.rule,
+    backgroundColor: awbrnVars.paper,
   },
+});
+
+/** The red caret a chosen order wears. */
+export function MenuCaret() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="currentColor"
+      viewBox="0 0 16 16"
+      {...stylex.props(boardMenuStyles.caret)}
+    >
+      <path d="M5 3l6 5-6 5z" />
+    </svg>
+  );
+}
+
+/** Two visible frames: halfway, then there. */
+const land = stylex.keyframes({
+  from: { opacity: 0 },
+  to: { opacity: 1 },
 });
 
 const styles = stylex.create({
   scope: {
     minBlockSize: 0,
+  },
+  panelInlineSize: (inlineSize: string) => ({ inlineSize }),
+  panelFrame: (top: number, left: number, maxHeight: number) => ({
+    insetBlockStart: `${top}px`,
+    insetInlineStart: `${left}px`,
+    maxBlockSize: `${maxHeight}px`,
+  }),
+  panelUnplaced: {
+    opacity: 0,
   },
   // The menu is a window the board opened: the standard panel, lifted to the
   // level reserved for content that overlays other content.
@@ -542,10 +626,39 @@ const styles = stylex.create({
     zIndex: 2,
     overflow: "hidden",
   },
+  dockedMenu: {
+    animationName: {
+      default: land,
+      [pageLayout.reducedMotionMedia]: "none",
+    },
+    animationDuration: "90ms",
+    animationTimingFunction: awbrnVars.easeStep,
+    flexShrink: 1,
+    minBlockSize: "120px",
+    inlineSize: "100%",
+    maxInlineSize: "296px",
+    overflow: "hidden",
+    borderRadius: radiusVars["--radius-container"],
+    backgroundColor: awbrnVars.sheet,
+    boxShadow: awbrnVars.shadowSheet,
+    color: colorVars["--color-text-primary"],
+  },
+  sheetClose: {
+    position: "absolute",
+    insetBlockStart: "calc(var(--spacing-6) + 4px)",
+    insetInlineEnd: "6px",
+    zIndex: 2,
+    inlineSize: "44px",
+    minInlineSize: "44px",
+    blockSize: "44px",
+    paddingInline: 0,
+    color: awbrnVars.textOnInkStrong,
+  },
   sheet: {
     // A sheet takes the whole bottom edge; the stock dialog width cap would
     // leave it floating in the middle of the screen instead.
     maxWidth: "100%",
+    backgroundColor: awbrnVars.ink900,
     borderRadius: boardMenuLayout.sheetBorderRadius,
     borderBlockEndWidth: 0,
   },
@@ -554,13 +667,8 @@ const styles = stylex.create({
     outline: "none",
     // The BottomSheet handle is out of flow. Reserve its space above the menu.
     paddingBlockStart: spacingVars["--spacing-6"],
-    // The sheet ends at the bottom edge of the device, not at the bottom edge
-    // of the screen.
-    paddingBlockEnd: "env(safe-area-inset-bottom)",
-  },
-  sheetFooter: {
-    borderBlockStartWidth: borderVars["--border-width"],
-    borderBlockStartStyle: "solid",
-    borderBlockStartColor: awbrnVars.colorBorderSoft,
+    // The sheet ends at the bottom edge of the device, clear of the home
+    // indicator.
+    paddingBlockEnd: "env(safe-area-inset-bottom, 0px)",
   },
 });

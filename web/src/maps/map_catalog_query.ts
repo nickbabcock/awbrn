@@ -9,6 +9,7 @@
 
 import { eq, gte, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { mapRevisions, maps, mapTags } from "#/db/global.ts";
+import { MAP_RANK_FILTERS } from "./map_taxonomy.ts";
 import { MAP_LARGE_PLAYER_COUNT, MAP_UNRANKED_FILTER } from "./schemas.ts";
 import type { MapCatalogFilter, MapRank } from "./schemas.ts";
 
@@ -56,3 +57,15 @@ export function catalogFilterConditions(filters: Required<MapCatalogFilter>): SQ
 
   return conditions;
 }
+
+/**
+ * Where a map's rank puts it on the board, best first: 0 for S through 3 for
+ * C, and 4 for an unranked map. The catalog sorts by this before age, so the
+ * curated maps lead and a fresh import waits behind them.
+ */
+export const catalogRankPlace: SQL<number> = sql<number>`case ${mapRevisions.rank} ${sql.join(
+  MAP_RANK_FILTERS.filter((rank): rank is MapRank => rank !== MAP_UNRANKED_FILTER).map(
+    (rank, place) => sql`when ${rank} then ${sql.raw(String(place))}`,
+  ),
+  sql` `,
+)} else ${sql.raw(String(MAP_RANK_FILTERS.length - 1))} end`;

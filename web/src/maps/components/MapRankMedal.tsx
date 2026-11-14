@@ -1,135 +1,87 @@
 /**
- * The grade the site gives a map revision.
- *
- * Advance Wars ends a battle by stamping one letter on the report, and that
- * is what a rank is here, so it is drawn as that plate rather than as a chip
- * in a row of metadata: cream, outlined in the one black, the letter in the
- * signage voice, and a bar of the rank's color inset across the top. The bar
- * is the gesture a faction panel already uses, so a rank reads as an identity
- * the map holds and not as a severity.
- *
- * A revision with no rank is not a fifth grade. It is a slot nothing has been
- * put in yet, so it takes the dashed empty well this system already gives a
- * place waiting to be filled.
+ * The grade the site gives a map revision: a pennant with one letter. The
+ * letter is the medal's accessible name, so it never rides on the color alone.
  */
 
+import { Stack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
-import { VStack } from "@astryxdesign/core/Stack";
+import { typeScaleVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import type { MapRank } from "#/maps/schemas.ts";
 
-export type MapRankMedalSize = "sm" | "md" | "lg";
-
-/** What each grade means, said where a moderator has to choose one. */
-export const MAP_RANK_DESCRIPTIONS: Record<MapRank, string> = {
-  S: "Plays well enough to put in front of anybody.",
-  A: "A good map with nothing wrong with it.",
-  B: "Playable, with a flaw worth knowing about.",
-  C: "Held for the record rather than recommended.",
-};
-
 export function MapRankMedal({
+  isUnrankedShown = false,
   rank,
-  size = "md",
+  size,
+  xstyle,
 }: {
+  isUnrankedShown?: boolean;
   rank: MapRank | null;
-  size?: MapRankMedalSize;
+  size: "xs" | "sm" | "lg";
+  xstyle?: stylex.StyleXStyles;
 }) {
-  if (rank === null) {
-    return (
-      <VStack
-        align="center"
-        aria-label="Unranked"
-        justify="center"
-        role="img"
-        xstyle={[styles.medal, styles.unranked, sizes[size]]}
-      >
-        <Text aria-hidden type="label" xstyle={[styles.dash, letterSizes[size]]}>
-          &ndash;
-        </Text>
-      </VStack>
-    );
-  }
+  if (rank === null && !isUnrankedShown) return null;
 
   return (
-    <VStack
-      align="center"
-      aria-label={`Rank ${rank}`}
-      justify="center"
+    <Stack
+      aria-label={rank === null ? "Unranked" : `Rank ${rank}`}
+      as="span"
       role="img"
-      xstyle={[styles.medal, styles.ranked, bars[rank], sizes[size]]}
+      xstyle={[styles.medal, sizes[size], rank === null ? styles.none : tones[rank], xstyle]}
     >
-      <Text aria-hidden type="display-2" xstyle={[styles.letter, letterSizes[size]]}>
-        {rank}
+      <Text aria-hidden="true" color="inherit" type="inherit">
+        {rank ?? "–"}
       </Text>
-    </VStack>
+    </Stack>
   );
 }
 
 const styles = stylex.create({
   medal: {
-    aspectRatio: "1",
-    borderRadius: "var(--radius-element)",
-    borderStyle: "solid",
-    borderWidth: "var(--border-width)",
+    display: "inline-grid",
+    placeItems: "center",
     flexShrink: 0,
-  },
-  ranked: {
-    backgroundColor: colorVars["--color-background-surface"],
-    borderColor: colorVars["--color-border-emphasized"],
-  },
-  // The slot a rank has not been put in: recessed, dashed, and empty.
-  unranked: {
-    backgroundColor: colorVars["--color-background-muted"],
-    borderColor: awbrnVars.colorBorderDisabled,
-    borderStyle: "dashed",
-  },
-  letter: {
-    color: colorVars["--color-text-primary"],
+    clipPath: "polygon(0 0, 100% 0, 100% 78%, 50% 100%, 0 78%)",
+    color: awbrnVars.textOnInkStrong,
+    fontFamily: awbrnVars.fontUi,
+    fontStretch: "62%",
+    fontWeight: 850,
     lineHeight: 1,
-    // The bar takes the top of the plate, so the letter sits under it.
-    paddingBlockStart: "var(--spacing-1)",
+    wordSpacing: "normal",
   },
-  dash: {
-    color: colorVars["--color-text-disabled"],
-    lineHeight: 1,
+  none: {
+    backgroundColor: awbrnVars.paperWell,
+    color: awbrnVars.textTertiary,
   },
 });
 
-/** How deep the rank's color sits across the top of the plate. */
-const BAR_SIZE = "5px";
-
-/**
- * The bar of each grade, from the color families the theme tunes to the
- * armies. S takes the command orange, because the top grade is the one thing
- * on a board of maps worth acting on. The hard step and its soft landing ride
- * with it, the same pair every panel in this system casts.
- */
-const bars = stylex.create({
-  S: {
-    boxShadow: `inset 0 ${BAR_SIZE} 0 0 ${colorVars["--color-accent"]}, var(--shadow-low)`,
-  },
-  A: {
-    boxShadow: `inset 0 ${BAR_SIZE} 0 0 ${colorVars["--color-border-green"]}, var(--shadow-low)`,
-  },
-  B: {
-    boxShadow: `inset 0 ${BAR_SIZE} 0 0 ${colorVars["--color-border-blue"]}, var(--shadow-low)`,
-  },
-  C: {
-    boxShadow: `inset 0 ${BAR_SIZE} 0 0 ${colorVars["--color-border-gray"]}, var(--shadow-low)`,
-  },
+const tones = stylex.create({
+  S: { backgroundColor: awbrnVars.gold, color: awbrnVars.ink950 },
+  A: { backgroundColor: awbrnVars.ink900 },
+  B: { backgroundColor: awbrnVars.blue },
+  // C is slate: the tertiary ink, which holds white at better than 4.5:1.
+  C: { backgroundColor: awbrnVars.textTertiary },
 });
 
 const sizes = stylex.create({
-  sm: { width: "28px" },
-  md: { width: "44px" },
-  lg: { width: "76px" },
-});
-
-const letterSizes = stylex.create({
-  sm: { fontSize: "var(--font-size-sm)" },
-  md: { fontSize: "var(--font-size-lg)" },
-  lg: { fontSize: "var(--font-size-3xl)" },
+  xs: {
+    inlineSize: "22px",
+    blockSize: "26px",
+    paddingBlockEnd: "4px",
+    fontSize: typeScaleVars["--text-label-size"],
+  },
+  sm: {
+    inlineSize: { default: "32px", [pageLayout.phoneMedia]: "26px" },
+    blockSize: { default: "42px", [pageLayout.phoneMedia]: "34px" },
+    paddingBlockEnd: { default: "7px", [pageLayout.phoneMedia]: "6px" },
+    fontSize: { default: "18px", [pageLayout.phoneMedia]: typeScaleVars["--text-body-size"] },
+  },
+  lg: {
+    inlineSize: "56px",
+    blockSize: "64px",
+    paddingBlockEnd: "9px",
+    fontSize: "32px",
+  },
 });

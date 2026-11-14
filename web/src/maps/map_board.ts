@@ -13,41 +13,25 @@ import { normalizeMapSearch } from "#/maps/map_catalog.ts";
 import { normalizeMapCatalogFilters } from "#/maps/map_taxonomy.ts";
 import type { MapCatalogFilter } from "#/maps/schemas.ts";
 
-/**
- * The grid every board of plates is dealt onto.
- *
- * The column count is high for the width because a plate's well cannot grow
- * with it: map art is drawn at a whole multiple of its own pixels, so a well
- * wider than the largest picture at that multiple is tan nothing. Narrow
- * columns keep the art against the edges of its well and fit more of the
- * catalog in one look.
- */
-export const MAP_BOARD_COLUMNS = { minWidth: 156, max: 7, repeat: "fill" } as const;
-
 /** Plates drawn while the first page of a board is still on its way. */
 export const MAP_BOARD_LOADING_PLATES = 8;
 
 /**
- * What a board holds, in the HUD voice.
- *
- * A narrowed board says what it found; a whole one says what AWBRN holds,
- * because those are two different facts and the count alone does not say
- * which one is on screen.
+ * What a board holds, as a figure: `8 maps`, `1 map`, `24+ maps` while more
+ * pages remain. Nothing while the first read is on its way.
  */
 export function mapBoardSummary({
   count,
   hasMore,
-  isNarrowed,
   isPending,
 }: {
   count: number;
   hasMore: boolean;
-  isNarrowed: boolean;
   isPending: boolean;
 }): string {
-  if (isPending) return "Reading the catalog";
+  if (isPending) return "";
   const plural = count === 1 && !hasMore ? "" : "s";
-  return `${count}${hasMore ? "+" : ""} map${plural} ${isNarrowed ? "found" : "held"}`;
+  return `${count}${hasMore ? "+" : ""} map${plural}`;
 }
 
 /**
@@ -66,7 +50,6 @@ export function useMapBoardSummary({
   filters,
   hasMore,
   isError,
-  isNarrowed,
   isPending,
   search,
 }: {
@@ -74,12 +57,11 @@ export function useMapBoardSummary({
   filters: Required<MapCatalogFilter>;
   hasMore: boolean;
   isError: boolean;
-  isNarrowed: boolean;
   isPending: boolean;
   /** The search that the catalog query was made with. */
   search: string;
 }): string {
-  const summary = mapBoardSummary({ count, hasMore, isNarrowed, isPending });
+  const summary = mapBoardSummary({ count, hasMore, isPending });
   const isAnnouncedElsewhere = isError || (!isPending && count === 0);
   // The catalog query normalizes the search and the filters the same way, so
   // one query has one key here.

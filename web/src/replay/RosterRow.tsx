@@ -1,5 +1,5 @@
 import { Badge } from "@astryxdesign/core/Badge";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack, Stack, VStack } from "@astryxdesign/core/Stack";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
@@ -61,12 +61,13 @@ export function StatIcon({
   const coinStyle = coinOverlay ? uiAtlasSpriteStyle("Coin.png") : null;
 
   return (
-    <span aria-hidden="true" {...stylex.props(styles.statIconStack)}>
+    <HStack as="span" aria-hidden="true" xstyle={styles.statIconStack}>
+      {/* Raw span: the stat icons are inline atlas crops. */}
       <span style={baseStyle ?? undefined} {...stylex.props(styles.statIcon)} />
       {coinStyle ? (
         <span style={coinStyle} {...stylex.props(styles.statIcon, styles.statIconCoin)} />
       ) : null}
-    </span>
+    </HStack>
   );
 }
 
@@ -199,7 +200,7 @@ export function RosterRow({
         player={player}
       />
 
-      <div {...stylex.props(styles.statGrid)}>
+      <Stack xstyle={styles.statGrid}>
         <Readout
           icon={<StatIcon spriteName="Coin.png" />}
           label="Funds"
@@ -220,7 +221,7 @@ export function RosterRow({
           label="Unit value"
           value={formatMoney(player.stats.unitValue)}
         />
-      </div>
+      </Stack>
     </VStack>
   );
 }
@@ -241,7 +242,7 @@ const styles = stylex.create({
     borderBlockStartWidth: borderVars["--border-width"],
     borderInlineStartWidth: borderVars["--border-width"],
     borderStyle: "solid",
-    borderColor: awbrnVars.colorBorderSoft,
+    borderColor: awbrnVars.rule,
     // The same row sits in the rail, in a pair under the board, and alone on a
     // phone, so how much width it has is its own fact rather than the window's.
     containerType: "inline-size",

@@ -29,6 +29,7 @@ function pairing(phase: MatchPhase, overrides: Partial<MatchSnapshot> = {}): Mat
     name: "Ranked async",
     phase,
     confirmationDeadlineAt: "2026-08-29T18:00:00.000Z",
+    pool: "async",
     // The server makes the match for one of the two players, so the creator
     // fields hold a real name.
     creatorUserId: OPPONENT,

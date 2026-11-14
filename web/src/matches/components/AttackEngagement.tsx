@@ -1,9 +1,15 @@
-import { HStack } from "@astryxdesign/core/Stack";
-import { spacingVars, textSizeVars, typographyVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { Text } from "@astryxdesign/core/Text";
+import { HStack, Stack } from "@astryxdesign/core/Stack";
+import {
+  colorVars,
+  spacingVars,
+  textSizeVars,
+  typographyVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { uiAtlasSpriteStyle, unitSpriteSize, unitSpriteStyle } from "#/components/game_sprites.ts";
 import { formatBracket } from "#/matches/components/attack_forecast.ts";
-import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import type { AttackForecast, UnitBadge } from "#/wasm/awbrn_wasm.js";
 
 /**
@@ -49,36 +55,45 @@ export function AttackEngagement({
   const target = forecast.target;
 
   return (
-    <span {...stylex.props(styles.engagement)}>
-      <span {...stylex.props(styles.exchangeLine)}>
+    <HStack as="span" xstyle={styles.engagement}>
+      <HStack as="span" xstyle={styles.exchangeLine}>
         {target.type === "unit" ? (
           <UnitSprite badge={target} scale={spriteScale} />
         ) : (
           // A destructible tile has no sprite to stand for it, so it says its
           // own name. It is the one target on the board that is not a unit.
-          <span {...stylex.props(styles.tileName)}>{target.name}</span>
+          <Text color="inherit" type="inherit" xstyle={styles.tileName}>
+            {target.name}
+          </Text>
         )}
-        <span {...stylex.props(styles.exchangeLabel)}>Deal</span>
-        <span {...stylex.props(styles.exchangeValue)}>{formatBracket(forecast.damage)}</span>
-      </span>
+        <Text color="inherit" type="inherit" xstyle={styles.exchangeLabel}>
+          Deal
+        </Text>
+        <Text color="inherit" type="inherit" xstyle={[styles.exchangeValue, styles.dealValue]}>
+          {formatBracket(forecast.damage)}
+        </Text>
+      </HStack>
 
       {forecast.counter ? (
-        <span {...stylex.props(styles.exchangeLine)}>
-          <span
-            {...stylex.props(styles.exchangeIndent)}
-            style={{ inlineSize: `${unitSpriteSize(spriteScale).width}px` }}
+        <HStack as="span" xstyle={styles.exchangeLine}>
+          <Stack
+            as="span"
+            width={unitSpriteSize(spriteScale).width}
+            xstyle={styles.exchangeIndent}
           />
           {/* A commander who answers first inverts the exchange: this unit
               takes the hit before it fires, and what it deals then depends on
               surviving. The label is the only place that can be said, because
               the order of two lines is not something a reader is owed. */}
-          <span {...stylex.props(styles.exchangeLabel)}>
+          <Text color="inherit" type="inherit" xstyle={styles.exchangeLabel}>
             {forecast.counterFirst ? "Take 1st" : "Take"}
-          </span>
-          <span {...stylex.props(styles.exchangeValue)}>{formatBracket(forecast.counter)}</span>
-        </span>
+          </Text>
+          <Text color="inherit" type="inherit" xstyle={styles.exchangeValue}>
+            {formatBracket(forecast.counter)}
+          </Text>
+        </HStack>
       ) : null}
-    </span>
+    </HStack>
   );
 }
 
@@ -94,7 +109,9 @@ export function Attacker({ badge, spriteScale }: { badge: UnitBadge; spriteScale
   return (
     <HStack align="center" gap={2} xstyle={styles.attacker}>
       <UnitSprite badge={badge} scale={spriteScale} />
-      <span {...stylex.props(styles.attackerName)}>{badge.name}</span>
+      <Text color="inherit" type="inherit" xstyle={styles.attackerName}>
+        {badge.name}
+      </Text>
     </HStack>
   );
 }
@@ -120,12 +137,18 @@ export function UnitSprite({ badge, scale }: { badge: UnitBadge; scale: 1 | 2 })
   if (!sprite) return null;
 
   return (
-    <span {...stylex.props(styles.unitSprite)} style={unitSpriteSize(scale)}>
+    <Stack
+      as="span"
+      height={unitSpriteSize(scale).height}
+      width={unitSpriteSize(scale).width}
+      xstyle={styles.unitSprite}
+    >
+      {/* Raw spans: the sprite and its digit are inline atlas crops. */}
       <span aria-hidden="true" style={sprite} {...stylex.props(styles.sprite)} />
       {digit ? (
         <span aria-hidden="true" style={digit} {...stylex.props(styles.healthDigit)} />
       ) : null}
-    </span>
+    </Stack>
   );
 }
 
@@ -157,27 +180,34 @@ const styles = stylex.create({
     flex: "0 0 auto",
   },
   // What happens, in the game's own voice and from the player's own seat. It
-  // recedes by opacity rather than by a second colour, which is this system's
+  // recedes by opacity rather than by a second color, which is this system's
   // rule for receding and is also what lets the key invert under the orange
   // cursor without a value going illegible. The step stops at 0.8, where it
   // still clears 4.5:1 on that orange, the harder of its two grounds.
   exchangeLabel: {
     flex: "0 0 auto",
-    inlineSize: boardMenuLayout.forecastLabelInlineSize,
-    fontFamily: typographyVars["--font-family-code"],
-    fontSize: textSizeVars["--font-size-sm"],
+    inlineSize: "44px",
+    color: colorVars["--color-text-secondary"],
+    fontSize: awbrnVars.text11_5,
+    fontStretch: "85%",
+    fontWeight: 650,
     letterSpacing: "0.06em",
     textTransform: "uppercase",
-    opacity: 0.8,
   },
   // The figures are the only thing on the key at full strength.
   exchangeValue: {
     flex: "0 0 auto",
     marginInlineStart: "auto",
-    fontFamily: typographyVars["--font-family-code"],
-    fontSize: textSizeVars["--font-size-sm"],
-    letterSpacing: "0.06em",
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: awbrnVars.text14,
+    fontStretch: "87.5%",
+    fontWeight: 600,
     fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+  },
+  // What the strike deals reads green: the good half of the exchange.
+  dealValue: {
+    color: awbrnVars.ok,
   },
   // The one target with no sprite to stand for it.
   tileName: {
@@ -202,10 +232,8 @@ const styles = stylex.create({
   attackerName: {
     flex: "0 1 auto",
     minInlineSize: 0,
-    fontFamily: typographyVars["--font-family-code"],
-    fontSize: textSizeVars["--font-size-sm"],
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
+    fontSize: awbrnVars.text15,
+    fontWeight: 750,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",

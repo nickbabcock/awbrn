@@ -1,89 +1,106 @@
-import { Banner } from "@astryxdesign/core/Banner";
-import { Card } from "@astryxdesign/core/Card";
-import { Center } from "@astryxdesign/core/Center";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { FileInput } from "@astryxdesign/core/FileInput";
-import { Grid } from "@astryxdesign/core/Grid";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
-import { Calculator as CalculatorIcon } from "pixelarticons/react/Calculator";
+import { Icon } from "@astryxdesign/core/Icon";
+import { HStack, Stack } from "@astryxdesign/core/Stack";
+import { radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveAwbwUsername } from "#/awbw/api.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
-import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
-import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
-import { StepControls } from "#/components/StepControls.tsx";
-import { TileInfoBar } from "#/components/TileInfoBar.tsx";
-import type { GameRunner } from "#/engine/game_runner.ts";
+import { unitSpriteStyle } from "#/components/game_sprites.ts";
 import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionByCode } from "#/factions.ts";
-import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
+import type { ArmyView } from "#/matches/components/Armies.tsx";
+import { InkIconKey } from "#/matches/components/MatchFrame.tsx";
+import type { LogBoundary } from "#/matches/components/turn_log.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
-import { useMediaQuery } from "@astryxdesign/core/hooks";
-import {
-  BATTLE_CALCULATOR_SHEET_MEDIA,
-  BattleCalculator,
-} from "#/matches/components/BattleCalculator.tsx";
-import { RosterList, RosterRow } from "./RosterRow";
-import { Page, PageHeader } from "#/ui/Page.tsx";
+import { ProblemBanner } from "#/ui/EmptySheet.tsx";
+import { IconBack, IconUpload } from "#/ui/icons.tsx";
+import { Page } from "#/ui/Page.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { readArchiveOutline } from "./archive_outline.ts";
+import { ReplayScreen } from "./ReplayScreen.tsx";
 
+interface AwbwMapSummary {
+  name: string;
+  width: number;
+  height: number;
+}
+
+/** The AWBW map an archive was played on: its name and size. */
+async function fetchAwbwMap(mapId: number): Promise<AwbwMapSummary | null> {
+  const response = await fetch(`/api/awbw/map/${mapId}`);
+  if (!response.ok) return null;
+  const payload = (await response.json()) as {
+    Name?: string;
+    "Size X"?: number;
+    "Size Y"?: number;
+  };
+  if (typeof payload.Name !== "string") return null;
+  return {
+    name: payload.Name,
+    width: payload["Size X"] ?? 0,
+    height: payload["Size Y"] ?? 0,
+  };
+}
+
+/** The replay viewer for an AWBW .zip or AWBRN .json archive, read on this device. */
 export function ReplayPage() {
   const playerRoster = useGameStore((state) => state.playerRoster);
-  const replayPosition = useGameStore((state) => state.replayPosition);
+  const boardMap = useGameStore((state) => state.boardView?.map ?? null);
   const gameActions = useGameActions();
-  const [portraitCatalog] = useState<CoPortraitCatalog>(() => loadCoPortraitCatalog());
-  const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
-  const [replayFile, setReplayFile] = useState<File | null>(null);
-  const [replayError, setReplayError] = useState<string | null>(null);
-  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
-  const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
   const runner = useReplayRunner();
-  const {
-    canvasContainerRef,
-    enterFullscreen,
-    exitFullscreen,
-    focus,
-    fullscreenMode,
-    isFullscreen,
-    surfaceRef,
-  } = useCanvasCourierSurface({
-    host: runner.host,
-    canvasClassName:
-      stylex.props(styles.gameCanvas, !playerRoster && styles.gameCanvasHidden).className ?? "",
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
+  const [replayError, setReplayError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [outline, setOutline] = useState<LogBoundary[] | null>(null);
+  const loadCount = useRef(0);
+  const mapId = playerRoster?.mapId ?? null;
+  const { data: awbwMap } = useQuery({
+    queryKey: ["awbw", "map", mapId],
+    queryFn: () => fetchAwbwMap(mapId ?? 0),
+    enabled: mapId !== null && mapId > 0,
+    staleTime: Infinity,
   });
 
-  async function handleReplayFileChange(files: File | File[] | null) {
-    const file = Array.isArray(files) ? files[0] : files;
-    if (!file) {
-      setReplayFile(null);
-      gameActions.setPlayerRoster(null);
-      setReplayError(null);
-      return;
-    }
-
+  async function loadFile(file: File | null) {
+    if (!file) return;
     gameActions.setPlayerRoster(null);
     setReplayError(null);
+    setIsLoading(true);
+    setOutline(null);
+    // The outline is read beside the engine, not after it, so the day ticks
+    // and the log are there as soon as the board is.
+    loadCount.current += 1;
+    const load = loadCount.current;
+    void file
+      .arrayBuffer()
+      .then((buffer) => readArchiveOutline(new Uint8Array(buffer)))
+      .then((read) => {
+        if (load === loadCount.current) setOutline(read);
+      });
     try {
-      if (!runner) throw new Error("Game runner was not initialized.");
       await runner.loadReplay(file);
-      focus();
     } catch (error) {
       gameActions.setPlayerRoster(null);
       setReplayError(error instanceof Error ? error.message : "Replay failed to load.");
       console.error("Error loading replay:", error);
+    } finally {
+      setIsLoading(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
   }
 
+  // The archive names seats by AWBW user; the names are looked up once each.
   useEffect(() => {
-    let cancelled = false;
-
+    let canceled = false;
     if (!playerRoster) {
       setPlayerNames({});
       return () => {
-        cancelled = true;
+        canceled = true;
       };
     }
 
@@ -93,12 +110,10 @@ export function ReplayPage() {
         Object.entries(previous).filter(([userId]) => activeUserIds.has(Number(userId))),
       ),
     );
-
     void Promise.all(
       playerRoster.players.map(async (player) => {
         const username = await resolveAwbwUsername(player.userId);
-        if (!username || cancelled) return;
-
+        if (!username || canceled) return;
         setPlayerNames((previous) =>
           previous[player.userId] === username
             ? previous
@@ -108,343 +123,209 @@ export function ReplayPage() {
     );
 
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [playerRoster]);
 
-  async function handlePlayerDisplayFactionChange(playerId: number, factionId: number | null) {
-    setReplayError(null);
-    try {
-      if (!runner) throw new Error("Game runner was not initialized.");
-      await runner.setPlayerDisplayFaction(playerId, factionId);
-    } catch (error) {
-      setReplayError(
-        error instanceof Error ? error.message : "Faction depiction failed to update.",
-      );
-      console.error("Error updating replay faction depiction:", error);
-    }
-  }
-
-  /**
-   * Walk the archive.
-   *
-   * Every step goes to the engine, which holds the archive and is the only
-   * thing that can say what the board looked like at a boundary. The page
-   * hears where it landed through the position it reports back.
-   */
-  function stepReplay(step: (runner: GameRunner) => Promise<void>) {
-    if (!runner) return;
-    void step(runner).catch((error) => {
-      setReplayError(error instanceof Error ? error.message : "The replay could not be stepped.");
-      console.error("Error stepping the replay:", error);
-    });
-  }
-
-  const turnHolder =
-    replayPosition?.activePlayerId === null || replayPosition === null
-      ? null
-      : (playerRoster?.players.find(
-          (player) => player.playerId === replayPosition.activePlayerId,
-        ) ?? null);
-
-  const replayLoader = (
-    <FileInput
-      accept=".zip,.json"
-      changeAction={handleReplayFileChange}
-      description={playerRoster ? undefined : "AWBW .zip or AWBRN .json replay archives"}
-      isLabelHidden={Boolean(playerRoster)}
-      label="Load a replay"
-      mode={playerRoster ? "input" : "dropzone"}
-      onChange={(files) => setReplayFile(Array.isArray(files) ? (files[0] ?? null) : files)}
-      value={replayFile}
-      width={playerRoster ? 260 : "100%"}
-    />
+  const views = useMemo<ArmyView[]>(
+    () =>
+      (playerRoster?.players ?? []).map((player) => ({
+        army: {
+          entry: player,
+          hasLiveStats: true,
+          isActive: !player.eliminated && playerRoster?.activePlayerId === player.playerId,
+          name: playerNames[player.userId] ?? `Player ${player.turnOrder + 1}`,
+        },
+        isViewer: false,
+        clock: null,
+        onFactionChange: (factionId: number) => {
+          void runner
+            .setPlayerDisplayFaction(
+              player.playerId,
+              factionId === getFactionByCode(player.actualFactionCode)?.id ? null : factionId,
+            )
+            .catch((error: unknown) => {
+              setReplayError(
+                error instanceof Error ? error.message : "Faction depiction failed to update.",
+              );
+            });
+        },
+      })),
+    [playerNames, playerRoster, runner],
   );
 
-  return (
-    <Page width="full">
-      <VStack gap={6}>
-        <PageHeader
-          description="Load an AWBW .zip or AWBRN .json archive and step through the battle turn by turn. The file stays on your device."
-          title="Replays"
+  const fileInput = (
+    <input
+      accept=".zip,.json"
+      aria-label="Load a replay"
+      onChange={(event) => void loadFile(event.currentTarget.files?.[0] ?? null)}
+      ref={fileRef}
+      // The visible keys open it.
+      tabIndex={-1}
+      type="file"
+      {...stylex.props(styles.fileInput)}
+    />
+  );
+  const chooseFile = () => fileRef.current?.click();
+
+  if (playerRoster) {
+    const map =
+      awbwMap && awbwMap.width > 0 ? { width: awbwMap.width, height: awbwMap.height } : boardMap;
+    return (
+      <>
+        {fileInput}
+        <ReplayScreen
+          archiveKey={
+            <InkIconKey icon={IconUpload} label="Load another replay" onPress={chooseFile} />
+          }
+          back={
+            <Button
+              icon={<Icon icon={IconBack} size="lg" />}
+              isIconOnly
+              label="Close the replay"
+              onClick={() => gameActions.setPlayerRoster(null)}
+              variant="ghost-on-ink"
+              xstyle={styles.back}
+            />
+          }
+          error={replayError}
+          locatorSrc={mapId ? `/api/awbw/smallmap/${mapId}` : null}
+          map={map}
+          outline={outline}
+          runner={runner}
+          title={awbwMap?.name ?? `Game ${playerRoster.matchId}`}
+          views={views}
         />
+      </>
+    );
+  }
 
-        {replayError ? (
-          <Banner
-            description={replayError}
-            role="alert"
-            status="error"
-            title="Replay failed to load"
-          />
-        ) : null}
-
-        {/* The board leads: it takes the width the viewport has and the armies
-          keep a fixed rail beside it, so the map is the largest thing on the
-          page rather than one half of a split. */}
-        <Grid align="start" gap={4} xstyle={styles.reviewLayout}>
-          {/* The board is the artifact; everything else frames it. */}
-          <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
-            <VStack
-              gap={0}
-              ref={surfaceRef}
-              xstyle={[
-                styles.gameSurface,
-                // With no replay the frame only has to say where the board goes,
-                // unless the calculator is standing on it: a panel is not a
-                // placeholder, and it needs the room a board would have had.
-                !playerRoster && !isCalculatorOpen && styles.gameSurfaceEmpty,
-                isFullscreen && styles.gameSurfaceFullscreen,
-                fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
-              ]}
-            >
-              <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
-              {isFullscreen ? (
-                <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
-              ) : null}
-              {!playerRoster ? (
-                <Center height="100%" width="100%" xstyle={styles.loaderOverlay}>
-                  <VStack gap={3} maxWidth={420} width="100%">
-                    {replayLoader}
-                  </VStack>
-                </Center>
-              ) : null}
-
-              {/* The engagement a reviewer is imagining, over the battle they
-                are imagining it in. It changes nothing about the replay. */}
-              {isCalculatorOpen ? (
-                <BattleCalculator
-                  onDismiss={() => setIsCalculatorOpen(false)}
-                  onRestoreFocus={focus}
-                  presentation={isCalculatorCompact ? "sheet" : "board"}
-                  roster={playerRoster}
-                  runner={runner}
-                />
-              ) : null}
-
-              {/* The terrain window stands on the battlefield itself, so reading
-                a tile costs the review no height. */}
-              {playerRoster ? <TileInfoBar /> : null}
-            </VStack>
-
-            {/* The game's own status line, kept on the board it describes. */}
-            <HStack
-              align="center"
-              gap={3}
-              justify="between"
-              paddingBlock={2}
-              paddingInline={3}
-              wrap="wrap"
-              xstyle={styles.boardHud}
-            >
-              <HStack align="center" gap={2} wrap="wrap">
-                {playerRoster ? (
-                  <Text type="supporting">
-                    Game {playerRoster.matchId} · Map {playerRoster.mapId}
-                  </Text>
-                ) : (
-                  <Text type="supporting">No replay loaded</Text>
-                )}
-              </HStack>
-              {/* Full screen is only an offer once there is a battle to watch,
-                and while the board holds the screen the way back out is the key
-                on the board itself. The calculator does not wait on a replay:
-                it asks about an engagement no board holds, and a player who
-                came to check a matchup has nothing to load first. */}
-              <HStack align="center" gap={2} wrap="wrap">
-                <Button
-                  clickAction={() => setIsCalculatorOpen(true)}
-                  icon={<CalculatorIcon aria-hidden height={16} width={16} />}
-                  isDisabled={isCalculatorOpen}
-                  label="Calculator"
-                  size="sm"
-                  variant="secondary"
-                />
-                {playerRoster ? (
-                  <>
-                    {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
-                    {replayLoader}
-                  </>
-                ) : null}
-              </HStack>
-            </HStack>
-
-            {/* The archive is walked from under the board it is drawn on, so the
-              keys are beside the thing they move. The day and the seat live
-              here rather than in the status line above: they are what a step
-              changes, and saying them twice would leave a reader checking
-              which of the two had moved. */}
-            {playerRoster && replayPosition ? (
-              <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.stepControls}>
-                <StepControls
-                  canStepBack={replayPosition.index > 0}
-                  canStepForward={replayPosition.index < replayPosition.total}
-                  canStepTurnBack={replayPosition.previousTurnIndex !== null}
-                  canStepTurnForward={replayPosition.nextTurnIndex !== null}
-                  day={replayPosition.day}
-                  isAtLatest={replayPosition.index >= replayPosition.total}
-                  latestLabel="End"
-                  onSeekLatest={() => stepReplay((runner) => runner.replaySeekEnd())}
-                  onSeekStart={() => stepReplay((runner) => runner.replaySeek(0))}
-                  onStep={(delta) => stepReplay((runner) => runner.replayStep(delta))}
-                  onTurnStep={(delta) => stepReplay((runner) => runner.replayStepTurn(delta))}
-                  position={{ index: replayPosition.index, total: replayPosition.total }}
-                  turnHolder={
-                    turnHolder === null
-                      ? null
-                      : (playerNames[turnHolder.userId] ?? `Player ${turnHolder.turnOrder}`)
-                  }
-                />
-              </VStack>
-            ) : null}
-          </Card>
-
-          {/* The armies need no visible title: the board names the battle, and
-            each row names its own army. */}
-          <VStack as="section" aria-label="Armies" gap={0} xstyle={styles.rosterSection}>
-            <Card padding={0} xstyle={styles.rosterPanel}>
-              {playerRoster ? (
-                <RosterList>
-                  {playerRoster.players.map((player) => (
-                    <RosterRow
-                      isActive={playerRoster.activePlayerId === player.playerId}
-                      key={player.playerId}
-                      name={playerNames[player.userId] ?? `Player ${player.turnOrder}`}
-                      onFactionChange={(factionId) =>
-                        handlePlayerDisplayFactionChange(
-                          player.playerId,
-                          factionId === getFactionByCode(player.actualFactionCode)?.id
-                            ? null
-                            : factionId,
-                        )
-                      }
-                      player={player}
-                      portraitCatalog={portraitCatalog}
-                    />
-                  ))}
-                </RosterList>
-              ) : (
-                <VStack gap={0} padding={3}>
-                  <EmptyState
-                    description="Once a replay is loaded, every army lists its CO, funds, and unit strength here."
-                    headingLevel={3}
-                    isCompact
-                    title="No armies yet"
-                  />
-                </VStack>
-              )}
-            </Card>
-          </VStack>
-        </Grid>
-      </VStack>
+  return (
+    <Page>
+      {fileInput}
+      <StandbyBoard runner={runner} />
+      {replayError ? (
+        <ProblemBanner
+          action={<Button label="Choose file" onClick={chooseFile} size="sm" variant="secondary" />}
+          description={replayError}
+          title="The replay could not be read"
+        />
+      ) : null}
+      <section
+        aria-labelledby="load-replay"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          void loadFile(event.dataTransfer.files[0] ?? null);
+        }}
+        {...stylex.props(styles.empty)}
+      >
+        <HStack as="span" aria-hidden="true" xstyle={styles.art}>
+          {/* Raw span: the two units are inline atlas crops. */}
+          <span style={unitSpriteStyle("infantry", "os", 2) ?? undefined} />
+          <span style={unitSpriteStyle("mech", "bm", 2) ?? undefined} />
+        </HStack>
+        <h1 id="load-replay" {...stylex.props(styles.title)}>
+          Load a replay
+        </h1>
+        <Text color="inherit" type="inherit" xstyle={styles.formats}>
+          .zip · .json
+        </Text>
+        <Button
+          icon={<Icon icon={IconUpload} />}
+          isLoading={isLoading}
+          label="Choose file"
+          onClick={chooseFile}
+          size="lg"
+          variant="primary"
+        />
+      </section>
     </Page>
   );
 }
 
+/**
+ * The board's canvas, held off screen while there is no archive, so the engine
+ * is ready by the time a file is chosen.
+ */
+function StandbyBoard({ runner }: { runner: ReturnType<typeof useReplayRunner> }) {
+  const { canvasContainerRef } = useCanvasCourierSurface({
+    host: runner.host,
+    canvasClassName: stylex.props(styles.standbyCanvas).className ?? "",
+  });
+  return <Stack aria-hidden="true" ref={canvasContainerRef} xstyle={styles.standby} />;
+}
+
 const styles = stylex.create({
-  // One column until the rail and a board wide enough to read both fit; two
-  // from there. The board takes the width its height allows and the rail stays
-  // against it, so a wide window puts the spare space around the pair instead
-  // of between the map and the armies that describe it.
-  reviewLayout: {
-    gridTemplateColumns: {
-      default: "minmax(0, 1fr)",
-      [rosterLayout.desktopMedia]: rosterLayout.railColumns,
-    },
-    justifyContent: {
-      default: "stretch",
-      [rosterLayout.desktopMedia]: "center",
-    },
-  },
-  // A 3:2 board that grows without limit runs off a laptop screen, and a map
-  // you have to scroll to see is not the focal point. The width is capped at
-  // whatever keeps the whole board in the viewport, with a floor so a short
-  // window shrinks the board rather than making it unreadable.
-  boardPanel: {
-    overflow: "hidden",
-    justifySelf: "start",
-    inlineSize: "100%",
-    maxInlineSize: rosterLayout.boardMaxInlineSize,
-  },
-  gameSurface: {
-    position: "relative",
-    // The engine draws 960x640; the frame keeps that ratio at every width so
-    // the map is never stretched on a phone.
-    aspectRatio: "3 / 2",
-    backgroundColor: colorVars["--color-background-inverted"],
-  },
-  // The board gives up its 3:2 frame and takes the screen's own shape. The
-  // engine is told the new canvas size and redraws to it, so the extra room is
-  // more map rather than a stretched one.
-  gameSurfaceFullscreen: {
-    alignItems: "center",
-    aspectRatio: "auto",
-    blockSize: "100%",
-    inlineSize: "100%",
-    justifyContent: "center",
-  },
-  // The fallback for browsers that will not hand an element the screen, iOS
-  // Safari above all. It has to reach the same result the browser would: over
-  // everything, including the app shell's own bar, and out to the edges the
-  // notch leaves usable.
-  gameSurfaceImmersive: {
+  standby: {
     position: "fixed",
-    inset: 0,
-    zIndex: 100,
-    blockSize: "100dvh",
-    inlineSize: "100dvw",
-    paddingBlock: "env(safe-area-inset-top) env(safe-area-inset-bottom)",
-    paddingInline: "env(safe-area-inset-left) env(safe-area-inset-right)",
+    insetBlockStart: 0,
+    insetInlineStart: "-10000px",
+    inlineSize: "960px",
+    blockSize: "640px",
+    visibility: "hidden",
+    pointerEvents: "none",
   },
-  // With no replay the frame only has to say where the board goes, so it stops
-  // reserving a board's worth of empty ground.
-  gameSurfaceEmpty: {
-    aspectRatio: "auto",
-    height: 360,
-  },
-  gameCanvas: {
+  standbyCanvas: {
     display: "block",
     width: "100%",
     height: "100%",
-    outline: "none",
-    imageRendering: "pixelated",
   },
-  gameCanvasHidden: {
-    visibility: "hidden",
-  },
-  loaderOverlay: {
+  fileInput: {
     position: "absolute",
-    inset: 0,
-    padding: spacingVars["--spacing-4"],
-    backgroundColor: colorVars["--color-background-muted"],
-  },
-  // The keys sit under the status line and share its ground, separated from
-  // it by the same rule the line is separated from the board by.
-  stepControls: {
-    borderTopWidth: borderVars["--border-width"],
-    borderTopStyle: "solid",
-    borderTopColor: colorVars["--color-border"],
-    backgroundColor: colorVars["--color-background-surface"],
-  },
-  boardHud: {
-    borderTopWidth: borderVars["--border-width"],
-    borderTopStyle: "solid",
-    borderTopColor: colorVars["--color-border-emphasized"],
-    backgroundColor: colorVars["--color-background-surface"],
-  },
-  // The panel keeps the whole rail. Its section is a column, where `align-self`
-  // is the width rather than the height, so asking it to sit at the start once
-  // shrank the armies to the width of their own sprites. The board's height is
-  // not imposed on it either way: the grid places both columns at the start.
-  rosterPanel: {
+    inlineSize: "1px",
+    blockSize: "1px",
     overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
   },
-  // The armies stay with the board on a tall screen rather than scrolling away
-  // from the thing they describe.
-  rosterSection: {
-    position: {
-      default: "static",
-      [rosterLayout.desktopMedia]: "sticky",
+  back: {
+    inlineSize: "44px",
+    minInlineSize: "44px",
+    blockSize: "44px",
+    paddingInline: 0,
+    color: awbrnVars.textOnInkStrong,
+  },
+  empty: {
+    display: "grid",
+    justifyItems: "center",
+    alignContent: "center",
+    gap: spacingVars["--spacing-3"],
+    minBlockSize: {
+      default: "260px",
+      [pageLayout.phoneMedia]: "220px",
     },
-    top: spacingVars["--spacing-4"],
+    // Centered in the page column.
+    inlineSize: "100%",
+    maxInlineSize: "560px",
+    marginInline: "auto",
+    paddingBlock: "40px",
+    paddingInline: spacingVars["--spacing-6"],
+    borderColor: awbrnVars.ink600,
+    borderRadius: radiusVars["--radius-container"],
+    borderStyle: "dashed",
+    borderWidth: "1.5px",
+    backgroundColor: awbrnVars.ink950,
+    color: awbrnVars.textOnInk,
+    textAlign: "center",
+  },
+  art: {
+    alignItems: "flex-end",
+    gap: spacingVars["--spacing-4"],
+  },
+  title: {
+    margin: 0,
+    color: awbrnVars.textOnInkStrong,
+    fontSize: awbrnVars.text26,
+    fontStretch: "68%",
+    fontWeight: 800,
+    lineHeight: 1.05,
+    wordSpacing: "0.1em",
+  },
+  formats: {
+    color: awbrnVars.textOnInkSecondary,
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: awbrnVars.text12_5,
+    fontStretch: "87.5%",
   },
 });

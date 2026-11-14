@@ -1,27 +1,39 @@
 import {
-  ErrorComponent,
   rootRouteId,
   useMatch,
   useRouter,
+  useRouterState,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { Banner } from "@astryxdesign/core/Banner";
+import { HStack } from "@astryxdesign/core/Stack";
+import { NotFound } from "#/components/NotFound.tsx";
 import { Button } from "#/ui/Button.tsx";
-import { Card } from "@astryxdesign/core/Card";
-import { Center } from "@astryxdesign/core/Center";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
 import { RouterButton } from "#/ui/astryx-links.tsx";
+import { ProblemBanner } from "#/ui/EmptySheet.tsx";
 import { Page } from "#/ui/Page.tsx";
+import { sectionForPath } from "#/ui/site_sections.ts";
 
+/**
+ * A thing that does not exist ("match not found", "Map not found.") leads to
+ * its section, since trying again never finds it. Anything else may be
+ * passing, so it keeps Try again.
+ */
 export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
   const router = useRouter();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isRoot = useMatch({
     strict: false,
     select: (state) => state.id === rootRouteId,
   });
 
   console.error("Route error:", error);
+
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (/\bnot found\.?$/i.test(message)) {
+    const section = sectionForPath(pathname);
+    const title = message.charAt(0).toUpperCase() + message.slice(1).replace(/\.$/, "");
+    return <NotFound label={section?.label} title={title} to={section?.to} />;
+  }
 
   function handleGoBack() {
     if (!router.history.canGoBack()) {
@@ -34,28 +46,19 @@ export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
 
   return (
     <Page width="narrow">
-      <Center axis="horizontal" width="100%">
-        <Card maxWidth={800} padding={8} width="100%">
-          <VStack gap={4}>
-            <Text color="secondary" type="supporting" weight="bold">
-              Router
-            </Text>
-            <Banner
-              description={<ErrorComponent error={error} />}
-              status="error"
-              title="Route error"
-            />
-            <HStack gap={2} wrap="wrap">
-              <Button clickAction={() => router.invalidate()} label="Try again" variant="primary" />
-              {isRoot ? (
-                <RouterButton label="Home" to="/" variant="secondary" />
-              ) : (
-                <Button label="Go back" onClick={handleGoBack} variant="secondary" />
-              )}
-            </HStack>
-          </VStack>
-        </Card>
-      </Center>
+      <ProblemBanner
+        action={
+          <HStack gap={2} wrap="wrap">
+            <Button clickAction={() => router.invalidate()} label="Try again" size="sm" />
+            {isRoot ? (
+              <RouterButton label="Home" size="sm" to="/" variant="ghost" />
+            ) : (
+              <Button label="Go back" onClick={handleGoBack} size="sm" variant="ghost" />
+            )}
+          </HStack>
+        }
+        title={message ? `This page failed to load: ${message}` : "This page failed to load"}
+      />
     </Page>
   );
 }

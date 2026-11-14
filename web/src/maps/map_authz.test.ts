@@ -45,8 +45,8 @@ describe("mapRankGrant", () => {
   });
 
   it("refuses a moderator the map they wrote", () => {
-    // A rank is this site's judgement of a map, so the one thing the rule
-    // stops is an author sitting in judgement of their own work.
+    // A rank is this site's judgment of a map, so the one thing the rule
+    // stops is an author sitting in judgment of their own work.
     expect(mapRankGrant(ownedMap, authorMod)).toBe(null);
   });
 

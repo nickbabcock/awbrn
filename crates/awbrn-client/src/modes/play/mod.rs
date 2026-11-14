@@ -451,7 +451,7 @@ pub(crate) struct PointerPolicy<'w> {
 ///
 /// A selection whose consequences are off screen is a selection the player
 /// cannot act on, and on a phone at a workable zoom that is most of them. The
-/// middle of the range, rather than the unit, is what needs to be centred: the
+/// middle of the range, rather than the unit, is what needs to be centered: the
 /// unit is at the edge of its own reach as often as not.
 fn frame_selection(
     origin: Pos,
@@ -510,7 +510,7 @@ fn unit_is_selectable(
 
 /// The tiles sharing an edge with this one, in map order.
 ///
-/// Positions are unsigned, so the two neighbours off the top and left edges are
+/// Positions are unsigned, so the two neighbors off the top and left edges are
 /// dropped rather than clamped. The right and bottom edges need no guard: the
 /// callers all test membership of a set that only holds on-board tiles.
 fn orthogonal_neighbors(position: Pos) -> impl Iterator<Item = Pos> {
@@ -820,7 +820,7 @@ const TAP_SLOP_WORLD: f32 = TILE_SIZE * 0.4;
 /// The tile a tap should be read as, given where it actually landed.
 ///
 /// A tap on the selected unit or inside the move range is taken at face value.
-/// One just outside the range is pulled to the nearest reachable neighbour,
+/// One just outside the range is pulled to the nearest reachable neighbor,
 /// but only when the pointer is genuinely near that tile.
 fn resolve_tap_target(
     tapped: Pos,
@@ -973,7 +973,7 @@ pub(crate) fn handle_play_pointer_gestures(
             }
             PointerGestureKind::DragCancel => {
                 if *policy.owner == DragOwner::Unit {
-                    // The route goes, the unit stays picked up. A cancelled
+                    // The route goes, the unit stays picked up. A canceled
                     // drag is a change of mind about where, not about which.
                     return_to_unit_selected(&mut selection);
                 }
@@ -2638,7 +2638,7 @@ pub(crate) fn sync_destination_ghost(
         return;
     };
 
-    // The alignment offset that centres a sprite in its cell depends on the
+    // The alignment offset that centers a sprite in its cell depends on the
     // sprite's own dimensions, and a unit is 23x24 rather than a 16x16 tile.
     // Taking the size from the unit being depicted is what keeps the ghost on
     // the grid; a constant here drifts the moment any sprite is not tile-sized.

@@ -118,7 +118,7 @@ export function emptySide(): CalculatorSide {
  * the player is sitting in and the seat every figure is reported from. The
  * defender is the first army that is not on the attacker's team — an ally is
  * not who a player is weighing an attack against, and in a team game the
- * neighbouring seat often is one.
+ * neighboring seat often is one.
  */
 export function seatsFrom(
   roster: PlayerRosterSnapshot | null,
@@ -196,7 +196,7 @@ export function formatFundsBracket(bracket: FundsBracket): string {
  * What the exchange moves, always signed.
  *
  * The sign is the whole point of the figure and is never implied by position or
- * colour: a trade that loses money says so with a minus, on both ends.
+ * color: a trade that loses money says so with a minus, on both ends.
  */
 export function formatNet(net: NetFundsBracket): string {
   return net.low === net.high ? signed(net.low) : `${signed(net.low)} – ${signed(net.high)}`;
