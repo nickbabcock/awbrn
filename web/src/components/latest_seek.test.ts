@@ -97,6 +97,27 @@ describe("pacing a dragged scrubber's seeks", () => {
     expect(sent).toEqual([1, 2, 3, null]);
   });
 
+  it("counts a refusal as the oldest seek's answer and keeps the others out", () => {
+    const sent: (number | null)[] = [];
+    const seek = new LatestSeek<number | null>(
+      (target) => {
+        sent.push(target);
+        return true;
+      },
+      () => {},
+      { window: 3, overlaps: (target) => target !== null },
+    );
+    seek.request(40);
+    seek.request(45);
+    seek.request(null);
+    seek.fail();
+    expect(seek.flying).toEqual({ target: 45 });
+
+    seek.request(null);
+    seek.settle();
+    expect(sent).toEqual([40, 45, null]);
+  });
+
   it("is not left waiting on a seek that never got out", () => {
     let isOpen = false;
     const { seek, sent } = host(() => isOpen);

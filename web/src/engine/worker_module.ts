@@ -261,7 +261,7 @@ export const createGame = async (
     if (pending === null) {
       pending = [];
       queueMicrotask(() => {
-        const events = pending ?? [];
+        const events = pending!;
         pending = null;
         onEvents(events);
       });
@@ -272,15 +272,21 @@ export const createGame = async (
 
   // Calls answered by the next frame the engine draws, once it has shown them.
   let awaitingFrame: (() => void)[] = [];
+  function drawFrame() {
+    app.update();
+    const shown = awaitingFrame;
+    awaitingFrame = [];
+    for (const resolve of shown) resolve();
+  }
   function update() {
     inputBridge.drain();
-    if (inputBridge.shouldUpdate()) {
-      app.update();
-      const shown = awaitingFrame;
-      awaitingFrame = [];
-      for (const resolve of shown) resolve();
-    }
+    if (inputBridge.shouldUpdate()) drawFrame();
     requestAnimationFrame(update);
+  }
+  // A jump still waiting for its frame was asked for before the move asked
+  // for now, so it is shown first and the move goes from where it landed.
+  function showWaitingJumps() {
+    if (awaitingFrame.length > 0) drawFrame();
   }
   requestAnimationFrame(update);
 
@@ -364,12 +370,15 @@ export const createGame = async (
       app.apply_review_state(transition);
     },
     replayStep: async (delta: number) => {
+      showWaitingJumps();
       app.replay_step(delta);
     },
     replayStepTurn: async (delta: number) => {
+      showWaitingJumps();
       app.replay_step_turn(delta);
     },
     replaySeek: async (index: number) => {
+      showWaitingJumps();
       app.replay_seek(index);
     },
     replayJump: (index: number) => {
@@ -377,6 +386,7 @@ export const createGame = async (
       return new Promise<void>((resolve) => awaitingFrame.push(resolve));
     },
     replaySeekEnd: async () => {
+      showWaitingJumps();
       app.replay_seek_end();
     },
     zoomBy: async (factor: number, anchor?: CanvasPoint) => {

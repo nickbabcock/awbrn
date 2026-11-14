@@ -154,8 +154,8 @@ export function ReplayScreen({
   // Every move through the archive takes its turn in one queue, so a key and
   // a drag never race: one move is out, and only the newest waits behind it.
   // A dragged moment is not waited on. The engine draws the newest one it has
-  // each frame, so the next can go at once, and a key that follows still
-  // reaches the engine after it.
+  // each frame, so the next can go at once. A key that follows waits for that
+  // moment to be drawn, so it steps from where the drag landed.
   const [moves, isMoving] = useLatestSeek<ReplayMove>((step) => {
     lastStepRef.current = step;
     // Only when there is one to clear: an update here redraws the whole

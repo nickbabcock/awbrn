@@ -321,9 +321,10 @@ export function MatchActivePage({
           finishResigning();
           finishActivatingPower();
           // A question about the past that was refused leaves the board where
-          // it is. The keys come back rather than staying pressed.
+          // it is. The keys come back rather than staying pressed. The refusal
+          // answers the oldest question out; the others are still answered.
           setIsReviewBusy(false);
-          seeks.reset();
+          seeks.fail();
           returningToLiveRef.current = false;
           setMatchError(message.message);
           restoreAfterRefusal();
@@ -903,7 +904,9 @@ export function MatchActivePage({
               currentReviewIndex === null ||
               nextTurnStart(reviewOutline, currentReviewIndex) !== null),
           latestLabel: "Live",
-          isBusy: isReviewBusy || status !== "connected",
+          // A step goes from the board as it stands, so it waits for every
+          // question a drag still has out.
+          isBusy: isReviewBusy || isSeeking || status !== "connected",
           onSeekStart: () => seeks.request({ index: 0, isScrub: false }),
           onStep: (delta: number) => requestStep("action", delta),
           onTurnStep: (delta: number) => requestStep("turn", delta),

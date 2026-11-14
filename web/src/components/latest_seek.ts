@@ -13,8 +13,8 @@ export interface LatestSeekOptions<T> {
 }
 
 /**
- * Seeks paced by their answers: one in flight, and only the newest target
- * waiting behind it.
+ * Seeks paced by their answers: one in flight, or a few that overlap, and
+ * only the newest target waiting behind them.
  *
  * A dragged scrubber asks for a new moment on every move, faster than the
  * board can show them. Sending each one would queue a backlog the board works
@@ -68,6 +68,12 @@ export class LatestSeek<T> {
     if (this.sent === null || !this.isSame(waiting.target, this.sent.target)) {
       this.request(waiting.target);
     }
+  }
+
+  /** The oldest seek out was refused: count that as its answer, and forget what was waiting. */
+  fail(): void {
+    this.waiting = null;
+    this.settle();
   }
 
   /** Drop everything, for an answer that is never coming back. */
