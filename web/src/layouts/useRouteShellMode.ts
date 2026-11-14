@@ -3,12 +3,11 @@ import { useRouterState } from "@tanstack/react-router";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 
 /**
- * The shell mode a route implies, so a match and the task screens get their
- * frame in the first paint. A match's address holds several screens, so its
- * phase decides. The route loader has the match in the query cache before
- * this renders.
+ * The shell mode a route implies, so a match gets its frame in the first
+ * paint. A match's address holds several screens, so its phase decides. The
+ * route loader has the match in the query cache before this renders.
  */
-export function useRouteShellMode(): "pushed" | "task" | null {
+export function useRouteShellMode(): "pushed" | null {
   const location = useRouterState({
     select: (state) => ({ pathname: state.location.pathname, search: state.location.search }),
   });
@@ -24,7 +23,6 @@ export function useRouteShellMode(): "pushed" | "task" | null {
     enabled: false,
   });
 
-  if (pathname === "/matches/new") return "task";
   if (!matchId || !match) return null;
-  return match.phase === "active" || match.phase === "completed" ? "pushed" : "task";
+  return match.phase === "active" || match.phase === "completed" ? "pushed" : null;
 }

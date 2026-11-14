@@ -4,7 +4,6 @@ import { Text } from "@astryxdesign/core/Text";
 import { colorVars, textSizeVars } from "@astryxdesign/core/theme/tokens.stylex";
 import { useQuery, useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
-import { useState } from "react";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
 import { getFactionById } from "#/factions.ts";
 import { mapCatalogEntryQueryOptions } from "#/maps/maps.queries.ts";
@@ -29,19 +28,11 @@ const longDateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "long" });
 
 export function MatchHistoryPage() {
   const historyQuery = useSuspenseInfiniteQuery(myCompletedMatchesQueryOptions());
-  const [paginationError, setPaginationError] = useState<string | null>(null);
   const matches = historyQuery.data.pages.flatMap((page) => page.matches);
 
   async function handleLoadMore(): Promise<void> {
     if (historyQuery.isFetchingNextPage || !historyQuery.hasNextPage) return;
-    setPaginationError(null);
-    try {
-      await historyQuery.fetchNextPage();
-    } catch (nextError) {
-      setPaginationError(
-        nextError instanceof Error ? nextError.message : "More finished battles failed to load",
-      );
-    }
+    await historyQuery.fetchNextPage();
   }
 
   return (
@@ -62,7 +53,7 @@ export function MatchHistoryPage() {
         </Sheet>
       )}
 
-      {paginationError ? (
+      {historyQuery.isFetchNextPageError ? (
         <ProblemBanner
           action={<Button clickAction={handleLoadMore} label="Retry" size="sm" />}
           title="More finished battles failed to load"
@@ -133,21 +124,24 @@ function Report({ entry }: { entry: MatchHistoryEntry }) {
         {isRanked && !isHotseat ? <RatingMove seat={viewerSeats[0]} /> : null}
         <HStack as="span" xstyle={styles.keys}>
           {entry.hasReplay ? (
-            <Button
-              as="a"
-              href={matchReplayDownloadPath(entry.matchId)}
-              icon={<Icon icon={IconDownload} />}
-              isIconOnly
-              label={`Download the replay archive for ${title}`}
-              tooltip="Replay archive"
-            />
+            <>
+              <Button
+                as="a"
+                href={matchReplayDownloadPath(entry.matchId)}
+                icon={<Icon icon={IconDownload} />}
+                isIconOnly
+                label={`Download the replay archive for ${title}`}
+                tooltip="Replay archive"
+              />
+              <RouterButton
+                aria-label={`Watch ${title}`}
+                label="Watch"
+                params={{ matchId: entry.matchId }}
+                to="/matches/$matchId"
+                xstyle={styles.watch}
+              />
+            </>
           ) : null}
-          <RouterButton
-            label="Watch"
-            params={{ matchId: entry.matchId }}
-            to="/matches/$matchId"
-            xstyle={styles.watch}
-          />
         </HStack>
       </HStack>
     </VStack>

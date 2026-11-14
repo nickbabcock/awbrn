@@ -46,7 +46,7 @@ export function MapFilterBar({
   onFiltersChange: (filters: Filters) => void;
   onSearchChange: (search: string) => void;
   search: string;
-  /** The result count, said as a figure (`8 maps`, `5 of 8`). */
+  /** The result count, said as a figure (`8 maps`). */
   summary: string;
 }) {
   return (

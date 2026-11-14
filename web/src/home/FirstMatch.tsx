@@ -106,14 +106,14 @@ function CpuCard({ map }: { map: MapCatalogEntry }) {
   const [coId, setCoId] = useState(FIRST_CO_ID);
   const [tier, setTier] = useState<AiProfileId>(DEFAULT_AI_PROFILE_ID);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [hasStartFailed, setHasStartFailed] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
 
   const playerFactionId = playerFactionFor(document);
   const factionCode = getFactionById(playerFactionId)?.code ?? null;
   const co = getCoById(coId);
   const card = cpuCardState({
-    hasStartFailed: problem !== null,
+    hasStartFailed,
     isStarting,
     mapStatus: revisionQuery.status,
   });
@@ -125,7 +125,7 @@ function CpuCard({ map }: { map: MapCatalogEntry }) {
    * match behind a retry.
    */
   async function playTheCpu(): Promise<void> {
-    setProblem(null);
+    setHasStartFailed(false);
     setIsStarting(true);
     let revision: { slotFactionIds: readonly number[] };
     try {
@@ -135,6 +135,13 @@ function CpuCard({ map }: { map: MapCatalogEntry }) {
       return;
     }
     const factionId = playerFactionFor(revision);
+    // Home offers this card until the player has a match, so a stale list
+    // would offer a second first match on the way back.
+    const refreshLists = () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.browse() }),
+      ]);
     let matchId: string | null = null;
     try {
       const created = await createMatchFn({
@@ -160,20 +167,20 @@ function CpuCard({ map }: { map: MapCatalogEntry }) {
       await seat({ action: "updateParticipant", slotIndex: PLAYER_SLOT, coId, joinSlug });
       await seat({ action: "updateParticipant", slotIndex: PLAYER_SLOT, ready: true, joinSlug });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
-        queryClient.invalidateQueries({ queryKey: matchKeys.browse() }),
+        refreshLists(),
         queryClient.invalidateQueries({
           queryKey: matchDetailQueryOptions(matchId, null).queryKey,
         }),
       ]);
       await navigate({ to: "/matches/$matchId", params: { matchId } });
-    } catch (error) {
+    } catch {
       setIsStarting(false);
       if (matchId !== null) {
+        await refreshLists();
         await navigate({ to: "/matches/$matchId", params: { matchId } });
         return;
       }
-      setProblem(error instanceof Error ? error.message : "The match could not be created.");
+      setHasStartFailed(true);
     }
   }
 

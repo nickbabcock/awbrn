@@ -6,6 +6,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { importFailureMessage } from "#/maps/map_import.ts";
 import { importAwbwMapFn } from "#/maps/maps.functions.ts";
 import { mapKeys } from "#/maps/maps.keys.ts";
 import { Button } from "#/ui/Button.tsx";
@@ -61,7 +62,7 @@ function ImportForm() {
     try {
       await mutation.mutateAsync({ data: { sourceMapId } });
     } catch (importError) {
-      setError(importFailure(importError));
+      setError(importFailureMessage(importError));
     }
   }
 
@@ -91,14 +92,6 @@ function ImportForm() {
       />
     </Stack>
   );
-}
-
-function importFailure(error: unknown): string {
-  const message = error instanceof Error ? error.message : "";
-  if (/not found|404/i.test(message)) return "AWBW has no map with that id";
-  if (/signed in|unauthorized|401/i.test(message)) return "Sign in to import a map";
-  if (/rate|429|too many/i.test(message)) return "Too many imports, try again in a minute";
-  return "The map could not be imported";
 }
 
 const styles = stylex.create({

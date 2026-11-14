@@ -74,22 +74,22 @@ function RankBench({
   revision: number;
 }) {
   const queryClient = useQueryClient();
-  const [chosen, setChosen] = useState<MapRankFilter | null>(null);
+  const current: MapRankFilter = rank ?? MAP_UNRANKED_FILTER;
+  // The control holds the rank just set until the refetched map catches up.
+  const [chosen, setChosen] = useState<MapRankFilter>(current);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: setMapRankFn,
     onSuccess: async () => {
-      setChosen(null);
       setReason("");
       setError(null);
       await invalidateMap(queryClient);
     },
   });
 
-  const current: MapRankFilter = rank ?? MAP_UNRANKED_FILTER;
-  const isChanged = chosen !== null && chosen !== current;
+  const isChanged = chosen !== current;
 
   async function handleSubmit(): Promise<void> {
     if (!isChanged) return;
@@ -119,7 +119,7 @@ function RankBench({
           setError(null);
           setChosen(next as MapRankFilter);
         }}
-        value={chosen ?? ""}
+        value={chosen}
         xstyle={styles.seg}
       >
         {MAP_RANK_FILTERS.map((option) => (

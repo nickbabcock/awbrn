@@ -68,14 +68,6 @@ export function AttackPreview({ surfaceRef }: { surfaceRef: RefObject<HTMLElemen
 }
 
 /**
- * Where the panel stands: beside the pointer that took the aim.
- *
- * The pointer is remembered without a render, and read only when the engine
- * reports a different exchange. A panel that chased the cursor across a tile it
- * is already reporting on would be a moving target for the eye that came to
- * read it, and the aim only changes when the tile under the pointer does.
- */
-/**
  * The forecast while aiming, docked in the table's column beside the board
  * (desktop), so it never stands over the tile being aimed at.
  */
@@ -100,6 +92,14 @@ export function DockedAttackPreview() {
   );
 }
 
+/**
+ * Where the panel stands: beside the pointer that took the aim.
+ *
+ * The pointer is remembered without a render, and read only when the engine
+ * reports a different exchange. A panel that chased the cursor across a tile it
+ * is already reporting on would be a moving target for the eye that came to
+ * read it, and the aim only changes when the tile under the pointer does.
+ */
 function useAimAnchor(
   surfaceRef: RefObject<HTMLElement | null>,
   preview: AttackPreviewChanged | null,
@@ -146,7 +146,7 @@ const styles = stylex.create({
     overflow: "hidden",
     borderRadius: radiusVars["--radius-container"],
     backgroundColor: awbrnVars.sheet,
-    boxShadow: "var(--shadow-sheet)",
+    boxShadow: awbrnVars.shadowSheet,
     color: colorVars["--color-text-primary"],
   },
   dockedEngagement: {

@@ -78,10 +78,11 @@ function Scrubber({
   const shown = draft ?? index;
   const percent = total === 0 ? 100 : (shown / total) * 100;
   const isLive = review.onSeek === undefined || total === 0;
+  // The thumb stays where it landed until the engine reaches that moment, so
+  // it does not snap back to the old one for a frame.
+  if (draft !== null && draft === index) setDraft(null);
   const commit = () => {
-    if (draft === null) return;
-    setDraft(null);
-    if (draft !== index) review.onSeek?.(draft);
+    if (draft !== null && draft !== index) review.onSeek?.(draft);
   };
 
   return (

@@ -11,7 +11,7 @@ export interface ArmyFall {
 }
 
 /** The reason a seat's status gives, in the words the match over sheet uses. */
-export function fallReason(status: PlayerStatus): string | null {
+function fallReason(status: PlayerStatus): string | null {
   switch (status) {
     case "active":
       return null;
@@ -25,7 +25,7 @@ export function fallReason(status: PlayerStatus): string | null {
 }
 
 /** Every seat an observation shows as out of the match, by slot. */
-export function observedFalls(observation: Observation): Map<number, PlayerStatus> {
+function observedFalls(observation: Observation): Map<number, PlayerStatus> {
   const falls = new Map<number, PlayerStatus>();
   for (const player of observation.players) {
     if (player.status === "active") continue;

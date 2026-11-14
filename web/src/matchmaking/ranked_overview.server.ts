@@ -39,14 +39,6 @@ const STANDINGS_LIMIT = 100;
 /** The phases which hold a ranked slot: the match is not over. */
 const ONGOING_RANKED_PHASES: readonly MatchPhase[] = ["pending", "starting", "active"];
 
-export interface RankedRatingSnapshot {
-  rating: number;
-  /** The deviation after the growth for time without a rated match. */
-  deviation: number;
-  ratedMatches: number;
-  isProvisional: boolean;
-}
-
 export interface RankedPendingSummary {
   matchId: string;
   mapName: string;
@@ -77,9 +69,6 @@ export interface RankedPoolSnapshot {
   pool: RankedPool;
   isOpen: boolean;
   seek: { maxActiveMatches: number; createdAt: string } | null;
-  rating: RankedRatingSnapshot | null;
-  /** Pending, starting, and active ranked matches in this pool. */
-  activeMatches: number;
   pending: RankedPendingSummary[];
   inPlay: RankedInPlaySummary[];
 }
@@ -95,14 +84,14 @@ export interface RankedOverview {
 
 export async function rankedOverview(userId: string, now = new Date()): Promise<RankedOverview> {
   const database = drizzle(env.DB, {
-    schema: { maps, matchParticipants, matches, pairings, ratings, seasons, seeks, user },
+    schema: { maps, matchParticipants, matches, pairings, seasons, seeks, user },
   });
 
   // The opponent reaches the row through the seat which is not the viewer's.
   const seat = alias(matchParticipants, "seat");
   const opponent = alias(user, "opponent");
 
-  const [seekRows, ratingRows, matchRows] = await database.batch([
+  const [seekRows, matchRows] = await database.batch([
     database
       .select({
         pool: seeks.pool,
@@ -111,16 +100,6 @@ export async function rankedOverview(userId: string, now = new Date()): Promise<
       })
       .from(seeks)
       .where(eq(seeks.userId, userId)),
-    database
-      .select({
-        pool: ratings.pool,
-        rating: ratings.rating,
-        deviation: ratings.deviation,
-        ratedMatches: ratings.ratedMatches,
-        lastRatedAt: ratings.lastRatedAt,
-      })
-      .from(ratings)
-      .where(eq(ratings.userId, userId)),
     database
       .select({
         matchId: matches.id,
@@ -166,9 +145,7 @@ export async function rankedOverview(userId: string, now = new Date()): Promise<
 
   const pools = RANKED_POOL_ORDER.map((pool): RankedPoolSnapshot => {
     const seekRow = seekRows.find((row) => row.pool === pool);
-    const ratingRow = ratingRows.find((row) => row.pool === pool);
     const poolMatches = matchRows.filter((row) => row.pool === pool);
-    const hasRatedMatchInProgress = poolMatches.length > 0;
 
     return {
       pool,
@@ -179,8 +156,6 @@ export async function rankedOverview(userId: string, now = new Date()): Promise<
             createdAt: seekRow.createdAt.toISOString(),
           }
         : null,
-      rating: ratingRow ? toRatingSnapshot(ratingRow, now, hasRatedMatchInProgress) : null,
-      activeMatches: poolMatches.length,
       pending: poolMatches
         .filter((row) => row.phase === "pending")
         // A pending match without a pairing cannot happen, but the outer join
@@ -230,26 +205,13 @@ export async function rankedOverview(userId: string, now = new Date()): Promise<
   };
 }
 
-function toRatingSnapshot(
-  row: { rating: number; deviation: number; ratedMatches: number; lastRatedAt: Date | null },
-  now: Date,
-  hasRatedMatchInProgress: boolean,
-): RankedRatingSnapshot {
-  const deviation = readTimeDeviation(row, now, hasRatedMatchInProgress);
-  return {
-    rating: row.rating,
-    deviation,
-    ratedMatches: row.ratedMatches,
-    isProvisional: isProvisional(deviation),
-  };
-}
-
 export interface StandingsEntry {
   rank: number;
   userId: string;
   name: string;
   rating: number;
   ratedMatches: number;
+  isProvisional: boolean;
   isViewer: boolean;
 }
 
@@ -262,6 +224,8 @@ export interface RankedStandings {
    * range.
    */
   viewer: {
+    /** The viewer's place below the listed entries, or null with no place. */
+    rank: number | null;
     rating: number;
     ratedMatches: number;
     isProvisional: boolean;
@@ -288,6 +252,7 @@ export async function rankedStandings(
     name: row.name,
     rating: row.rating,
     ratedMatches: row.ratedMatches,
+    isProvisional: isProvisional(row.deviation),
     isViewer: row.userId === viewerUserId,
   }));
 
@@ -296,12 +261,14 @@ export async function rankedStandings(
   }
 
   // The viewer holds a place further down the ladder than the panel lists.
-  const placed = ladder.find((row) => row.userId === viewerUserId);
+  const placedIndex = ladder.findIndex((row) => row.userId === viewerUserId);
+  const placed = ladder[placedIndex];
   if (placed) {
     return {
       pool,
       entries,
       viewer: {
+        rank: placedIndex + 1,
         rating: placed.rating,
         ratedMatches: placed.ratedMatches,
         isProvisional: isProvisional(placed.deviation),
@@ -341,10 +308,11 @@ export async function rankedStandings(
     entries,
     viewer: own
       ? {
+          rank: null,
           rating: own.rating,
           ratedMatches: own.ratedMatches,
           isProvisional: isProvisional(readTimeDeviation(own, now, own.inProgress)),
         }
-      : { rating: INITIAL_RATING, ratedMatches: 0, isProvisional: true },
+      : { rank: null, rating: INITIAL_RATING, ratedMatches: 0, isProvisional: true },
   };
 }

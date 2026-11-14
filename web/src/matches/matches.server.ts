@@ -417,7 +417,18 @@ export async function listMyMatches(viewerUserId: string): Promise<MatchResult<M
     myMatches.push(toMyMatchSummary(groupedRows, settings.value));
   }
 
-  return ok({ matches: myMatches });
+  const hasPlayed = myMatches.length > 0 || (await viewerHasAnySeat(viewerUserId));
+  return ok({ matches: myMatches, hasPlayed });
+}
+
+async function viewerHasAnySeat(viewerUserId: string): Promise<boolean> {
+  const row = await db
+    .select({ matchId: matchParticipants.matchId })
+    .from(matchParticipants)
+    .where(eq(matchParticipants.userId, viewerUserId))
+    .limit(1)
+    .get();
+  return row !== undefined;
 }
 
 /**
@@ -1267,7 +1278,6 @@ function toMatchBrowseSummary(
     maxPlayers: row.maxPlayers,
     participantCount,
     openSlotCount: Math.max(0, row.maxPlayers - participantCount),
-    joinedPlayerNames: seats.map((seat) => seat.userName),
     seats,
     settings,
     createdAt: row.createdAt.toISOString(),

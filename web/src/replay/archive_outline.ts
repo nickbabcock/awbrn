@@ -284,7 +284,9 @@ function awbwSummary(action: unknown): ActionSummary | null {
     seenUnit(isRecord(action.Move) && isRecord(action.Move.unit) ? action.Move.unit : null) ??
     seenUnit(isRecord(action.unit) ? action.unit : null);
   const verb = kind === "Fire" ? (unit === null ? "Fires" : "Attacks") : (AWBW_VERBS[kind] ?? kind);
-  const tile = unit?.tile ?? (kind === "Fire" ? attackerTile(action) : null);
+  const tile =
+    unit?.tile ??
+    (kind === "Fire" ? attackerTile(action) : kind === "Capt" ? captureTile(action) : null);
   return { unit: unit?.kind ?? null, verb, tile };
 }
 
@@ -308,6 +310,13 @@ function attackerTile(action: Record<string, unknown>): { x: number; y: number }
   const info = seen && isRecord(seen.combatInfo) ? seen.combatInfo : null;
   const attacker = info && isRecord(info.attacker) ? info.attacker : null;
   return attacker ? readTile({ x: attacker.units_x, y: attacker.units_y }) : null;
+}
+
+/** A capture made without a move names only the building it stands on. */
+function captureTile(action: Record<string, unknown>): { x: number; y: number } | null {
+  const capture = isRecord(action.Capt) ? action.Capt : null;
+  const building = capture && isRecord(capture.buildingInfo) ? capture.buildingInfo : null;
+  return building ? readTile({ x: building.buildings_x, y: building.buildings_y }) : null;
 }
 
 /** `Md.Tank` → `md-tank`, `Neotank` → `neo-tank`, `Black Boat` → `black-boat`. */

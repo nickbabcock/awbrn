@@ -111,7 +111,14 @@ export function MatchReplayPage({
           label="Download the replay archive"
         />
       }
-      back={<BackKey label="Back to History" to="/my/history" />}
+      back={
+        // History is an account's own; a signed-out viewer goes back to Play.
+        session ? (
+          <BackKey label="Back to History" to="/my/history" />
+        ) : (
+          <BackKey label="Back to Play" to="/matches" />
+        )
+      }
       error={loadError}
       locatorSrc={mapEntry?.screenshot.small ?? null}
       map={mapEntry ? { width: mapEntry.width, height: mapEntry.height } : null}

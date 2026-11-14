@@ -85,7 +85,7 @@ function PlayerHome({ viewerId }: { viewerId: string }) {
 
   const [lead, ...rest] = owed;
 
-  if (data.matches.length === 0) {
+  if (!data.hasPlayed) {
     return <FirstRunHome lobbies={joinable} />;
   }
 
@@ -117,8 +117,11 @@ function PlayerHome({ viewerId }: { viewerId: string }) {
 
 /** Newly ranked drops to its row here so the first match stays the brightest art. */
 function FirstRunHome({ lobbies }: { lobbies: MatchBrowseSummary[] }) {
-  const { data } = useSuspenseInfiniteQuery(rankedMapsQueryOptions());
-  const map = useMemo(() => chooseFirstMatchMap(data.pages.flatMap((page) => page.maps)), [data]);
+  const { data } = useInfiniteQuery(rankedMapsQueryOptions());
+  const map = useMemo(
+    () => chooseFirstMatchMap(data?.pages.flatMap((page) => page.maps) ?? []),
+    [data],
+  );
   return (
     <Page>
       <VStack xstyle={styles.grid}>

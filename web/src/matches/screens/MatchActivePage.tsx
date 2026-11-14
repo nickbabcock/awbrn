@@ -31,6 +31,7 @@ import { nextTurnStart, previousTurnStart, stepTarget } from "#/matches/match_re
 import {
   clockPressure,
   findClockPreset,
+  formatClockCountdown,
   formatClockDuration,
   formatClockTerms,
   seatRemainingMs,
@@ -50,7 +51,7 @@ import { buildMenuMount } from "#/matches/components/board_menu_mount.ts";
 import { useLeaving } from "#/matches/components/useLeaving.ts";
 import { plateView as pickPlateView } from "#/matches/components/plate_view.ts";
 import { MatchMenu } from "#/matches/components/MatchMenu.tsx";
-import { DockedAttackPreview } from "#/matches/components/AttackPreview.tsx";
+import { AttackPreview, DockedAttackPreview } from "#/matches/components/AttackPreview.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
 import {
   ArmedPower,
@@ -105,7 +106,6 @@ import {
   WatchingTag,
   useFullscreenEnabled,
 } from "#/matches/components/MatchFrame.tsx";
-import { canActivatePower } from "#/replay/power_meter.ts";
 import { describeTurnResidue } from "#/matches/turn_residue.ts";
 import type { ActivatablePowerLevel } from "#/replay/power_meter.ts";
 import type { UnitKind } from "#/wasm/awbrn_wasm.js";
@@ -527,9 +527,7 @@ export function MatchActivePage({
   }, [finishResigning, sendMessage, setProductionOptions, status, viewerSlotIndex]);
 
   const turnReadiness = useGameStore((state) => state.turnReadiness);
-  const isPowerReady =
-    viewerArmy !== undefined &&
-    (canActivatePower(viewerArmy.entry, "cop") || canActivatePower(viewerArmy.entry, "scop"));
+  const isPowerReady = viewerArmy !== undefined && readyPowers(viewerArmy.entry).length > 0;
   const turnResidue = describeTurnResidue(turnReadiness, isPowerReady);
   const [isConfirmingEndTurn, setIsConfirmingEndTurn] = useState(false);
   const alertsOffer = useTurnAlertsOffer(isAsyncClock(match.settings.clock));
@@ -1024,11 +1022,24 @@ function readArmyClock(
   const remaining = seatRemainingMs(clock, playerId, now);
   const value = formatClockDuration(remaining);
   const isRunning = playerId === clock.activeSlot;
+  const pressure = clockPressure(remaining, initialMs);
+  const warning =
+    pressure === "critical" ? ", nearly out of time" : pressure === "low" ? ", low on time" : "";
+  // The running bank is named by its deadline: its exact span would be stale
+  // between the readout's redraws.
+  const detail =
+    remaining <= 0
+      ? "Out of time"
+      : isRunning
+        ? `Runs out ${new Date(clock.deadlineAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+        : `${formatClockCountdown(remaining)} left, not running until this army's turn`;
   return {
     value,
     isRunning,
-    pressure: clockPressure(remaining, initialMs),
-    label: remaining <= 0 ? "Out of time" : `${value} left${isRunning ? ", running" : ""}`,
+    pressure,
+    label:
+      remaining <= 0 ? "Out of time" : `${value} left${isRunning ? ", running" : ""}${warning}`,
+    detail,
   };
 }
 
@@ -1132,6 +1143,7 @@ function ActiveMatchScreen({
   const productionOptions = useGameStore((state) => state.productionOptions);
   const unitActions = useGameStore((state) => state.unitActions);
   const inspectedUnit = useGameStore((state) => state.inspectedUnit);
+  const playerRoster = useGameStore((state) => state.playerRoster);
   const setProductionOptions = useGameActions().setProductionOptions;
   const isPhone = useMediaQuery(PHONE_MEDIA);
   const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
@@ -1251,6 +1263,7 @@ function ActiveMatchScreen({
   const stripClock =
     moverClock === null ? null : (
       <StripClock
+        detail={moverClock.detail}
         label={`${mover?.name ?? "The mover"}: ${moverClock.label}`}
         pressure={moverClock.pressure}
         value={moverClock.value}
@@ -1412,7 +1425,7 @@ function ActiveMatchScreen({
         onDismiss={() => setIsCalculatorOpen(false)}
         onRestoreFocus={focus}
         presentation={isCalculatorCompact ? "sheet" : "board"}
-        roster={useGameStore.getState().playerRoster}
+        roster={playerRoster}
         runner={runner}
         viewerSlotIndex={viewerSlotIndex ?? null}
       />
@@ -1669,6 +1682,7 @@ function ActiveMatchScreen({
           clock={
             moverClock ? (
               <StripClock
+                detail={moverClock.detail}
                 label={moverClock.label}
                 pressure={moverClock.pressure}
                 value={moverClock.value}
@@ -1727,7 +1741,14 @@ function ActiveMatchScreen({
             map={mapDims}
             floating={calculator}
             notice={columnNotices}
-            overlay={<WholeMapOutline runner={runner} />}
+            overlay={
+              <>
+                <WholeMapOutline runner={runner} />
+                {/* A phone has no column to dock the forecast in, so it stands
+                    beside the target, as the planner's does. */}
+                {isPhone ? <AttackPreview surfaceRef={canvasContainerRef} /> : null}
+              </>
+            }
             side={side}
             tableRef={tableRef}
             waiting={waiting}

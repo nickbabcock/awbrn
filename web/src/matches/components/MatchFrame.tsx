@@ -1,5 +1,6 @@
 import { Text } from "@astryxdesign/core/Text";
 import { Icon } from "@astryxdesign/core/Icon";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { HStack, Stack, VStack } from "@astryxdesign/core/Stack";
 import { borderVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
@@ -191,26 +192,28 @@ export type MatchConnection = "connected" | "connecting" | "reconnecting" | "ref
  */
 export function ConnectionState({ status }: { status: MatchConnection }) {
   if (status === "signedOut") return null;
-  if (status === "connected") {
-    return (
-      <Stack as="span" aria-label="Connected" role="img" xstyle={[styles.dot, styles.dotLive]} />
-    );
-  }
+  const isLive = status === "connected";
   const isFirst = status !== "reconnecting";
+  // One status element across every state, so a drop is announced as a change
+  // to it rather than lost in a freshly mounted region.
   return (
     <HStack
       as="span"
       role="status"
-      xstyle={[styles.connection, isFirst ? styles.quiet : styles.warn]}
+      xstyle={[styles.connection, !isLive && (isFirst ? styles.quiet : styles.warn)]}
     >
       <Stack
         as="span"
         aria-hidden="true"
-        xstyle={[styles.dot, isFirst ? styles.dotQuiet : styles.dotWarn]}
+        xstyle={[styles.dot, isLive ? styles.dotLive : isFirst ? styles.dotQuiet : styles.dotWarn]}
       />
-      <Text color="inherit" type="inherit" xstyle={styles.connectionWord}>
-        {isFirst ? "Connecting" : "Reconnecting"}
-      </Text>
+      {isLive ? (
+        <VisuallyHidden>Connected</VisuallyHidden>
+      ) : (
+        <Text color="inherit" type="inherit" xstyle={styles.connectionWord}>
+          {isFirst ? "Connecting" : "Reconnecting"}
+        </Text>
+      )}
     </HStack>
   );
 }
@@ -292,16 +295,20 @@ export function TurnStrip({
 }
 
 export function StripClock({
+  detail,
   label,
   pressure,
   value,
 }: {
+  /** The tooltip: the exact span left, or when the running clock runs out. */
+  detail?: string;
   label: string;
   pressure: "steady" | "low" | "critical";
   value: string;
 }) {
+  // Raw span: Astryx components drop `title`.
   return (
-    <HStack as="span" aria-label={label} role="timer" xstyle={styles.clock}>
+    <span aria-label={label} role="timer" title={detail} {...stylex.props(styles.clock)}>
       <UiSprite name="Clock.png" />
       <Text
         color="inherit"
@@ -311,7 +318,7 @@ export function StripClock({
       >
         {value}
       </Text>
-    </HStack>
+    </span>
   );
 }
 
@@ -347,13 +354,9 @@ export function TurnLine({
         />
       )}
       <HStack as="span" xstyle={[styles.who, styles.lineWho]}>
-        <Text
-          color="inherit"
-          type="inherit"
-          xstyle={[styles.title, styles.lineTitle, isTitleDim && styles.lineTitleDim]}
-        >
+        <h1 {...stylex.props(styles.title, styles.lineTitle, isTitleDim && styles.lineTitleDim)}>
           {title}
-        </Text>
+        </h1>
         {sub ? (
           <HStack as="span" xstyle={styles.lineSub}>
             {sub}
@@ -873,6 +876,7 @@ const styles = stylex.create({
     flexGrow: 1,
   },
   lineTitle: {
+    margin: 0,
     fontSize: matchType.lineTitle,
   },
   lineTitleDim: {

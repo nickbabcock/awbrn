@@ -14,7 +14,6 @@
  */
 
 import type { RankedPool } from "#/matches/schemas.ts";
-import { HARD_MAX_ACTIVE_MATCHES } from "./matchmaking.ts";
 
 /**
  * The rating deviation above which a rating is not yet trusted.
@@ -158,9 +157,9 @@ export function ladderScore(rating: number, deviation: number): number {
 }
 
 /** A rating for display. A provisional rating carries a question mark. */
-export function formatRating(rating: number, deviation: number): string {
+export function formatRating(rating: number, isProvisional: boolean): string {
   const value = Math.round(rating).toString();
-  return isProvisional(deviation) ? `${value}?` : value;
+  return isProvisional ? `${value}?` : value;
 }
 
 /**
@@ -171,94 +170,4 @@ export function leadingOwedPairingId(
   pending: readonly { matchId: string; isReady: boolean }[],
 ): string | null {
   return pending.find((pairing) => !pairing.isReady)?.matchId ?? null;
-}
-
-export type SlotState = "in-play" | "searching" | "spare";
-
-/**
- * The slot meter: one square for each of the five possible ranked games.
- *
- * A filled square is a game in play. The searching square is the slot that
- * the seek fills next. A spare square is capacity the player has not asked
- * for. The meter never shows how many other players are in the pool.
- */
-export function slotMeter(input: {
-  activeMatches: number;
-  maxActiveMatches: number;
-  isSeeking: boolean;
-}): SlotState[] {
-  const inPlay = Math.min(input.activeMatches, HARD_MAX_ACTIVE_MATCHES);
-  const capacity = Math.min(Math.max(input.maxActiveMatches, inPlay), HARD_MAX_ACTIVE_MATCHES);
-
-  return Array.from({ length: HARD_MAX_ACTIVE_MATCHES }, (_unused, index) => {
-    if (index < inPlay) return "in-play";
-    if (input.isSeeking && index < capacity) return "searching";
-    return "spare";
-  });
-}
-
-export type SeekWaitPhase = "searching" | "widened" | "unrestricted";
-
-/** How far the rating range has opened for a seek that still waits. */
-export function seekWaitPhase(createdAt: string, now: number): SeekWaitPhase {
-  const hours = (now - Date.parse(createdAt)) / (60 * 60 * 1000);
-  if (hours >= 24) return "unrestricted";
-  if (hours >= 1) return "widened";
-  return "searching";
-}
-
-/**
- * The one status line above the slot meter.
- *
- * Every branch describes the viewer's own seek. None of them describes the
- * pool.
- */
-export function seekStatusLine(input: {
-  isSeeking: boolean;
-  activeMatches: number;
-  maxActiveMatches: number;
-  waitPhase: SeekWaitPhase;
-  waitLabel: string;
-}): string {
-  // A pairing that waits for confirmation holds a slot as surely as a game
-  // that is under way, so the count says slots rather than games.
-  const taken = `${input.activeMatches} of ${input.maxActiveMatches} slots taken`;
-  if (!input.isSeeking) {
-    return input.activeMatches === 0 ? "Not seeking" : `Not seeking · ${taken}`;
-  }
-
-  if (input.activeMatches >= input.maxActiveMatches) {
-    return `At capacity · ${taken}`;
-  }
-
-  const waited = `waiting ${input.waitLabel}`;
-  switch (input.waitPhase) {
-    case "widened":
-      return `Seeking · ${taken} · ${waited} · widening the rating range`;
-    case "unrestricted":
-      return `Seeking · ${taken} · ${waited} · matching any rating`;
-    default:
-      return `Seeking · ${taken} · ${waited}`;
-  }
-}
-
-/** The line under the slot meter, which says what happens next. */
-export function capacityHelperLine(input: {
-  isSeeking: boolean;
-  activeMatches: number;
-  maxActiveMatches: number;
-}): string | null {
-  if (!input.isSeeking) return null;
-  if (input.activeMatches > input.maxActiveMatches) {
-    const surplus = input.activeMatches - input.maxActiveMatches + 1;
-    return `No new pairing arrives until ${describeGames(surplus)} ${surplus === 1 ? "ends" : "end"}.`;
-  }
-  if (input.activeMatches === input.maxActiveMatches) {
-    return "A new pairing arrives when one of these ends.";
-  }
-  return null;
-}
-
-function describeGames(count: number): string {
-  return count === 1 ? "1 game" : `${count} games`;
 }

@@ -196,7 +196,7 @@ function LogList({
         const isNow = line.index === currentIndex;
         const isLater = line.index > currentIndex;
         const place = line.summary?.tile ?? null;
-        const tile = place ? `${place.x},${place.y}` : null;
+        const tile = place ? `${place.x + 1},${place.y + 1}` : null;
         return (
           <li key={line.index}>
             <button

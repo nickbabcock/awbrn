@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 
 /**
  * Whether this is a compact touch screen: a coarse primary pointer on a
@@ -10,22 +10,7 @@ import { useSyncExternalStore } from "react";
  * lay out first paint (lay out with `pageLayout.phoneMedia` instead).
  */
 export function useCompactTouch(): boolean {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return useMediaQuery(QUERY);
 }
 
 const QUERY = "(pointer: coarse) and (max-width: 720px), (pointer: coarse) and (max-height: 499px)";
-
-function subscribe(onChange: () => void): () => void {
-  if (typeof window === "undefined" || !window.matchMedia) return () => {};
-  const list = window.matchMedia(QUERY);
-  list.addEventListener("change", onChange);
-  return () => list.removeEventListener("change", onChange);
-}
-
-function getSnapshot(): boolean {
-  return typeof window !== "undefined" && !!window.matchMedia && window.matchMedia(QUERY).matches;
-}
-
-function getServerSnapshot(): boolean {
-  return false;
-}

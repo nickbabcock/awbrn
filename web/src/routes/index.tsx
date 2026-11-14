@@ -17,7 +17,9 @@ export const Route = createFileRoute("/")({
     const [browse, mine, maps] = await Promise.all([
       queryClient.ensureInfiniteQueryData(matchesBrowseQueryOptions()),
       session ? queryClient.ensureQueryData(myMatchesQueryOptions()) : null,
-      queryClient.ensureInfiniteQueryData(rankedMapsQueryOptions()),
+      // The catalog only decorates home, so a failed read leaves it bare
+      // rather than failing the page.
+      queryClient.ensureInfiniteQueryData(rankedMapsQueryOptions()).catch(() => undefined),
       // Ranked matches are titled by their map and a pairing's window comes
       // from the ranked overview, so it arrives with the queue it labels.
       session
@@ -26,11 +28,11 @@ export const Route = createFileRoute("/")({
     ]);
     // The maps the landing depicts and the one a first match is played on:
     // their terrain places the depicted units and their seats give the armies.
-    const catalog = maps.pages.flatMap((page) => page.maps);
+    const catalog = maps?.pages.flatMap((page) => page.maps) ?? [];
     const landing = mine === null ? chooseLandingMaps(catalog) : null;
     const depicted = landing
       ? [landing.featured, landing.replay]
-      : mine?.matches.length === 0
+      : mine?.hasPlayed === false
         ? [chooseFirstMatchMap(catalog)]
         : [];
     // What waits on the player leads the screen, so its rows arrive whole.

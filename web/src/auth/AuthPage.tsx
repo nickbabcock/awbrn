@@ -215,7 +215,7 @@ async function submitAuthRequest(
 ) {
   if (isRegister) {
     const parsed = authSignUpSchema.safeParse(payload);
-    if (!parsed.success) throw new Error(fieldProblem(parsed.error.issues[0]?.path[0]));
+    if (!parsed.success) throw new Error(fieldProblem(parsed.error.issues[0]?.path[0], payload));
     return authClient.signUp.email(parsed.data);
   }
 
@@ -223,14 +223,14 @@ async function submitAuthRequest(
     email: payload.email,
     password: payload.password,
   });
-  if (!parsed.success) throw new Error(fieldProblem(parsed.error.issues[0]?.path[0]));
+  if (!parsed.success) throw new Error(fieldProblem(parsed.error.issues[0]?.path[0], payload));
   return authClient.signIn.email(parsed.data);
 }
 
-/** The field a submitted form is missing, said as the problem. */
-function fieldProblem(field: PropertyKey | undefined): string {
+/** The field a submitted form is missing or got wrong, said as the problem. */
+function fieldProblem(field: PropertyKey | undefined, payload: { email: string }): string {
   if (field === "name") return "Enter your name";
-  if (field === "email") return "Enter your email";
+  if (field === "email") return payload.email ? "That email is not valid" : "Enter your email";
   if (field === "password") return "Enter your password";
   return "Something went wrong";
 }
