@@ -63,7 +63,7 @@ describe("awbrn map documents", () => {
     );
 
     // The map draws Orange Star and Blue Moon. The first seat plays Yellow
-    // Comet and the second the Orange Star army the first left.
+    // Comet, which takes the Blue Moon side nobody picked.
     const match = new WasmMatch({
       map: document,
       players: [

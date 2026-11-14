@@ -198,20 +198,24 @@ impl AwbwMap {
         factions
     }
 
-    /// Return this map with each seat's faction replaced by the army its
-    /// player chose, where `armies` lists one army per seat in seat order.
+    /// Return this map with the holdings of map armies nobody picked handed
+    /// to the players whose army the map does not draw, where `armies` lists
+    /// one army per seat in seat order.
     ///
-    /// A seat holds the properties and units of its [`Self::slot_factions`]
-    /// entry, and the engine finds a player's holdings by their army, so a
-    /// player who picks an army other than their seat's would otherwise own
-    /// nothing.
+    /// The engine finds a player's holdings by their army, so a player in an
+    /// army the map does not draw would otherwise own nothing. An army the map
+    /// draws keeps its own holdings, so a match where every player picked one
+    /// of the map's armies plays and rebuilds as it always has.
     pub fn with_seat_armies(&self, armies: &[PlayerFaction]) -> AwbwMap {
         let slots = self.slot_factions(armies.len());
+        let unpicked = slots.iter().filter(|slot| !armies.contains(slot));
+        let newcomers = armies.iter().filter(|army| !slots.contains(army));
+        let handover: Vec<_> = unpicked.copied().zip(newcomers.copied()).collect();
         self.map_factions(|faction| {
-            slots
+            handover
                 .iter()
-                .position(|slot| *slot == faction)
-                .map_or(faction, |seat| armies[seat])
+                .find(|(from, _)| *from == faction)
+                .map_or(faction, |(_, to)| *to)
         })
     }
 
@@ -670,19 +674,36 @@ mod tests {
     }
 
     #[test]
-    fn with_seat_armies_gives_each_seat_its_holdings_in_its_chosen_army() {
-        // An Orange Star HQ (42) and a Blue Moon HQ (47). The first seat
-        // plays Yellow Comet and the second takes the Orange Star army the
-        // first seat left, so the swap must not hand both HQs to one army.
+    fn with_seat_armies_hands_unpicked_holdings_to_armies_off_the_map() {
+        // An Orange Star HQ (42) and a Blue Moon HQ (47). One player keeps
+        // Orange Star and the other plays Yellow Comet, which takes the Blue
+        // Moon side nobody picked.
         let map = AwbwMap::parse_txt("42,47").unwrap();
-        let seated = map.with_seat_armies(&[PlayerFaction::YellowComet, PlayerFaction::OrangeStar]);
-
-        let owner = |x| match seated.terrain_at(Pos::new(x, 0)) {
+        let owner = |armies: &[PlayerFaction], x| match map
+            .with_seat_armies(armies)
+            .terrain_at(Pos::new(x, 0))
+        {
             Some(AwbwTerrain::Property(property)) => property.faction(),
             other => panic!("expected a property, got {other:?}"),
         };
-        assert_eq!(owner(0), Faction::Player(PlayerFaction::YellowComet));
-        assert_eq!(owner(1), Faction::Player(PlayerFaction::OrangeStar));
+        let seated = [PlayerFaction::YellowComet, PlayerFaction::OrangeStar];
+        assert_eq!(
+            owner(&seated, 0),
+            Faction::Player(PlayerFaction::OrangeStar)
+        );
+        assert_eq!(
+            owner(&seated, 1),
+            Faction::Player(PlayerFaction::YellowComet)
+        );
+
+        // Swapped map armies keep their own sides, as matches recorded
+        // before the handover were played.
+        let swapped = [PlayerFaction::BlueMoon, PlayerFaction::OrangeStar];
+        assert_eq!(
+            owner(&swapped, 0),
+            Faction::Player(PlayerFaction::OrangeStar)
+        );
+        assert_eq!(owner(&swapped, 1), Faction::Player(PlayerFaction::BlueMoon));
     }
 
     #[test]
