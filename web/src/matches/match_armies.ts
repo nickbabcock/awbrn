@@ -42,6 +42,19 @@ export function buildArmies(
 }
 
 /**
+ * The one seat the match record gives this account, or null. A hotseat account
+ * holds several, and only a live connection can say which of them is up.
+ */
+export function recordedSeat(
+  participants: MatchParticipantSnapshot[],
+  userId: string | null,
+): number | null {
+  if (userId === null) return null;
+  const seats = participants.filter((participant) => participant.userId === userId);
+  return seats.length === 1 ? seats[0]!.slotIndex : null;
+}
+
+/**
  * A seat as the match record describes it, with every statistic still unknown.
  * The readouts render their own "--" until the engine reports real values.
  */

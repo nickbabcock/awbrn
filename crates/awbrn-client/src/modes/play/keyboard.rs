@@ -52,7 +52,7 @@ use bevy::prelude::*;
 /// slides to keep up, in tiles.
 ///
 /// The board follows rather than scrolls: a cursor walked off the edge is a
-/// cursor the player cannot see, and a board that re-centres on every step is
+/// cursor the player cannot see, and a board that re-centers on every step is
 /// one they cannot read.
 const CURSOR_KEEP_IN_VIEW_TILES: f32 = 2.0;
 

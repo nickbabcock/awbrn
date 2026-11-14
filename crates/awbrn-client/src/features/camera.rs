@@ -101,9 +101,27 @@ pub struct FocusBoardOn {
     pub world: Vec2,
 }
 
-/// Where the camera is travelling to, if anywhere.
+/// Where the camera is traveling to, if anywhere.
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 struct CameraGoal(Option<Vec2>);
+
+/// Whether the viewer asked for less motion (`prefers-reduced-motion`). When
+/// set, every move that would slide lands at once, whether the page or the
+/// board asked for it.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReducedMotion(pub bool);
+
+/// Send the camera to `target`, sliding there when `ease` and landing this
+/// frame otherwise.
+fn head_for(target: Vec2, ease: bool, goal: &mut CameraGoal, transform: &mut Transform) {
+    if ease {
+        goal.0 = Some(target);
+    } else {
+        goal.0 = None;
+        transform.translation.x = target.x;
+        transform.translation.y = target.y;
+    }
+}
 
 /// A request from the page to move the camera.
 ///
@@ -694,10 +712,12 @@ fn apply_touch_floor_on_first_board(
 /// Every command but an eased [`CameraCommand::CenterOn`] lands this frame:
 /// the page asked for a view, not a journey, and a scale that changes at once
 /// with a position that slides would read as two moves.
+#[allow(clippy::too_many_arguments)]
 fn apply_camera_commands(
     mut requests: MessageReader<CameraCommand>,
     windows: Query<&Window>,
     game_map: Res<GameMap>,
+    reduced_motion: Res<ReducedMotion>,
     mut camera_scale: ResMut<CameraScale>,
     mut goal: ResMut<CameraGoal>,
     mut view_to_restore: ResMut<ViewToRestore>,
@@ -782,13 +802,7 @@ fn apply_camera_commands(
                 let Some(center) = tile_center_on_map(tile, game_map) else {
                     continue;
                 };
-                if ease {
-                    goal.0 = Some(center);
-                } else {
-                    goal.0 = None;
-                    transform.translation.x = center.x;
-                    transform.translation.y = center.y;
-                }
+                head_for(center, ease && !reduced_motion.0, &mut goal, &mut transform);
             }
             CameraCommand::RestoreView => {
                 let Some(pose) = view_to_restore.0.take() else {
@@ -839,10 +853,19 @@ fn keep_scale_at_or_above_fit(
     );
 }
 
-fn accept_focus_requests(mut requests: MessageReader<FocusBoardOn>, mut goal: ResMut<CameraGoal>) {
-    if let Some(request) = requests.read().last() {
-        goal.0 = Some(request.world);
-    }
+fn accept_focus_requests(
+    mut requests: MessageReader<FocusBoardOn>,
+    reduced_motion: Res<ReducedMotion>,
+    mut goal: ResMut<CameraGoal>,
+    mut query: Query<&mut Transform, With<Camera>>,
+) {
+    let Some(request) = requests.read().last().copied() else {
+        return;
+    };
+    let Ok(mut transform) = query.single_mut() else {
+        return;
+    };
+    head_for(request.world, !reduced_motion.0, &mut goal, &mut transform);
 }
 
 /// Slide toward whatever was last asked for, frame by frame.
@@ -941,6 +964,7 @@ impl Plugin for CameraPlugin {
         app.init_resource::<CameraScale>()
             .init_resource::<TouchCameraState>()
             .init_resource::<CameraGoal>()
+            .init_resource::<ReducedMotion>()
             .init_resource::<ViewToRestore>()
             .init_resource::<SentBoardView>()
             .insert_resource(ClearColor(BOARD_CLEAR_COLOR))
@@ -1154,6 +1178,7 @@ mod tests {
         app.insert_resource(game_map)
             .init_resource::<CameraScale>()
             .init_resource::<CameraGoal>()
+            .init_resource::<ReducedMotion>()
             .init_resource::<ViewToRestore>()
             .add_message::<CameraCommand>()
             .add_systems(Update, apply_camera_commands);
@@ -1393,6 +1418,42 @@ mod tests {
             },
         );
         assert_eq!(camera_pose(&mut app).center, tile_center);
+    }
+
+    #[test]
+    fn reduced_motion_lands_every_move_at_once() {
+        let game_map = test_map(40, 40);
+        let tile_center = tile_center_on_map(Pos::new(3, 4), &game_map).unwrap();
+        let mut app = camera_command_app(test_window(400, 300), game_map);
+        app.add_message::<FocusBoardOn>()
+            .add_systems(Update, accept_focus_requests.before(apply_camera_commands))
+            .insert_resource(ReducedMotion(true));
+
+        send(
+            &mut app,
+            CameraCommand::CenterOn {
+                tile: Pos::new(3, 4),
+                ease: true,
+            },
+        );
+        assert_eq!(app.world().resource::<CameraGoal>().0, None);
+        assert_eq!(camera_pose(&mut app).center, tile_center);
+
+        // Framing a selection is the board's own move, not the page's, and
+        // lands the same way.
+        let framed = Vec2::new(-48.0, 32.0);
+        app.world_mut()
+            .write_message(FocusBoardOn { world: framed });
+        app.update();
+        assert_eq!(app.world().resource::<CameraGoal>().0, None);
+        assert_eq!(camera_pose(&mut app).center, framed);
+
+        app.insert_resource(ReducedMotion(false));
+        app.world_mut()
+            .write_message(FocusBoardOn { world: tile_center });
+        app.update();
+        assert_eq!(app.world().resource::<CameraGoal>().0, Some(tile_center));
+        assert_eq!(camera_pose(&mut app).center, framed);
     }
 
     #[test]

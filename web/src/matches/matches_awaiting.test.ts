@@ -9,7 +9,7 @@
 
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { countMatchesAwaitingViewer } from "./matches.server.ts";
+import { countMatchesAwaitingViewer, listMyMatches } from "./matches.server.ts";
 
 const OPENED_AT = new Date("2026-08-28T18:00:00.000Z");
 const DEADLINE = new Date("2026-09-04T18:00:00.000Z");
@@ -166,5 +166,25 @@ describe("countMatchesAwaitingViewer", () => {
     ]);
 
     expect(await awaiting()).toBe(0);
+  });
+});
+
+describe("listMyMatches", () => {
+  async function mine() {
+    const result = await listMyMatches("viewer");
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  }
+
+  it("reports a player with no seat anywhere as new", async () => {
+    expect(await mine()).toEqual({ matches: [], hasPlayed: false });
+  });
+
+  // Home greets a player with no history as new, and finished matches are
+  // history even though the list leaves them out.
+  it("counts a finished match as played", async () => {
+    await env.DB.batch([insertMatch("done", "completed"), insertSeat("done", "viewer", 0, READY)]);
+
+    expect(await mine()).toEqual({ matches: [], hasPlayed: true });
   });
 });

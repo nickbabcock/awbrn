@@ -1,9 +1,8 @@
+import { IconMail, IconMap, IconPlay, IconReplay, type DrawnIcon } from "#/ui/icons.tsx";
+
 /**
- * The sections of the site, and the pages each one holds.
- *
- * The bar names a section; the page header names the pages inside it. Both
- * read this one table, so the tab that is lit in the bar and the tab that is
- * lit under a title can never disagree about where the player is.
+ * The top bar, the tab bar and the page head all read this one table, so the
+ * lit section and the lit tab can never disagree about where the player is.
  */
 
 export interface SitePage {
@@ -17,7 +16,7 @@ export interface SitePage {
 export interface SiteSection {
   id: "play" | "mine" | "maps" | "replay";
   label: string;
-  /** Where the section's entry in the bar goes. */
+  icon: DrawnIcon;
   to: string;
   requiresSession?: boolean;
   pages: SitePage[];
@@ -36,6 +35,7 @@ export const SITE_SECTIONS: readonly SiteSection[] = [
   {
     id: "play",
     label: "Play",
+    icon: IconPlay,
     to: "/matches",
     pages: [
       {
@@ -50,6 +50,7 @@ export const SITE_SECTIONS: readonly SiteSection[] = [
   {
     id: "mine",
     label: "My games",
+    icon: IconMail,
     to: "/my/matches",
     requiresSession: true,
     pages: [
@@ -60,12 +61,14 @@ export const SITE_SECTIONS: readonly SiteSection[] = [
   {
     id: "maps",
     label: "Maps",
+    icon: IconMap,
     to: "/maps",
     pages: [{ to: "/maps", label: "Catalog", matches: (pathname) => pathname.startsWith("/maps") }],
   },
   {
     id: "replay",
     label: "Replays",
+    icon: IconReplay,
     to: "/replay",
     pages: [{ to: "/replay", label: "Review", matches: exactly("/replay") }],
   },
@@ -75,4 +78,12 @@ export function sectionForPath(pathname: string): SiteSection | null {
   return (
     SITE_SECTIONS.find((section) => section.pages.some((page) => page.matches(pathname))) ?? null
   );
+}
+
+/**
+ * Where the top bar's New match key steps aside: the Play pages carry New
+ * match as a tab, and map detail carries it as the page's own key.
+ */
+export function pageOffersNewMatch(pathname: string): boolean {
+  return sectionForPath(pathname)?.id === "play" || /^\/maps\/[^/]+\/?$/.test(pathname);
 }

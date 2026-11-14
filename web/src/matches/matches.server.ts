@@ -6,6 +6,7 @@ import type {
   AiProfileId,
   MatchBrowseRequest,
   MatchBrowseResponse,
+  MatchBrowseSeat,
   MatchBrowseSummary,
   MatchCreateRequest,
   MatchCreateResponse,
@@ -356,15 +357,24 @@ export async function listMatches(
   const hasNextPage = rows.length > MATCH_BROWSE_PAGE_SIZE;
   const visibleRows = hasNextPage ? rows.slice(0, MATCH_BROWSE_PAGE_SIZE) : rows;
   const participantRows = await queryBrowseParticipantRows(rows.map((row) => row.matchId));
-  const participantNamesByMatchId = new Map<string, string[]>();
+  const creatorByMatchId = new Map(rows.map((row) => [row.matchId, row.creatorUserId]));
+  const seatsByMatchId = new Map<string, MatchBrowseSeat[]>();
 
   for (const participant of participantRows) {
-    const name = seatDisplayName(participant.userName, participant.aiProfileId);
-    const current = participantNamesByMatchId.get(participant.matchId);
+    const seat: MatchBrowseSeat = {
+      slotIndex: participant.slotIndex,
+      factionId: participant.factionId,
+      userId: participant.userId,
+      userName: seatDisplayName(participant.userName, participant.aiProfileId),
+      isHost:
+        participant.userId !== null &&
+        participant.userId === creatorByMatchId.get(participant.matchId),
+    };
+    const current = seatsByMatchId.get(participant.matchId);
     if (current) {
-      current.push(name);
+      current.push(seat);
     } else {
-      participantNamesByMatchId.set(participant.matchId, [name]);
+      seatsByMatchId.set(participant.matchId, [seat]);
     }
   }
   const browseMatches: MatchBrowseSummary[] = [];
@@ -375,7 +385,7 @@ export async function listMatches(
       return settings;
     }
     browseMatches.push(
-      toMatchBrowseSummary(row, settings.value, participantNamesByMatchId.get(row.matchId) ?? []),
+      toMatchBrowseSummary(row, settings.value, seatsByMatchId.get(row.matchId) ?? []),
     );
   }
 
@@ -407,7 +417,18 @@ export async function listMyMatches(viewerUserId: string): Promise<MatchResult<M
     myMatches.push(toMyMatchSummary(groupedRows, settings.value));
   }
 
-  return ok({ matches: myMatches });
+  const hasPlayed = myMatches.length > 0 || (await viewerHasAnySeat(viewerUserId));
+  return ok({ matches: myMatches, hasPlayed });
+}
+
+async function viewerHasAnySeat(viewerUserId: string): Promise<boolean> {
+  const row = await db
+    .select({ matchId: matchParticipants.matchId })
+    .from(matchParticipants)
+    .where(eq(matchParticipants.userId, viewerUserId))
+    .limit(1)
+    .get();
+  return row !== undefined;
 }
 
 /**
@@ -967,6 +988,7 @@ async function loadMatchSnapshot(matchId: string): Promise<MatchResult<MatchSnap
     completedAt: row.completedAt === null ? null : row.completedAt.toISOString(),
     participants: participantRows.map(toParticipantSnapshot),
     confirmationDeadlineAt: pairingRow?.deadlineAt.toISOString() ?? null,
+    pool: row.pool ?? null,
     void: voidRow
       ? { publicReason: voidRow.publicReason, voidedAt: voidRow.voidedAt.toISOString() }
       : null,
@@ -1042,6 +1064,7 @@ async function queryBrowseRows(cursor: { createdAt: string; matchId: string } | 
     .select({
       matchId: matches.id,
       name: matches.name,
+      creatorUserId: matches.creatorUserId,
       creatorName: user.name,
       mapId: matches.mapId,
       mapRevision: matches.mapRevision,
@@ -1058,6 +1081,7 @@ async function queryBrowseRows(cursor: { createdAt: string; matchId: string } | 
     .groupBy(
       matches.id,
       matches.name,
+      matches.creatorUserId,
       user.name,
       matches.mapId,
       matches.mapRevision,
@@ -1082,6 +1106,8 @@ async function queryBrowseParticipantRows(matchIds: readonly string[]) {
       userName: user.name,
       aiProfileId: matchParticipants.aiProfileId,
       slotIndex: matchParticipants.slotIndex,
+      factionId: matchParticipants.factionId,
+      userId: matchParticipants.userId,
     })
     .from(matchParticipants)
     .leftJoin(user, eq(user.id, matchParticipants.userId))
@@ -1239,7 +1265,7 @@ function toParticipantSnapshot(row: MatchParticipantRow): MatchParticipantSnapsh
 function toMatchBrowseSummary(
   row: MatchBrowseRow,
   settings: MatchSettings,
-  joinedPlayerNames: string[],
+  seats: MatchBrowseSeat[],
 ): MatchBrowseSummary {
   const participantCount = Number(row.participantCount);
 
@@ -1252,7 +1278,7 @@ function toMatchBrowseSummary(
     maxPlayers: row.maxPlayers,
     participantCount,
     openSlotCount: Math.max(0, row.maxPlayers - participantCount),
-    joinedPlayerNames,
+    seats,
     settings,
     createdAt: row.createdAt.toISOString(),
   };

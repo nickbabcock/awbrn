@@ -1,10 +1,9 @@
-import { Grid } from "@astryxdesign/core/Grid";
-import { Heading } from "@astryxdesign/core/Heading";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { SelectableCard } from "@astryxdesign/core/SelectableCard";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { colorVars, textSizeVars } from "@astryxdesign/core/theme/tokens.stylex";
+import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
   CLOCK_PRESETS,
@@ -15,12 +14,9 @@ import {
   formatClockTerms,
 } from "#/matches/match_clock.ts";
 import { MAX_CLOCK_MS, type MatchClock } from "#/matches/schemas.ts";
-
-/** Narrow enough that the three custom fields sit on one row on a laptop. */
-const CUSTOM_GRID_MIN_WIDTH = 180;
-
-/** Wide enough for a pace to keep its name, its terms, and its line. */
-const PRESET_GRID_MIN_WIDTH = 240;
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { figureStyles } from "#/ui/Figure.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 
 type ClockUnit = "minutes" | "hours" | "days";
 
@@ -87,18 +83,8 @@ export function validateClock(clock: MatchClock): string | null {
 }
 
 /**
- * The pace the match is played at.
- *
- * A host is choosing a pace, not three durations: whether this is a match
- * played at the board or over days is the decision, and the three numbers
- * behind it are the consequence. So the paces are dealt as keys on the same
- * board the maps were chosen from, the chosen one wears the same cursor, and
- * the fields only appear for the host who wants terms nobody named.
- *
- * Each key says the least that distinguishes it: what the pace is called, what
- * it costs in time, and a few words on who plays at it. A key a host has to
- * read a sentence of is a key that has stopped being a choice and started
- * being a manual.
+ * The pace as option cards; Custom's three fields appear only once it is
+ * chosen. A host is choosing a pace, not three durations.
  */
 export function ClockSettings({
   clock,
@@ -120,99 +106,80 @@ export function ClockSettings({
   };
 
   return (
-    <VStack gap={4}>
-      <VStack gap={1}>
-        <Heading level={3}>Match clock</Heading>
-        {/* The terms are on the keys and the fields name their own jobs, so the
-            one line here is for the rule none of them state: what the clock is
-            for. */}
-        <Text color="secondary">An army whose clock runs out is removed from the match.</Text>
-      </VStack>
-
-      <Grid
-        align="stretch"
-        columns={{ minWidth: PRESET_GRID_MIN_WIDTH, max: 3, repeat: "fit" }}
-        gap={3}
-      >
+    <VStack xstyle={styles.root}>
+      <VStack aria-label="Clock" role="radiogroup" xstyle={styles.options}>
         {CLOCK_PRESETS.map((option) => (
-          <SelectableCard
-            isSelected={isPresetChosen(option.id)}
+          <OptionCard
+            isChosen={isPresetChosen(option.id)}
             key={option.id}
-            label={`${option.name}: ${formatClockTerms(option.clock)}. ${option.brief}`}
-            onChange={() => {
+            name={option.name}
+            onChoose={() => {
               setIsCustom(false);
               onChange(option.clock);
             }}
-            padding={3}
-          >
-            <PaceFace
-              brief={option.brief}
-              name={option.name}
-              terms={formatClockTerms(option.clock)}
-            />
-          </SelectableCard>
+            terms={formatClockTerms(option.clock)}
+          />
         ))}
-        <SelectableCard
-          isSelected={isCustom}
-          label="Custom clock: set the bank, the increment, and the ceiling yourself."
-          onChange={() => {
+        <OptionCard
+          isChosen={isCustom}
+          name="Custom"
+          onChoose={() => {
             setIsCustom(true);
             onChange(toClock(draft));
           }}
-          padding={3}
-        >
-          <PaceFace
-            brief="Set your own."
-            name="Custom"
-            terms={isCustom ? formatClockTerms(clock) : "Your terms"}
-          />
-        </SelectableCard>
-      </Grid>
+          terms={isCustom ? formatClockTerms(clock) : "–"}
+        />
+      </VStack>
 
       {isCustom ? (
-        <Grid
-          align="start"
-          columns={{ minWidth: CUSTOM_GRID_MIN_WIDTH, max: 3, repeat: "fit" }}
-          gap={4}
-        >
+        <VStack xstyle={styles.fields}>
           <DurationField
-            description="What an army opens with."
             label="Starting bank"
             onChange={(initial) => editDraft({ ...draft, initial })}
             value={draft.initial}
           />
           <DurationField
-            description="Given back each turn."
             label="Added a turn"
             minCount={0}
             onChange={(increment) => editDraft({ ...draft, increment })}
             value={draft.increment}
           />
           <DurationField
-            description="The most it can hold."
             label="Bank ceiling"
             onChange={(max) => editDraft({ ...draft, max })}
             value={draft.max}
           />
-        </Grid>
+        </VStack>
       ) : null}
     </VStack>
   );
 }
 
-/**
- * A pace, as it reads on its key: what it is called, what it costs in time,
- * and who plays at it, in the three voices and in that order.
- */
-function PaceFace({ brief, name, terms }: { brief: string; name: string; terms: string }) {
+/** A pace as a card: its name over its terms in mono. */
+function OptionCard({
+  isChosen,
+  name,
+  onChoose,
+  terms,
+}: {
+  isChosen: boolean;
+  name: string;
+  onChoose: () => void;
+  terms: string;
+}) {
   return (
-    <VStack gap={1}>
-      <HStack align="center" gap={2} justify="between" wrap="wrap">
-        <Text weight="bold">{name}</Text>
-        <Text type="label">{terms}</Text>
-      </HStack>
-      <Text type="supporting">{brief}</Text>
-    </VStack>
+    <button
+      aria-checked={isChosen}
+      onClick={onChoose}
+      role="radio"
+      type="button"
+      {...stylex.props(styles.card, isChosen && styles.cardChosen)}
+    >
+      <b {...stylex.props(styles.cardName)}>{name}</b>
+      <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.cardTerms]}>
+        {terms}
+      </Text>
+    </button>
   );
 }
 
@@ -223,24 +190,20 @@ function PaceFace({ brief, name, terms }: { brief: string; name: string; terms: 
  * who set seven and wants hours is correcting the unit, not the count.
  */
 function DurationField({
-  description,
   label,
   minCount = 1,
   onChange,
   value,
 }: {
-  description: string;
   label: string;
   minCount?: number;
   onChange: (value: DurationDraft) => void;
   value: DurationDraft;
 }) {
   return (
-    <VStack gap={2}>
+    <VStack xstyle={styles.field}>
       <NumberInput
-        description={description}
         isIntegerOnly
-        isRequired
         label={label}
         max={Math.floor(MAX_CLOCK_MS / UNIT_MS[value.unit])}
         min={minCount}
@@ -254,10 +217,75 @@ function DurationField({
         size="sm"
         value={value.unit}
       >
-        <SegmentedControlItem label="Minutes" value="minutes" />
+        <SegmentedControlItem label="Min" value="minutes" />
         <SegmentedControlItem label="Hours" value="hours" />
         <SegmentedControlItem label="Days" value="days" />
       </SegmentedControl>
     </VStack>
   );
 }
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    gap: "16px",
+  },
+  options: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "8px",
+  },
+  card: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: "2px",
+    minInlineSize: 0,
+    minBlockSize: "44px",
+    paddingBlock: {
+      default: "12px",
+      [pageLayout.phoneMedia]: "10px",
+    },
+    paddingInline: {
+      default: "14px",
+      [pageLayout.phoneMedia]: "10px",
+    },
+    borderColor: awbrnVars.ruleStrong,
+    borderRadius: "6px",
+    borderStyle: "solid",
+    borderWidth: "1px",
+    backgroundColor: colorVars["--color-background-card"],
+    color: colorVars["--color-text-primary"],
+    textAlign: "start",
+    cursor: "pointer",
+    transitionProperty: "border-color, background-color",
+    transitionDuration: {
+      default: "90ms",
+      [pageLayout.reducedMotionMedia]: "0s",
+    },
+    transitionTimingFunction: awbrnVars.easeStep,
+  },
+  cardChosen: {
+    borderColor: awbrnVars.ink900,
+    backgroundColor: awbrnVars.ink100,
+    boxShadow: `inset 0 0 0 1px ${awbrnVars.ink900}`,
+  },
+  cardName: {
+    fontSize: textSizeVars["--font-size-base"],
+    fontWeight: 700,
+  },
+  cardTerms: {
+    fontSize: awbrnVars.text12_5,
+    color: colorVars["--color-text-primary"],
+  },
+  fields: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+    gap: "12px",
+  },
+  field: {
+    display: "grid",
+    gap: "8px",
+    alignContent: "start",
+  },
+});

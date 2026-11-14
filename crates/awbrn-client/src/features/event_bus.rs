@@ -181,7 +181,7 @@ pub struct HoveredTile {
     pub x: u8,
     pub y: u8,
     /// The kind of terrain alone: `Shoal`, `HQ`. The tile art carries the shape
-    /// it is drawn in and the colour of the army that holds it.
+    /// it is drawn in and the color of the army that holds it.
     pub terrain_name: String,
     /// The army holding this tile, for tiles an army can hold. The readout
     /// shows the owner in the sprite rather than in the name, so this is what

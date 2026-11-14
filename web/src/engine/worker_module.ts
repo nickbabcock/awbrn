@@ -94,6 +94,7 @@ export interface GameInstance {
   zoomTo: (scale: number, tile?: BoardTile) => Promise<void>;
   restoreView: () => Promise<void>;
   centerOn: (tile: BoardTile, ease: boolean) => Promise<void>;
+  setReducedMotion: (reduced: boolean) => Promise<void>;
   setClearColor: (color: BoardColor) => Promise<void>;
 }
 
@@ -367,6 +368,9 @@ export const createGame = async (
     },
     centerOn: async (tile: BoardTile, ease: boolean) => {
       app.center_on(tile.x, tile.y, ease);
+    },
+    setReducedMotion: async (reduced: boolean) => {
+      app.set_reduced_motion(reduced);
     },
     setClearColor: async ({ r, g, b, a }: BoardColor) => {
       app.set_clear_color(r, g, b, a);

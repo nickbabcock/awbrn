@@ -1,5 +1,4 @@
 import * as stylex from "@stylexjs/stylex";
-import { borderVars, colorVars, radiusVars } from "@astryxdesign/core/theme/tokens.stylex";
 import type { CSSProperties } from "react";
 import logosTextureUrl from "../../../assets/textures/logos.png?url";
 import { factions, getFactionByCode } from "#/factions.ts";
@@ -37,22 +36,19 @@ export function factionLogoStyle(factionCode: string, size: number): CSSProperti
 }
 
 /**
- * The army's own insignia, framed like every other sprite in the interface.
+ * The army's own insignia.
  *
  * Each logo already carries its army color, so the mark identifies the faction
  * by shape and by hue at the same time. Callers that show the army name next to
  * it pass `isLabelHidden`, because two announcements of the same army read as
- * two armies.
+ * two armies. 14px is the sprite's 1x; use multiples to stay on whole pixels.
  */
 export function FactionLogo({
   factionCode,
-  isFramed = true,
   isLabelHidden = false,
   size = 28,
 }: {
   factionCode: string;
-  /** Off when the logo already sits inside a control that draws the outline. */
-  isFramed?: boolean;
   isLabelHidden?: boolean;
   size?: number;
 }) {
@@ -64,12 +60,13 @@ export function FactionLogo({
   const name = getFactionByCode(factionCode)?.displayName ?? factionCode.toUpperCase();
 
   return (
+    // A pixel-sprite crop of the logo sheet: a bare box no component draws.
     <span
       aria-hidden={isLabelHidden ? "true" : undefined}
       aria-label={isLabelHidden ? undefined : name}
       role={isLabelHidden ? undefined : "img"}
       style={style}
-      {...stylex.props(styles.logo, isFramed && styles.logoFrame)}
+      {...stylex.props(styles.logo)}
     />
   );
 }
@@ -78,13 +75,6 @@ const styles = stylex.create({
   logo: {
     display: "block",
     flex: "0 0 auto",
-    // The sprite cell is sized exactly; the frame is drawn outside it.
     boxSizing: "content-box",
-  },
-  logoFrame: {
-    borderWidth: borderVars["--border-width"],
-    borderStyle: "solid",
-    borderColor: colorVars["--color-border-emphasized"],
-    borderRadius: radiusVars["--radius-element"],
   },
 });

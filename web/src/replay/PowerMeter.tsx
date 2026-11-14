@@ -183,7 +183,7 @@ function Zone({
         <HStack align="end" gap={0} key={index} xstyle={styles.cell}>
           <HStack
             gap={0}
-            style={{ inlineSize: `${clamp(charged - offset - index) * 100}%` }}
+            width={`${clamp(charged - offset - index) * 100}%`}
             xstyle={[styles.fill, isReady && styles.fillReady]}
           />
         </HStack>
@@ -317,7 +317,7 @@ const styles = stylex.create({
     inlineSize: powerMeterLayout.pendingInlineSize,
     backgroundColor: "transparent",
     borderStyle: "dashed",
-    borderColor: awbrnVars.colorBorderDisabled,
+    borderColor: awbrnVars.rule,
   },
   // The two zones meet on one rule instead of two touching outlines. The super
   // zone owns it, so the line runs the full height of the taller bar: it parts
@@ -335,7 +335,7 @@ const styles = stylex.create({
     blockSize: "100%",
     borderInlineEndWidth: borderVars["--border-width"],
     borderInlineEndStyle: "solid",
-    borderInlineEndColor: awbrnVars.colorBorderSoft,
+    borderInlineEndColor: awbrnVars.rule,
     ":last-child": {
       borderInlineEndWidth: 0,
     },

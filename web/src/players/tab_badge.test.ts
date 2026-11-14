@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { countLabel, faviconDataUrl, tabTitle } from "./tab_badge.ts";
+import staticFavicon from "../../public/favicon.svg?raw";
+import { brandMarkSvg, countLabel, faviconDataUrl, tabTitle } from "./tab_badge.ts";
 
 describe("tabTitle", () => {
   it("leaves the title alone when nothing is waiting", () => {
@@ -41,8 +42,12 @@ describe("faviconDataUrl", () => {
     const many = decodeURIComponent(faviconDataUrl(12));
     const few = decodeURIComponent(faviconDataUrl(2));
     expect(many).toContain(">9+<");
-    expect(many).toContain('font-size="9"');
-    expect(few).toContain('font-size="11"');
+    expect(many).toContain('font-size="10"');
+    expect(few).toContain('font-size="13"');
+  });
+
+  it("matches the static icon the page carries before it runs", () => {
+    expect(staticFavicon.trim()).toBe(brandMarkSvg());
   });
 
   it("escapes to a url a link element can carry unquoted", () => {

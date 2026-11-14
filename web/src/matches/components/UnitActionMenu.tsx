@@ -1,8 +1,10 @@
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack, Stack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import {
   borderVars,
   colorVars,
+  focusVars,
+  radiusVars,
   spacingVars,
   textSizeVars,
   typographyVars,
@@ -13,8 +15,14 @@ import {
   BoardMenuShell,
   boardMenuStyles,
   followPointerCursor,
+  MenuCaret,
+  menuRowMarker,
   type BoardMenuPresentation,
 } from "#/matches/components/BoardMenu.tsx";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconClose } from "#/ui/icons.tsx";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
 import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
 import { AttackEngagement, Attacker } from "#/matches/components/AttackEngagement.tsx";
@@ -26,7 +34,6 @@ interface UnitActionMenuProps {
   anchor: { x: number; y: number } | null;
   /** The unit being commanded, named at the head of a menu that forecasts. */
   attacker?: UnitBadge;
-  destination: { x: number; y: number };
   /** Why the orders are inert, when they are. */
   disabledReason?: string;
   isEnabled: boolean;
@@ -39,7 +46,8 @@ interface UnitActionMenuProps {
    * what the player meant, so the menu says it back.
    */
   preselected?: number;
-  presentation: BoardMenuPresentation;
+  /** `dock`: the phone order dock, in place of the tile row and the dock. */
+  presentation: BoardMenuPresentation | "dock";
 }
 
 /**
@@ -54,7 +62,6 @@ interface UnitActionMenuProps {
 export function UnitActionMenu({
   anchor,
   attacker,
-  destination,
   disabledReason,
   isEnabled,
   onChoose,
@@ -91,6 +98,22 @@ export function UnitActionMenu({
     if (isEnabled && pendingIndex !== -1) onChoose(pendingIndex);
   }, [isEnabled, onChoose, pendingIndex]);
 
+  if (presentation === "dock") {
+    return (
+      <OrderDock
+        attacker={attacker}
+        disabledReason={disabledReason}
+        isEnabled={isEnabled}
+        onCancelPending={cancelConfirmation}
+        onChoose={handleChoose}
+        onConfirmPending={confirmPending}
+        onDismiss={onDismiss}
+        options={options}
+        pending={pending}
+      />
+    );
+  }
+
   return (
     <BoardMenuShell
       anchor={anchor}
@@ -122,7 +145,7 @@ export function UnitActionMenu({
           </VStack>
         ) : undefined
       }
-      label={`Orders at ${destination.x}, ${destination.y}`}
+      label="Orders"
       onDismiss={onDismiss}
       // A menu with an engagement on it needs the width to hold one. Orders
       // that are only words keep the narrow menu they have always had.
@@ -136,28 +159,16 @@ export function UnitActionMenu({
     >
       {({ isSheet, spriteScale }) => (
         <VStack gap={0} xstyle={boardMenuStyles.body}>
-          <HStack
-            align="center"
-            gap={3}
-            justify="between"
-            paddingBlock={spriteScale === 2 ? 2 : 0}
-            paddingInline={2}
-            xstyle={boardMenuStyles.header}
-          >
-            {/* Who is firing. It is the same unit for every order below, so it
-                is said once here rather than repeated down the list, and the
-                header stops being the word "Orders" only when there is an
-                engagement for it to be one half of. */}
-            {attacker && !pending && options.some((option) => option.forecast) ? (
-              <Attacker badge={attacker} spriteScale={spriteScale} />
+          <HStack align="center" gap={3} justify="between" xstyle={boardMenuStyles.header}>
+            {/* The unit is the same for every order below, so it is said once
+                here rather than repeated down the list. */}
+            {attacker && !pending ? (
+              <Attacker badge={attacker} spriteScale={1} />
             ) : (
               <Text type="label" xstyle={styles.heading}>
                 {pending ? pending.name : "Orders"}
               </Text>
             )}
-            <Text type="label" xstyle={styles.coordinate}>
-              {destination.x}, {destination.y}
-            </Text>
           </HStack>
 
           {pending ? (
@@ -174,7 +185,9 @@ export function UnitActionMenu({
                 <OrderRow
                   index={index}
                   isEnabled={isEnabled}
-                  isPreselected={index === preselected}
+                  // A sheet opens with nothing chosen: a finger did not ask for
+                  // a cursor, and the chosen row is the cursor.
+                  isPreselected={!isSheet && index === preselected}
                   key={rowKey(option)}
                   onChoose={handleChoose}
                   option={option}
@@ -255,7 +268,7 @@ function ConfirmOrder({
         // These keys stand where the orders stood, in a frame that did not
         // change size, so they are the same key. A row that grew on the second
         // press would read as the menu moving under the player.
-        {...stylex.props(boardMenuStyles.row, styles.row)}
+        {...stylex.props(boardMenuStyles.row)}
       >
         <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
           Cancel
@@ -266,7 +279,7 @@ function ConfirmOrder({
         onClick={onConfirm}
         onPointerMove={followPointerCursor}
         type="button"
-        {...stylex.props(boardMenuStyles.row, styles.row, styles.rowCommit)}
+        {...stylex.props(boardMenuStyles.row, styles.rowCommit)}
       >
         <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
           {option.name}
@@ -289,6 +302,7 @@ function OrderRow({
   index,
   isEnabled,
   isPreselected,
+  isWide = false,
   onChoose,
   option,
   spriteScale,
@@ -297,6 +311,8 @@ function OrderRow({
   index: number;
   isEnabled: boolean;
   isPreselected: boolean;
+  /** The phone order dock: the forecast sits at the end of the row. */
+  isWide?: boolean;
   onChoose: (index: number) => void;
   option: UnitActionOption;
   spriteScale: 1 | 2;
@@ -325,29 +341,32 @@ function OrderRow({
       title={isEnabled ? undefined : title}
       type="button"
       {...stylex.props(
+        menuRowMarker,
         boardMenuStyles.row,
-        styles.row,
-        spriteScale === 2 && styles.rowSpacious,
-        forecast && styles.rowEngagement,
+        spriteScale === 2 && boardMenuStyles.rowSpacious,
+        isWide && styles.dockRow,
+        isWide && styles.dockOrder,
         needsConfirmation(option) && styles.rowDestructive,
         needsConfirmation(option) && styles.rowSeparated,
         !isEnabled && boardMenuStyles.rowInert,
       )}
     >
-      {forecast ? (
-        <AttackEngagement forecast={forecast} spriteScale={spriteScale} />
-      ) : (
-        <>
-          <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
-            {option.name}
-          </Text>
-          {target ? (
-            <Text color="inherit" type="inherit" xstyle={styles.target}>
-              {target.x}, {target.y}
-            </Text>
-          ) : null}
-        </>
-      )}
+      <MenuCaret />
+      <HStack as="span" xstyle={[styles.orderBody, isWide && styles.orderBodyWide]}>
+        <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
+          {option.name}
+        </Text>
+        {forecast ? (
+          <HStack as="span" xstyle={[styles.forecast, isWide && styles.forecastWide]}>
+            <AttackEngagement forecast={forecast} spriteScale={1} />
+          </HStack>
+        ) : null}
+      </HStack>
+      {target && !forecast ? (
+        <Text color="inherit" type="inherit" xstyle={styles.target}>
+          {target.x}, {target.y}
+        </Text>
+      ) : null}
     </button>
   );
 }
@@ -380,19 +399,176 @@ function orderKey(option: UnitActionOption): string {
   return action.type;
 }
 
+/**
+ * The phone order dock: the orders replace the tile row and the dock, so the
+ * board stays tappable for another target.
+ */
+function OrderDock({
+  attacker,
+  disabledReason,
+  isEnabled,
+  onCancelPending,
+  onChoose,
+  onConfirmPending,
+  onDismiss,
+  options,
+  pending,
+}: {
+  attacker?: UnitBadge;
+  disabledReason?: string;
+  isEnabled: boolean;
+  onCancelPending: () => void;
+  onChoose: (index: number) => void;
+  onConfirmPending: () => void;
+  onDismiss: () => void;
+  options: UnitActionOption[];
+  pending: UnitActionOption | undefined;
+}) {
+  return (
+    <section
+      aria-label={attacker ? `${attacker.name}: orders` : "Orders"}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onDismiss();
+        }
+      }}
+      {...stylex.props(styles.dock)}
+    >
+      {/* Armed in place: the head names the order. */}
+      {pending ? <p {...stylex.props(styles.dockHead)}>{pending.name}</p> : null}
+      {!isEnabled && disabledReason ? (
+        <p {...stylex.props(styles.dockNotice)}>{disabledReason}</p>
+      ) : null}
+      <Stack as="span" xstyle={styles.dockRows}>
+        {pending ? (
+          <>
+            <button
+              // A confirmation opens on the safe key.
+              autoFocus
+              onClick={onCancelPending}
+              type="button"
+              {...stylex.props(boardMenuStyles.row, styles.dockRow)}
+            >
+              <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
+                Keep {attacker?.name ?? "the unit"}
+              </Text>
+            </button>
+            <button
+              disabled={!isEnabled}
+              onClick={onConfirmPending}
+              type="button"
+              {...stylex.props(boardMenuStyles.row, styles.dockRow, styles.rowCommit)}
+            >
+              <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
+                {pending.name}
+              </Text>
+            </button>
+          </>
+        ) : (
+          options.map((option, index) => (
+            <OrderRow
+              index={index}
+              isEnabled={isEnabled}
+              // The dock opens with nothing chosen, as a sheet does.
+              isPreselected={false}
+              isWide
+              key={rowKey(option)}
+              onChoose={onChoose}
+              option={option}
+              spriteScale={2}
+              title={disabledReason}
+            />
+          ))
+        )}
+      </Stack>
+      <Button
+        icon={<Icon icon={IconClose} />}
+        isIconOnly
+        label="Back out of these orders"
+        onClick={onDismiss}
+        tooltip="Back"
+        variant="on-ink"
+        xstyle={styles.dockCancel}
+      />
+    </section>
+  );
+}
+
+/** Two visible frames: halfway, then there. */
+const land = stylex.keyframes({
+  from: { opacity: 0 },
+  to: { opacity: 1 },
+});
+
 const styles = stylex.create({
-  // An order is a word, not a unit: there is no art in the row to make room
-  // for, so the row is a line of the HUD face and one step either side.
-  row: {
-    gap: spacingVars["--spacing-2"],
-    minBlockSize: boardMenuLayout.actionRowMinBlockSize,
-    paddingBlock: 0,
-    paddingInline: spacingVars["--spacing-2"],
+  orderBody: {
+    display: "grid",
+    gap: spacingVars["--spacing-1-5"],
+    flexGrow: 1,
+    minInlineSize: 0,
   },
-  // A thumb still needs a real target, so the sheet keeps its height.
-  rowSpacious: {
-    minBlockSize: boardMenuLayout.actionRowSpaciousMinBlockSize,
+  orderBodyWide: {
+    display: "flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-3"],
+  },
+  forecast: {
+    display: "flex",
+    minInlineSize: 0,
+  },
+  forecastWide: {
+    marginInlineStart: "auto",
+    inlineSize: "auto",
+  },
+  dockOrder: {
+    minBlockSize: "56px",
+  },
+  dock: {
+    animationName: {
+      default: land,
+      [pageLayout.reducedMotionMedia]: "none",
+    },
+    animationDuration: "90ms",
+    animationTimingFunction: awbrnVars.easeStep,
+    display: "flex",
+    alignItems: "flex-end",
+    flexWrap: "wrap",
+    gap: spacingVars["--spacing-2"],
+    paddingBlock: awbrnVars.spacing2_5,
     paddingInline: spacingVars["--spacing-3"],
+    paddingBlockEnd: `calc(${spacingVars["--spacing-3"]} + env(safe-area-inset-bottom, 0px))`,
+    backgroundColor: awbrnVars.ink900,
+    borderBlockStartColor: awbrnVars.ink800,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: borderVars["--border-width"],
+    color: colorVars["--color-text-primary"],
+  },
+  dockRows: {
+    display: "grid",
+    gap: spacingVars["--spacing-2"],
+    flexGrow: 1,
+    flexBasis: 0,
+    minInlineSize: 0,
+  },
+  dockRow: {
+    minBlockSize: "52px",
+    borderRadius: radiusVars["--radius-element"],
+    borderBlockStartWidth: 0,
+    fontSize: awbrnVars.text17,
+  },
+  dockCancel: {
+    flexShrink: 0,
+    inlineSize: "52px",
+    minInlineSize: "52px",
+    blockSize: "52px",
+    paddingInline: 0,
+  },
+  dockNotice: {
+    flexBasis: "100%",
+    margin: 0,
+    color: awbrnVars.textOnInkSecondary,
+    fontSize: awbrnVars.text13,
   },
   // An order that destroys something reads in the error color, so it is not
   // one more word in a list of words. Under the cursor it keeps the orange
@@ -403,15 +579,24 @@ const styles = stylex.create({
       ":focus": colorVars["--color-on-accent"],
     },
   },
-  // The commit on the confirmation is the one key in the system whose cursor is
-  // not orange. It is the last press before a unit is gone, the screen exists
-  // only to say so, and a key that looks like every other key does not say it.
+  // The armed commit: Danger, filled now that the order is armed (it was
+  // outlined in the list). It is the last press before a unit is gone, so the
+  // cursor on it is a ring, not the wash every other row wears.
   rowCommit: {
-    backgroundColor: { default: "transparent", ":focus": colorVars["--color-error"] },
-    color: {
-      default: colorVars["--color-error"],
-      ":focus": colorVars["--color-on-error"],
+    backgroundColor: colorVars["--color-error"],
+    color: colorVars["--color-on-error"],
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${focusVars["--focus-outline-color"]}`,
     },
+    outlineOffset: "-4px",
+  },
+  dockHead: {
+    flexBasis: "100%",
+    margin: 0,
+    color: awbrnVars.textOnInkStrong,
+    fontSize: awbrnVars.text15,
+    fontWeight: 750,
   },
   // The stock large button is shorter than a thumb needs, and these two are the
   // only commands on the sheet.
@@ -426,21 +611,9 @@ const styles = stylex.create({
     borderBlockStartStyle: "solid",
     borderBlockStartColor: colorVars["--color-border-emphasized"],
   },
-  // An engagement is two lines, so the key stops being a line of text and
-  // becomes a block. It sets its own height from its content rather than from
-  // the row floor, and it breathes above and below because two of these stacked
-  // with no air read as one four-line list.
-  rowEngagement: {
-    alignItems: "center",
-    minBlockSize: 0,
-    paddingBlock: spacingVars["--spacing-2"],
-  },
   heading: {
-    color: colorVars["--color-text-secondary"],
-  },
-  coordinate: {
-    color: colorVars["--color-text-secondary"],
-    fontVariantNumeric: "tabular-nums",
+    fontSize: awbrnVars.text15,
+    fontWeight: 750,
   },
   // Which tile this order acts on, when the order alone does not say.
   target: {

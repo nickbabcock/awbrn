@@ -1,14 +1,7 @@
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack, Stack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import {
-  borderVars,
-  colorVars,
-  radiusVars,
-  spacingVars,
-  textSizeVars,
-  typographyVars,
-} from "@astryxdesign/core/theme/tokens.stylex";
+import { borderVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import { uiAtlasSpriteStyle, unitSpriteStyle } from "#/components/game_sprites.ts";
@@ -18,7 +11,6 @@ import {
   followPointerCursor,
   type BoardMenuPresentation,
 } from "#/matches/components/BoardMenu.tsx";
-import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import type { ProductionOption, ProductionSite, UnitKind } from "#/wasm/awbrn_wasm.js";
 
@@ -30,6 +22,8 @@ interface BuildMenuProps {
   factionCode: string;
   funds: number | null;
   isEnabled: boolean;
+  /** The sheet only: false while it leaves. */
+  isOpen?: boolean;
   onBuild: (unit: UnitKind) => void;
   onDismiss: () => void;
   /** Hands the keyboard back to the board once the menu has closed. */
@@ -45,6 +39,7 @@ export function BuildMenu({
   factionCode,
   funds,
   isEnabled,
+  isOpen,
   onBuild,
   onDismiss,
   onRestoreFocus,
@@ -55,6 +50,7 @@ export function BuildMenu({
   return (
     <BoardMenuShell
       anchor={anchor}
+      isOpen={isOpen}
       label={`Build at ${facilityLabel(site)}`}
       onDismiss={onDismiss}
       onRestoreFocus={onRestoreFocus}
@@ -117,9 +113,8 @@ function BuildMenuBody({
         align="center"
         gap={3}
         justify="between"
-        paddingBlock={spriteScale === 2 ? 2 : 1}
-        paddingInline={3}
-        xstyle={boardMenuStyles.header}
+        wrap="wrap"
+        xstyle={[boardMenuStyles.header, styles.header, isSheet && styles.sheetHeader]}
       >
         <Text type="label" xstyle={styles.facility}>
           {facilityLabel(site)}
@@ -138,6 +133,7 @@ function BuildMenuBody({
           {options.map((option) => (
             <BuildRow
               factionCode={factionCode}
+              funds={funds}
               isEnabled={isEnabled}
               key={option.unit}
               onBuild={onBuild}
@@ -173,6 +169,7 @@ function FundsLine({ funds, previewCost }: { funds: number | null; previewCost: 
 
   return (
     <HStack align="center" gap={2} xstyle={styles.fundsLine}>
+      {/* Raw span: an inline atlas crop, which no Astryx component takes. */}
       <span aria-hidden="true" style={coinStyle ?? undefined} {...stylex.props(styles.coin)} />
       <Text type="label" xstyle={styles.funds}>
         <VisuallyHidden>Funds</VisuallyHidden>
@@ -181,7 +178,9 @@ function FundsLine({ funds, previewCost }: { funds: number | null; previewCost: 
       {remaining === null ? null : (
         <Text type="label" xstyle={styles.fundsAfter}>
           <VisuallyHidden>, leaving</VisuallyHidden>
-          <span aria-hidden="true">→ </span>
+          <Text color="inherit" type="inherit" aria-hidden="true">
+            →{" "}
+          </Text>
           {remaining.toLocaleString()}
         </Text>
       )}
@@ -193,11 +192,12 @@ function FundsLine({ funds, previewCost }: { funds: number | null; previewCost: 
  * One order: the unit as the army will build it, its name, and its price.
  *
  * The sprite is the army's own, so the list reads as this player's roster
- * rather than as a catalogue, and the row under the cursor wears the game's
+ * rather than as a catalog, and the row under the cursor wears the game's
  * orange selection the way a chosen menu key does everywhere else.
  */
 function BuildRow({
   factionCode,
+  funds,
   isEnabled,
   onBuild,
   onPreview,
@@ -206,6 +206,7 @@ function BuildRow({
   title,
 }: {
   factionCode: string;
+  funds: number | null;
   isEnabled: boolean;
   onBuild: (unit: UnitKind) => void;
   onPreview: (cost: number | null) => void;
@@ -213,8 +214,9 @@ function BuildRow({
   spriteScale: 1 | 2;
   title?: string;
 }) {
-  const spriteStyle = unitSpriteStyle(option.unit, factionCode, spriteScale);
+  const spriteStyle = unitSpriteStyle(option.unit, factionCode, 2);
   const isOrderable = isEnabled && option.affordable;
+  const shortfall = funds === null ? 0 : Math.max(option.cost - funds, 0);
 
   return (
     <button
@@ -234,23 +236,30 @@ function BuildRow({
       type="button"
       {...stylex.props(
         boardMenuStyles.row,
+        styles.row,
         spriteScale === 2 && boardMenuStyles.rowSpacious,
         !isEnabled && boardMenuStyles.rowInert,
         !option.affordable && styles.rowUnaffordable,
       )}
     >
+      {/* Raw span: an inline atlas crop, which no Astryx component takes. */}
       <span
         aria-hidden="true"
         style={spriteStyle ?? undefined}
-        {...stylex.props(boardMenuStyles.sprite)}
+        {...stylex.props(boardMenuStyles.sprite, !option.affordable && styles.spriteOff)}
       />
-      <span {...stylex.props(boardMenuStyles.rowName, !option.affordable && styles.rowStruck)}>
+      <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
         {option.name}
-      </span>
-      <span {...stylex.props(styles.rowCost, !option.affordable && styles.rowStruck)}>
+      </Text>
+      <Stack as="span" xstyle={styles.rowCost}>
         <VisuallyHidden>costs</VisuallyHidden>
-        {option.cost.toLocaleString()}
-      </span>
+        {option.cost.toLocaleString("en-US")}
+        {shortfall > 0 ? (
+          <Text color="inherit" type="inherit" xstyle={styles.shortfall}>
+            <VisuallyHidden>, short by</VisuallyHidden>−{shortfall.toLocaleString("en-US")}
+          </Text>
+        ) : null}
+      </Stack>
     </button>
   );
 }
@@ -264,60 +273,78 @@ function facilityLabel(site: ProductionSite): string {
 }
 
 const styles = stylex.create({
+  header: {
+    rowGap: spacingVars["--spacing-1"],
+  },
+  sheetHeader: {
+    paddingInlineEnd: "56px",
+    minBlockSize: "56px",
+  },
   facility: {
-    color: colorVars["--color-text-secondary"],
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+    color: awbrnVars.textOnInkStrong,
+    fontSize: awbrnVars.text15,
+    fontWeight: 750,
   },
   fundsLine: {
     flex: "0 0 auto",
-    minBlockSize: boardMenuLayout.buildFundsLineMinBlockSize,
   },
   coin: {
     display: "block",
     flex: "0 0 auto",
   },
   funds: {
-    color: colorVars["--color-text-primary"],
+    color: awbrnVars.textOnInkStrong,
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: awbrnVars.text15,
+    fontStretch: "87.5%",
+    fontWeight: 600,
     fontVariantNumeric: "tabular-nums",
   },
   fundsAfter: {
-    color: colorVars["--color-text-accent"],
+    color: awbrnVars.textOnInkSecondary,
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: awbrnVars.text15,
+    fontStretch: "87.5%",
+    fontWeight: 600,
     fontVariantNumeric: "tabular-nums",
   },
-  // A price beyond the treasury is struck through rather than hidden, which is
-  // how the source game says it and how a player reads what one more turn of
-  // income would buy. The sprite keeps its colors: the unit is still the thing
-  // being identified, and only the order is unavailable.
+  row: {
+    display: "grid",
+    gridTemplateColumns: "34px minmax(0, 1fr) auto",
+    gap: awbrnVars.spacing2_5,
+    paddingInlineStart: awbrnVars.spacing3_5,
+  },
   rowUnaffordable: {
     cursor: "not-allowed",
-    color: colorVars["--color-text-secondary"],
+    color: awbrnVars.textTertiary,
+    backgroundColor: awbrnVars.sheet,
   },
-  rowStruck: {
-    textDecorationLine: "line-through",
-    textDecorationThickness: borderVars["--border-width"],
+  spriteOff: {
+    filter: "grayscale(1) opacity(0.55)",
   },
   rowCost: {
-    flex: "0 0 auto",
-    fontFamily: typographyVars["--font-family-code"],
-    fontSize: textSizeVars["--font-size-sm"],
-    letterSpacing: "0.06em",
+    display: "grid",
+    justifyItems: "end",
+    fontFamily: awbrnVars.fontFigure,
+    fontSize: awbrnVars.text13_5,
+    fontStretch: "87.5%",
+    fontWeight: 600,
     fontVariantNumeric: "tabular-nums",
+    lineHeight: 1.05,
+  },
+  shortfall: {
+    color: awbrnVars.danger,
+    fontSize: awbrnVars.text12_5,
   },
   empty: {
-    // An empty state inside a panel is a recessed well, never a second outline.
     padding: spacingVars["--spacing-3"],
     borderWidth: borderVars["--border-width"],
     borderStyle: "dashed",
-    borderColor: awbrnVars.colorBorderDisabled,
+    borderColor: awbrnVars.ruleStrong,
     borderRadius: radiusVars["--radius-element"],
-    backgroundColor: colorVars["--color-background-muted"],
-  },
-  notice: {
-    borderBlockStartWidth: borderVars["--border-width"],
-    borderBlockStartStyle: "solid",
-    borderBlockStartColor: awbrnVars.colorBorderSoft,
-    backgroundColor: colorVars["--color-background-muted"],
+    backgroundColor: awbrnVars.paperWell,
   },
 });

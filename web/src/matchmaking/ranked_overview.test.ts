@@ -111,7 +111,6 @@ describe("rankedOverview", () => {
     const overview = await rankedOverview("viewer", NOW);
     const async = overview.pools.find((pool) => pool.pool === "async");
 
-    expect(async?.activeMatches).toBe(2);
     expect(async?.pending).toEqual([
       {
         matchId: "match-pending",
@@ -140,16 +139,12 @@ describe("rankedOverview", () => {
     ]);
   });
 
-  it("reads the seek and the rating for the pool", async () => {
-    await env.DB.batch([
-      env.DB.prepare(
-        "INSERT INTO seeks (userId, pool, generation, maxActiveMatches, createdAt) VALUES ('viewer', 'async', 'v1', 4, ?)",
-      ).bind(seconds(OPENED_AT)),
-      env.DB.prepare(`
-          INSERT INTO ratings (userId, pool, rating, deviation, volatility, lastRatedAt, ratedMatches)
-          VALUES ('viewer', 'async', 1620, 60, 0.06, ?, 12)
-        `).bind(seconds(OPENED_AT)),
-    ]);
+  it("reads the seek for the pool", async () => {
+    await env.DB.prepare(
+      "INSERT INTO seeks (userId, pool, generation, maxActiveMatches, createdAt) VALUES ('viewer', 'async', 'v1', 4, ?)",
+    )
+      .bind(seconds(OPENED_AT))
+      .run();
 
     const overview = await rankedOverview("viewer", NOW);
     const async = overview.pools.find((pool) => pool.pool === "async");
@@ -157,17 +152,9 @@ describe("rankedOverview", () => {
     expect(overview.isEmailVerified).toBe(true);
     expect(overview.season?.number).toBe(1);
     expect(async?.seek).toEqual({ maxActiveMatches: 4, createdAt: OPENED_AT.toISOString() });
-    // Three hours is short of one complete inactive period, so the stored
-    // deviation stands and the rating is out of the provisional range.
-    expect(async?.rating).toEqual({
-      rating: 1620,
-      deviation: 60,
-      ratedMatches: 12,
-      isProvisional: false,
-    });
   });
 
-  it("reports no seek and no rating for a player who has neither", async () => {
+  it("reports no seek for a player without one", async () => {
     const overview = await rankedOverview("newcomer", NOW);
     expect(overview.pools.map((pool) => pool.pool)).toEqual([
       "async",
@@ -175,7 +162,7 @@ describe("rankedOverview", () => {
       "live",
       "fog_live",
     ]);
-    expect(overview.pools.every((pool) => pool.seek === null && pool.rating === null)).toBe(true);
+    expect(overview.pools.every((pool) => pool.seek === null)).toBe(true);
   });
 });
 
@@ -206,13 +193,22 @@ describe("rankedStandings", () => {
     // once the deviation is counted, so an unsure rating sits below a settled
     // one rather than being left out of the ladder.
     expect(standings.entries).toEqual([
-      { rank: 1, userId: "rival", name: "Rival", rating: 1700, ratedMatches: 30, isViewer: false },
+      {
+        rank: 1,
+        userId: "rival",
+        name: "Rival",
+        rating: 1700,
+        ratedMatches: 30,
+        isProvisional: false,
+        isViewer: false,
+      },
       {
         rank: 2,
         userId: "viewer",
         name: "Viewer",
         rating: 1620,
         ratedMatches: 12,
+        isProvisional: false,
         isViewer: false,
       },
       {
@@ -221,6 +217,7 @@ describe("rankedStandings", () => {
         name: "Newcomer",
         rating: 1540,
         ratedMatches: 2,
+        isProvisional: true,
         isViewer: true,
       },
     ]);
@@ -235,7 +232,12 @@ describe("rankedStandings", () => {
     const standings = await rankedStandings("async", "newcomer", NOW);
 
     expect(standings.entries.map((entry) => entry.userId)).toEqual(["rival", "viewer"]);
-    expect(standings.viewer).toEqual({ rating: 1540, ratedMatches: 2, isProvisional: true });
+    expect(standings.viewer).toEqual({
+      rank: null,
+      rating: 1540,
+      ratedMatches: 2,
+      isProvisional: true,
+    });
   });
 
   it("marks the viewer in the list", async () => {

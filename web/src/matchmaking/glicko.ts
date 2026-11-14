@@ -23,8 +23,8 @@ export const GLICKO_TAU = 0.5;
 /** The factor between the Glicko-1 scale players read and the Glicko-2 scale. */
 const SCALE = 173.7178;
 
-/** The rating at the centre of the scale. */
-const CENTRE = 1500;
+/** The rating at the center of the scale. */
+const CENTER = 1500;
 
 /** When the volatility search stops. */
 const CONVERGENCE = 0.000001;
@@ -54,7 +54,7 @@ export const MAX_GLICKO_DEVIATION = 350;
 export const MIN_GLICKO_DEVIATION = 30;
 
 function toGlicko2(state: GlickoState): { mu: number; phi: number } {
-  return { mu: (state.rating - CENTRE) / SCALE, phi: state.deviation / SCALE };
+  return { mu: (state.rating - CENTER) / SCALE, phi: state.deviation / SCALE };
 }
 
 /** The weight an opponent's result carries. A less certain opponent says less. */
@@ -173,7 +173,7 @@ export function updateRating(
   const muAfter = mu + phiAfter * phiAfter * deltaSum;
 
   return {
-    rating: muAfter * SCALE + CENTRE,
+    rating: muAfter * SCALE + CENTER,
     deviation: clampDeviation(phiAfter * SCALE),
     volatility: volatilityAfter,
   };

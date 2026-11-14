@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(drawn, vec![seen]);
     }
 
-    /// Only the current player has spent units to grey out.
+    /// Only the current player has spent units to gray out.
     #[test]
     fn a_waiting_unit_of_another_player_is_still_drawn_ready() {
         let current = AwbwGamePlayerId::new(1);

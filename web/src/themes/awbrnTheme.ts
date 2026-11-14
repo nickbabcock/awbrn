@@ -2,241 +2,564 @@ import { defineTheme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral";
 
 /*
- * AWBRN theme: the Advance Wars daylight system.
+ * The theme is light only; the app pins <Theme mode="light">. The ink table of
+ * the match screens is a surface inside the light theme, not a dark mode.
  *
- * The system takes one job from each surface of the source game:
- *   - in-game menu chrome  -> panels, buttons, black rules, the cast shadow
- *   - the map tile grid    -> the ground plane every page floats on
- *   - CO intel screens     -> portraits, meters, and stat readouts
- *   - box art and manual   -> the display voice and the HUD labels
- *
- * The theme is daylight only. Do not add a dark tuple to these tokens; the app
- * pins <Theme mode="light">, and a half-built night palette reads as a bug.
+ * Red fills at most one control per viewport, so the accent token is ink
+ * (switches, checks, the chosen tab) and only the primary button wears red.
  */
 
-/** Ink: the outline on every piece of chrome. The system has exactly one black. */
-const INK = "#16181D";
-
-/**
- * Small headings drop the signage face, so they need weight to stay a step
- * above body copy. Component declarations take precedence over these tokens,
- * so the weight lives here alone instead of being overridden later.
- */
-const SMALL_HEADING_WEIGHTS = {
-  "--text-heading-3-weight": "800",
-  "--text-heading-4-weight": "800",
+const ink = {
+  950: "#0a1128",
+  900: "#101b3a",
+  850: "#15234a",
+  800: "#1b2c5a",
+  700: "#283d78",
+  600: "#3b5299",
+  300: "#9eacd6",
+  100: "#e4e9f8",
 } as const;
-/** The cast shadow under a menu panel. Translucent, so panels sit on terrain. */
-const CAST = "rgba(22, 24, 29, 0.34)";
-const CAST_SOFT = "rgba(22, 24, 29, 0.16)";
+
+const paper = {
+  ground: "#e6edf7",
+  well: "#d9e3f1",
+  sheet: "#fbfcff",
+  rule: "#c7d2e5",
+  ruleStrong: "#8f9dbf",
+} as const;
+
+const text = {
+  primary: "#101b3a",
+  secondary: "#43507a",
+  tertiary: "#5d6a92",
+  onInk: "#f3f5fc",
+  onInkSecondary: "#a9b6de",
+  onInkStrong: "#ffffff",
+} as const;
+
+const airmail = {
+  red: "#d42a3c",
+  redWash: "#fbe3e6",
+  blue: "#2747b0",
+  blueOnInk: "#9db2ff",
+  violet: "#5a43b5",
+  violetOnInk: "#b9abff",
+} as const;
+
+const status = {
+  ok: "#17784b",
+  okOnInk: "#63d59f",
+  okWash: "#d8f1e4",
+  warn: "#9a6400",
+  warnFill: "#f4b73a",
+  warnWash: "#fdecc8",
+  danger: "#b3192e",
+  dangerWash: "#fdecee",
+  gold: "#f6c544",
+  goldDim: "rgba(246, 197, 68, 0.22)",
+  goldOnPaper: "#e2a400",
+  goldTrackOnPaper: "#d6deec",
+} as const;
+
+const FONT_UI = "Archivo Variable";
+const FONT_UI_FALLBACKS = "Archivo, ui-sans-serif, system-ui, sans-serif";
+const FONT_FIGURE = "Martian Mono Variable";
+const FONT_FIGURE_FALLBACKS = "'Martian Mono', ui-monospace, monospace";
 
 /**
- * Army colors, from AWBW's own faction palette.
- *
- * `accent` is the army's identity color, `wash` tints a whole panel, `soft`
- * fills a chip, and `text` is the darkened value that stays legible on `soft`.
- * Color never carries faction identity alone: every faction surface also shows
- * the army's letter or name.
+ * Hover and selection step in two visible frames: halfway at once, then there.
+ * `jump-none` would hold the old state for the first frame and only delay a
+ * cut.
+ */
+const STEP = "steps(2, jump-start)";
+
+const SCRIM = {
+  dialog: "rgba(6, 10, 26, 0.35)",
+  sheet: "rgba(6, 10, 26, 0.45)",
+} as const;
+
+const SHADOW_SHEET = "0 1px 2px rgba(16, 27, 58, 0.06), 0 6px 16px -10px rgba(16, 27, 58, 0.28)";
+const SHADOW_OWED = "0 1px 2px rgba(16, 27, 58, 0.08), 0 14px 32px -14px rgba(16, 27, 58, 0.42)";
+const SHADOW_FLOAT = "0 2px 6px rgba(6, 10, 26, 0.22), 0 22px 48px -16px rgba(6, 10, 26, 0.55)";
+const SHADOW_FLOAT_UP = "0 -12px 40px -12px rgba(6, 10, 26, 0.6)";
+const SHADOW_BOARD = `0 0 0 2px ${ink[700]}, 0 24px 60px -20px rgba(0, 0, 0, 0.8)`;
+/**
+ * A filter, not a box shadow: a map picture's mountains and towers rise above
+ * the first tile row, so the shadow follows the sprites rather than the box.
+ */
+const SHADOW_BOARD_PICTURE = "drop-shadow(0 24px 40px rgba(0, 0, 0, 0.65))";
+const HATCH_WELL =
+  "repeating-linear-gradient(-45deg, transparent 0 6px, rgba(16, 27, 58, 0.07) 6px 12px)";
+
+const STAMP_WHITE = "#ffffff";
+const INK_HAIRLINE = "rgba(16, 27, 58, 0.14)";
+const WELL_HAIRLINE = "rgba(255, 255, 255, 0.06)";
+const SHADOW_PENNANT = "drop-shadow(0 2px 2px rgba(6, 10, 26, 0.45))";
+const SHADOW_SLOT = "0 10px 24px -16px rgba(16, 27, 58, 0.45)";
+const SHADOW_DOCK = "0 -12px 24px -16px rgba(16, 27, 58, 0.5)";
+
+const AIRMAIL_BAND = `repeating-linear-gradient(-45deg, ${airmail.red} 0 10px, ${STAMP_WHITE} 10px 15px, ${airmail.blue} 15px 25px, ${STAMP_WHITE} 25px 30px)`;
+
+const capsLabel = {
+  fontFamily: "var(--font-family-body)",
+  fontSize: "var(--text-12-size)",
+  fontWeight: "650",
+  fontStretch: "85%",
+  letterSpacing: "0.06em",
+  wordSpacing: "0.1em",
+  lineHeight: "1.2",
+  textTransform: "uppercase",
+  color: "var(--color-text-secondary)",
+} as const;
+
+const field = {
+  backgroundColor: "#ffffff",
+  borderColor: paper.ruleStrong,
+  borderStyle: "solid",
+  borderWidth: "1px",
+  borderRadius: "var(--radius-element)",
+  boxShadow: "none",
+} as const;
+
+const sheet = {
+  backgroundColor: paper.sheet,
+  borderColor: paper.rule,
+  borderStyle: "solid",
+  borderWidth: "1px",
+  borderRadius: "var(--radius-container)",
+  boxShadow: SHADOW_SHEET,
+} as const;
+
+const stepped = {
+  transitionTimingFunction: STEP,
+  transitionDuration: "90ms",
+} as const;
+
+/**
+ * Army colors, from AWBW's own faction palette. `wash` tints a whole card,
+ * plate or ledger row, `soft` fills a chip, `field` is the stamp's ground
+ * behind the commander, and `text` stays legible on `soft`.
  */
 const factionPalette = {
-  os: { accent: "#ff4f4e", soft: "#ff4f4e33", text: "#8a1420", wash: "#ff4f4e26" },
-  bm: { accent: "#708cfe", soft: "#708cfe38", text: "#1c3aa8", wash: "#708cfe2b" },
-  ge: { accent: "#61d05a", soft: "#61d05a3d", text: "#1d6b16", wash: "#61d05a2b" },
-  yc: { accent: "#f0d204", soft: "#f0d20447", text: "#6b5f00", wash: "#f0d2042e" },
-  bh: { accent: "#74598a", soft: "#74598a33", text: "#4a3160", wash: "#74598a26" },
-  rf: { accent: "#c27184", soft: "#c2718438", text: "#8d1c33", wash: "#c271842b" },
-  gs: { accent: "#979797", soft: "#97979738", text: "#4d4d4d", wash: "#9797972b" },
-  bd: { accent: "#ad7e5f", soft: "#ad7e5f38", text: "#6d3a18", wash: "#ad7e5f2b" },
-  ab: { accent: "#fec078", soft: "#fca33947", text: "#7a4405", wash: "#fca3392e" },
-  js: { accent: "#c4d7b4", soft: "#a9c48f47", text: "#4a5c38", wash: "#a9c48f2e" },
-  ci: { accent: "#2342ba", soft: "#2342ba33", text: "#152a7d", wash: "#2342ba26" },
-  pc: { accent: "#ff99cc", soft: "#ff99cc47", text: "#98134f", wash: "#ff99cc2e" },
-  tg: { accent: "#6cd9d0", soft: "#6cd9d047", text: "#106b64", wash: "#6cd9d02e" },
-  pl: { accent: "#a447d3", soft: "#a447d333", text: "#5f1487", wash: "#a447d326" },
-  ar: { accent: "#7a9d11", soft: "#7a9d1140", text: "#42550a", wash: "#7a9d1129" },
-  wn: { accent: "#d4bf9f", soft: "#d4bf9f4d", text: "#6b5334", wash: "#d4bf9f33" },
-  aa: { accent: "#84dfe8", soft: "#84dfe84d", text: "#0d5f74", wash: "#84dfe833" },
-  ne: { accent: "#6e6060", soft: "#6e606038", text: "#3a3030", wash: "#6e60602b" },
-  sc: { accent: "#8cacbc", soft: "#8cacbc4d", text: "#2f5468", wash: "#8cacbc33" },
-  uw: { accent: "#d47700", soft: "#d4770040", text: "#7a4400", wash: "#d4770029" },
+  os: {
+    accent: "#ff4f4e",
+    soft: "#ff4f4e33",
+    text: "#8a1420",
+    wash: "#ff4f4e26",
+    field: "#ffb3ad",
+  },
+  bm: {
+    accent: "#708cfe",
+    soft: "#708cfe38",
+    text: "#1c3aa8",
+    wash: "#708cfe2b",
+    field: "#b9c7ff",
+  },
+  ge: {
+    accent: "#61d05a",
+    soft: "#61d05a3d",
+    text: "#1d6b16",
+    wash: "#61d05a2b",
+    field: "#b4ecaf",
+  },
+  yc: {
+    accent: "#f0d204",
+    soft: "#f0d20447",
+    text: "#6b5f00",
+    wash: "#f0d2042e",
+    field: "#f8eb8e",
+  },
+  bh: {
+    accent: "#74598a",
+    soft: "#74598a33",
+    text: "#4a3160",
+    wash: "#74598a26",
+    field: "#c6b4d4",
+  },
+  rf: {
+    accent: "#c27184",
+    soft: "#c2718438",
+    text: "#8d1c33",
+    wash: "#c271842b",
+    field: "#e6bcc6",
+  },
+  gs: {
+    accent: "#979797",
+    soft: "#97979738",
+    text: "#4d4d4d",
+    wash: "#9797972b",
+    field: "#d3d3d3",
+  },
+  bd: {
+    accent: "#ad7e5f",
+    soft: "#ad7e5f38",
+    text: "#6d3a18",
+    wash: "#ad7e5f2b",
+    field: "#dcc4b3",
+  },
+  ab: {
+    accent: "#fec078",
+    soft: "#fca33947",
+    text: "#7a4405",
+    wash: "#fca3392e",
+    field: "#ffdcb1",
+  },
+  js: {
+    accent: "#c4d7b4",
+    soft: "#a9c48f47",
+    text: "#4a5c38",
+    wash: "#a9c48f2e",
+    field: "#dce9d1",
+  },
+  ci: {
+    accent: "#2342ba",
+    soft: "#2342ba33",
+    text: "#152a7d",
+    wash: "#2342ba26",
+    field: "#a9b6e6",
+  },
+  pc: {
+    accent: "#ff99cc",
+    soft: "#ff99cc47",
+    text: "#98134f",
+    wash: "#ff99cc2e",
+    field: "#ffc2df",
+  },
+  tg: {
+    accent: "#6cd9d0",
+    soft: "#6cd9d047",
+    text: "#106b64",
+    wash: "#6cd9d02e",
+    field: "#a8ece6",
+  },
+  pl: {
+    accent: "#a447d3",
+    soft: "#a447d333",
+    text: "#5f1487",
+    wash: "#a447d326",
+    field: "#d8b2ec",
+  },
+  ar: {
+    accent: "#7a9d11",
+    soft: "#7a9d1140",
+    text: "#42550a",
+    wash: "#7a9d1129",
+    field: "#c6d79a",
+  },
+  wn: {
+    accent: "#d4bf9f",
+    soft: "#d4bf9f4d",
+    text: "#6b5334",
+    wash: "#d4bf9f33",
+    field: "#ebdfcd",
+  },
+  aa: {
+    accent: "#84dfe8",
+    soft: "#84dfe84d",
+    text: "#0d5f74",
+    wash: "#84dfe833",
+    field: "#c0eff4",
+  },
+  ne: {
+    accent: "#6e6060",
+    soft: "#6e606038",
+    text: "#3a3030",
+    wash: "#6e60602b",
+    field: "#c3bbbb",
+  },
+  sc: {
+    accent: "#8cacbc",
+    soft: "#8cacbc4d",
+    text: "#2f5468",
+    wash: "#8cacbc33",
+    field: "#c9d8e0",
+  },
+  uw: {
+    accent: "#d47700",
+    soft: "#d4770040",
+    text: "#7a4400",
+    wash: "#d4770029",
+    field: "#efc48c",
+  },
 } as const;
 
-/** The HUD voice: bitmap type, uppercase, tracked out so it stays legible small. */
-const hudLabel = {
-  fontFamily: "var(--font-family-code)",
-  fontSize: "var(--font-size-sm)",
-  letterSpacing: "0.06em",
-  textTransform: "uppercase",
-} as const;
-
-/** A menu panel: black outline, square corners, cast onto the terrain below. */
-const panel = {
-  borderColor: INK,
-  borderStyle: "solid",
-  borderWidth: "var(--border-width)",
-  borderRadius: "var(--radius-container)",
-} as const;
-
-/**
- * Faction panels wear the army's color as a bar across the top, the way the
- * unit-info window does in game, then the standard black outline and shadow.
- */
 const factionCardVariants = Object.fromEntries(
   Object.entries(factionPalette).map(([code, colors]) => [
     `variant:faction-${code}`,
     {
-      ...panel,
-      backgroundColor: colors.wash,
-      boxShadow: `inset 0 6px 0 0 ${colors.accent}, var(--shadow-med)`,
+      backgroundColor: `color-mix(in srgb, ${colors.wash}, ${paper.sheet})`,
+      borderColor: paper.rule,
     },
   ]),
 );
 
-/**
- * The same army colors as custom properties, so a component the theme does not
- * own (a roster row, a sprite frame) can wear a faction without a hardcoded
- * hex. The code is part of the token name because the army is only known at
- * runtime.
- */
+/** The army colors as custom properties, addressable by code at runtime. */
 const factionTokens = Object.fromEntries(
   Object.entries(factionPalette).flatMap(([code, colors]) =>
     Object.entries(colors).map(([role, value]) => [`--color-faction-${code}-${role}`, value]),
   ),
 );
 
-/** Values the base token set has no name for. */
-const extraTokens: Record<string, string> = {
-  "--border-width": "2px",
-  "--offset-control-pressed": "2px",
-  // A disabled menu key keeps a visible outline, softened from the active rule.
-  "--color-border-disabled": "rgba(22, 24, 29, 0.4)",
-  // The rule between rows of one readout. Lighter than the panel outline,
-  // because it separates lines of the same block rather than two panels.
-  "--color-border-soft": "rgba(22, 24, 29, 0.18)",
-};
-
 const factionTokenVariants = Object.fromEntries(
   Object.entries(factionPalette).map(([code, colors]) => [
     `color:faction-${code}`,
     {
       backgroundColor: colors.soft,
-      borderColor: colors.accent,
-      borderStyle: "solid",
-      borderWidth: "2px",
+      borderColor: "transparent",
       color: colors.text,
     },
   ]),
 );
+
+/** Custom properties Astryx has no name for; StyleX reads them through `awbrnVars`. */
+const airmailTokens: Record<string, string> = {
+  "--color-ink-950": ink[950],
+  "--color-ink-900": ink[900],
+  "--color-ink-850": ink[850],
+  "--color-ink-800": ink[800],
+  "--color-ink-700": ink[700],
+  "--color-ink-600": ink[600],
+  "--color-ink-300": ink[300],
+  "--color-ink-100": ink[100],
+  "--color-paper": paper.ground,
+  "--color-paper-well": paper.well,
+  "--color-sheet": paper.sheet,
+  "--color-rule": paper.rule,
+  "--color-rule-strong": paper.ruleStrong,
+  "--color-text-tertiary": text.tertiary,
+  "--color-text-on-ink": text.onInk,
+  "--color-text-on-ink-secondary": text.onInkSecondary,
+  "--color-text-on-ink-strong": text.onInkStrong,
+  "--color-airmail-red": airmail.red,
+  "--color-airmail-red-wash": airmail.redWash,
+  "--color-airmail-blue": airmail.blue,
+  "--color-airmail-blue-on-ink": airmail.blueOnInk,
+  "--color-stamp-violet": airmail.violet,
+  "--color-stamp-violet-on-ink": airmail.violetOnInk,
+  "--color-ok": status.ok,
+  "--color-ok-on-ink": status.okOnInk,
+  "--color-warn": status.warn,
+  "--color-warn-fill": status.warnFill,
+  "--color-danger": status.danger,
+  "--color-power-gold": status.gold,
+  "--color-power-gold-dim": status.goldDim,
+  "--color-power-gold-on-paper": status.goldOnPaper,
+  "--color-power-gold-track-on-paper": status.goldTrackOnPaper,
+  "--airmail-band": AIRMAIL_BAND,
+  "--shadow-sheet": SHADOW_SHEET,
+  "--shadow-board": SHADOW_BOARD,
+  "--shadow-board-picture": SHADOW_BOARD_PICTURE,
+  "--hatch-well": HATCH_WELL,
+  "--color-stamp-white": STAMP_WHITE,
+  "--color-ink-hairline": INK_HAIRLINE,
+  "--color-well-hairline": WELL_HAIRLINE,
+  "--shadow-pennant": SHADOW_PENNANT,
+  "--shadow-slot": SHADOW_SLOT,
+  "--shadow-dock": SHADOW_DOCK,
+  "--shadow-stamp":
+    "drop-shadow(0 0 0.75px rgba(10, 17, 40, 0.55)) drop-shadow(0 1px 1.5px rgba(10, 17, 40, 0.3))",
+  "--ease-step": STEP,
+  // Astryx eases what leaves on its own curve; here it steps like the rest.
+  "--ease-exit": STEP,
+  // Menus, popovers and tooltips (Astryx layers) enter over the fast-max duration.
+  "--duration-fast-max": "120ms",
+  "--spacing-2-5": "0.625rem",
+  "--spacing-3-5": "0.875rem",
+  "--spacing-4-5": "1.125rem",
+  "--spacing-5-5": "1.375rem",
+  "--text-nav-size": "11.5px",
+  "--text-micro-size": "11px",
+  // Pixels, not Astryx's rem steps, so a screen that names one keeps its size exactly.
+  "--text-11-5-size": "11.5px",
+  "--text-12-size": "12px",
+  "--text-12-5-size": "12.5px",
+  "--text-13-size": "13px",
+  "--text-13-5-size": "13.5px",
+  "--text-14-size": "14px",
+  "--text-14-5-size": "14.5px",
+  "--text-15-size": "15px",
+  "--text-15-5-size": "15.5px",
+  "--text-16-size": "16px",
+  "--text-17-size": "17px",
+  "--text-26-size": "26px",
+  "--size-current-mark": "3px",
+};
+
+/** Width comes from `font-stretch` on the heading component. */
+const TYPE_TOKENS = {
+  "--text-heading-1-size": "52px",
+  "--text-heading-1-weight": "820",
+  "--text-heading-1-leading": "0.96",
+  "--text-heading-2-size": "26px",
+  "--text-heading-2-weight": "800",
+  "--text-heading-2-leading": "1.05",
+  "--text-heading-3-size": "17px",
+  "--text-heading-3-weight": "700",
+  "--text-heading-3-leading": "1.25",
+  "--text-heading-4-size": "15px",
+  "--text-heading-4-weight": "700",
+  "--text-heading-4-leading": "1.3",
+  "--text-heading-5-size": "12px",
+  "--text-heading-5-weight": "650",
+  "--text-heading-5-leading": "1.2",
+  "--text-heading-6-size": "12px",
+  "--text-heading-6-weight": "650",
+  "--text-heading-6-leading": "1.2",
+  "--text-display-1-size": "52px",
+  "--text-display-1-weight": "820",
+  "--text-display-1-leading": "0.96",
+  "--text-display-2-size": "38px",
+  "--text-display-2-weight": "820",
+  "--text-display-2-leading": "1",
+  "--text-display-3-size": "26px",
+  "--text-display-3-weight": "800",
+  "--text-display-3-leading": "1.05",
+  "--text-body-size": "15px",
+  "--text-body-weight": "400",
+  "--text-body-leading": "1.5",
+  "--text-large-size": "17px",
+  "--text-large-weight": "500",
+  "--text-large-leading": "1.45",
+  "--text-label-size": "14px",
+  "--text-label-weight": "650",
+  "--text-label-leading": "1.3",
+  "--text-supporting-size": "13px",
+  "--text-supporting-weight": "400",
+  "--text-supporting-leading": "1.4",
+  "--text-code-size": "12.5px",
+  "--text-code-weight": "500",
+  "--text-code-leading": "1.3",
+} as const;
+
+const PHONE_TYPE_TOKENS = {
+  "--text-heading-1-size": "38px",
+  "--text-heading-2-size": "22px",
+  "--text-display-1-size": "38px",
+  "--text-display-2-size": "30px",
+  "--text-display-3-size": "22px",
+} as const;
+
+const ELEMENT_SIZES = {
+  "--size-element-sm": "32px",
+  "--size-element-md": "40px",
+  "--size-element-lg": "48px",
+} as const;
+const COARSE_ELEMENT_SIZES = {
+  "--size-element-sm": "44px",
+  "--size-element-md": "44px",
+  "--size-element-lg": "52px",
+} as const;
+
+const oneLineField = {
+  ...field,
+  "--size-element-md": COARSE_ELEMENT_SIZES["--size-element-md"],
+} as const;
 
 export const awbrnTheme = defineTheme({
   name: "awbrn",
   extends: neutralTheme,
 
   typography: {
-    // 16px base so body copy reads at a comfortable size; a wide 1.333 ratio
-    // gives the display voice room to behave like box art.
-    scale: { base: 16, ratio: 1.333 },
+    scale: { base: 15, ratio: 1.2 },
     body: {
-      family: "Nunito",
-      fallbacks: "system-ui, sans-serif",
+      family: FONT_UI,
+      fallbacks: FONT_UI_FALLBACKS,
       weight: "normal",
     },
     heading: {
-      // Bungee is signage lettering: chunky, layered, built to be shouted.
-      family: "Bungee",
-      fallbacks: "system-ui, sans-serif",
-      weight: "normal",
+      family: FONT_UI,
+      fallbacks: FONT_UI_FALLBACKS,
+      weight: "bold",
     },
     code: {
-      // Silkscreen is the HUD bitmap: funds, day counts, unit stats, labels.
-      family: "Silkscreen",
-      fallbacks: "ui-monospace, monospace",
+      family: FONT_FIGURE,
+      fallbacks: FONT_FIGURE_FALLBACKS,
     },
   },
 
-  // The neutral theme gives narrow touch screens their own type scale, and
-  // that scale writes every heading weight from the root heading weight. This
-  // rule comes after the inherited rule, so it keeps the small headings at
-  // their weight. It matches every coarse pointer, so it still covers the
-  // inherited rule if that rule changes its width.
+  // 720px and below is a phone; the rail drops below 1180px.
   adaptations: {
+    widthBreakpoints: { sm: 640, md: 721, lg: 1024, xl: 1181, "2xl": 1536 },
     rules: [
+      // The inherited touch rule rewrites the whole type scale for a touch
+      // screen. Airmail keeps one scale, so this restores it on every coarse
+      // pointer, and gives every target its 44px.
       {
         when: { pointer: "coarse" },
-        value: { tokens: SMALL_HEADING_WEIGHTS },
+        value: { tokens: { ...TYPE_TOKENS, ...COARSE_ELEMENT_SIZES } },
+      },
+      {
+        when: { width: { below: "md" } },
+        value: { tokens: { ...PHONE_TYPE_TOKENS, "--color-overlay": SCRIM.sheet } },
       },
     ],
   },
 
-  // Menu snap, not web easing. Short durations, hard exponential settle. The
-  // duration scale and easing set every CSS motion token. Tempo only times the
-  // springs of touch motion (sheets, switches, segmented controls), which the
-  // scale cannot reach. 0.75 is the quickest tempo, to match the scale.
   motion: {
     tempo: 0.75,
     fast: 90,
-    medium: 150,
-    slow: 520,
+    medium: 120,
+    slow: 240,
     ratio: 0.7,
-    easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+    easing: STEP,
   },
 
   tokens: {
-    // -- Ground and chrome -------------------------------------------------
-    // The body is the map: open sky. Content rides above it in menu panels.
-    "--color-background-body": "#6bb4db",
-    "--color-background-surface": "#fff8e4",
-    "--color-background-card": "#fffcf2",
-    "--color-background-popover": "#fffcf2",
-    "--color-background-muted": "#efdcae",
-    "--color-background-inverted": INK,
+    // -- Ground and surfaces ----------------------------------------------
+    "--color-background-body": paper.ground,
+    "--color-background-surface": paper.sheet,
+    "--color-background-card": paper.sheet,
+    "--color-background-popover": paper.sheet,
+    "--color-background-muted": paper.well,
+    "--color-background-inverted": ink[900],
 
-    // -- Command orange ----------------------------------------------------
-    // Black on orange, the relationship the logo itself uses.
-    "--color-accent": "#f07c1e",
-    "--color-accent-muted": "#fbd9af",
-    "--color-on-accent": INK,
+    // -- Accent -------------------------------------------------------------
+    "--color-accent": ink[900],
+    "--color-accent-muted": ink[100],
+    "--color-on-accent": "#ffffff",
+    "--focus-outline-color": airmail.blue,
+    "--focus-outline-offset": "2px",
 
-    "--color-neutral": "rgba(22, 24, 29, 0.1)",
-    "--color-overlay": "rgba(22, 24, 29, 0.55)",
-    "--color-overlay-hover": "rgba(22, 24, 29, 0.08)",
-    "--color-overlay-pressed": "rgba(22, 24, 29, 0.18)",
-    "--color-tint-hover": "black",
+    "--color-neutral": "rgba(16, 27, 58, 0.08)",
+    "--color-overlay": SCRIM.dialog,
+    "--color-overlay-hover": "rgba(16, 27, 58, 0.06)",
+    "--color-overlay-pressed": "rgba(16, 27, 58, 0.12)",
+    "--color-tint-hover": ink[900],
 
-    // -- Text: warm browns pulled from the cream, never neutral gray -------
-    // Secondary is darker than a cream-only palette would need, because it
-    // also has to clear 4.5:1 against the open sky it sits on.
-    "--color-text-primary": INK,
-    "--color-text-secondary": "#443c2e",
-    "--color-text-disabled": "#6d6350",
-    "--color-text-accent": "#a34803",
-    "--color-icon-primary": INK,
-    "--color-icon-secondary": "#443c2e",
-    "--color-icon-disabled": "#6d6350",
-    "--color-icon-accent": "#c25a08",
-    "--color-on-dark": "#fff8e4",
-    "--color-on-light": INK,
+    // -- Text ---------------------------------------------------------------
+    "--color-text-primary": text.primary,
+    "--color-text-secondary": text.secondary,
+    "--color-text-disabled": text.tertiary,
+    "--color-text-accent": airmail.blue,
+    "--color-icon-primary": text.primary,
+    "--color-icon-secondary": text.secondary,
+    "--color-icon-disabled": paper.ruleStrong,
+    "--color-icon-accent": airmail.blue,
+    "--color-on-dark": text.onInk,
+    "--color-on-light": text.primary,
 
-    // -- Rules -------------------------------------------------------------
-    "--color-border": "rgba(22, 24, 29, 0.85)",
-    "--color-border-emphasized": INK,
-    "--color-shadow": CAST,
-    "--color-skeleton": "#e2d2a8",
-    "--color-track": "#d8c79c",
+    // -- Rules ----------------------------------------------------------------
+    "--color-border": paper.rule,
+    "--color-border-emphasized": paper.ruleStrong,
+    "--color-shadow": "rgba(16, 27, 58, 0.28)",
+    "--color-skeleton": paper.well,
+    "--color-track": paper.rule,
 
-    // -- Status, in the game's own register: repair, damage, low supply ----
-    "--color-success": "#1e8a3c",
-    "--color-success-muted": "#c8eccc",
-    "--color-on-success": "#fff8e4",
-    "--color-error": "#c9221a",
-    "--color-error-muted": "#fbd2cb",
-    "--color-on-error": "#fff8e4",
-    "--color-background-error-inverted": "#8d1410",
-    "--color-warning": "#b98100",
-    "--color-warning-muted": "#fbe9a8",
-    "--color-on-warning": INK,
+    // -- Status ---------------------------------------------------------------
+    "--color-success": status.ok,
+    "--color-success-muted": status.okWash,
+    "--color-on-success": "#ffffff",
+    "--color-error": status.danger,
+    "--color-error-muted": status.dangerWash,
+    "--color-on-error": "#ffffff",
+    "--color-background-error-inverted": "#6d0f1c",
+    "--color-warning": status.warn,
+    "--color-warning-muted": status.warnWash,
+    "--color-on-warning": "#ffffff",
+    "--color-info": airmail.blue,
+    "--color-info-muted": ink[100],
 
-    // -- Named color families, retuned to the armies -----------------------
+    // -- Named color families, retuned to the armies ---------------------------
     "--color-background-red": "#ff4f4e2b",
     "--color-border-red": "#e3392f",
     "--color-icon-red": "#c51f28",
@@ -273,409 +596,454 @@ export const awbrnTheme = defineTheme({
     "--color-border-pink": "#e2559a",
     "--color-icon-pink": "#b92e73",
     "--color-text-pink": "#6b0f3e",
-    "--color-background-gray": "#97979738",
-    "--color-border-gray": "#6e6e6e",
-    "--color-icon-gray": "#5a5a5a",
-    "--color-text-gray": "#2e2626",
+    "--color-background-gray": paper.well,
+    "--color-border-gray": paper.ruleStrong,
+    "--color-icon-gray": text.secondary,
+    "--color-text-gray": text.secondary,
 
-    ...SMALL_HEADING_WEIGHTS,
+    ...TYPE_TOKENS,
+    ...ELEMENT_SIZES,
 
-    // -- Chrome is square. Pixel art has no radius. ------------------------
-    "--radius-inner": "0px",
-    "--radius-element": "2px",
-    "--radius-container": "4px",
-    "--radius-page": "4px",
-    "--radius-chat": "4px",
+    // -- Shapes -------------------------------------------------------------------
+    "--border-width": "1px",
+    "--radius-inner": "4px",
+    "--radius-element": "6px",
+    "--radius-container": "10px",
+    "--radius-page": "10px",
+    "--radius-chat": "10px",
 
-    // -- Depth: a hard pixel step, plus a soft blur that lands it on ground.
-    "--shadow-low": `2px 2px 0 0 ${CAST}, 2px 3px 6px 0 ${CAST_SOFT}`,
-    "--shadow-med": `3px 3px 0 0 ${CAST}, 4px 6px 10px 0 ${CAST_SOFT}`,
-    "--shadow-high": `5px 5px 0 0 ${CAST}, 7px 10px 18px 0 ${CAST_SOFT}`,
-    "--shadow-inset-hover": `inset 0 0 0 2px ${INK}`,
-    "--shadow-inset-selected": "inset 0 0 0 2px #f07c1e",
-    "--shadow-inset-success": "inset 0 0 0 2px rgba(30, 138, 60, 0.5)",
-    "--shadow-inset-warning": "inset 0 0 0 2px rgba(185, 129, 0, 0.5)",
-    "--shadow-inset-error": "inset 0 0 0 2px rgba(201, 34, 26, 0.5)",
+    // -- Depth --------------------------------------------------------------------
+    "--shadow-low": SHADOW_SHEET,
+    "--shadow-med": SHADOW_OWED,
+    "--shadow-high": SHADOW_FLOAT,
+    "--shadow-inset-hover": `inset 0 0 0 1px ${ink[900]}`,
+    "--shadow-inset-selected": `inset 0 0 0 1px ${ink[900]}`,
+    "--shadow-inset-success": "inset 0 0 0 1px rgba(23, 120, 75, 0.5)",
+    "--shadow-inset-warning": "inset 0 0 0 1px rgba(154, 100, 0, 0.5)",
+    "--shadow-inset-error": "inset 0 0 0 1px rgba(179, 25, 46, 0.5)",
 
-    ...extraTokens,
-
-    // -- The armies, addressable by code -----------------------------------
+    ...airmailTokens,
     ...factionTokens,
   },
 
   components: {
-    // -- The ground plane --------------------------------------------------
-    // Sky with a fixed tile grid and a sun wash at the horizon. The grid stays
-    // put while content scrolls, so panels read as moving over a map.
+    // -- The ground ---------------------------------------------------------
     "app-shell": {
-      base: {
-        backgroundColor: "var(--color-background-body)",
-        backgroundImage: [
-          "radial-gradient(120% 65% at 50% -12%, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 62%)",
-          "linear-gradient(to right, rgba(255, 255, 255, 0.11) 2px, rgba(255, 255, 255, 0) 2px)",
-          "linear-gradient(to bottom, rgba(255, 255, 255, 0.11) 2px, rgba(255, 255, 255, 0) 2px)",
-        ].join(", "),
-        backgroundSize: "100% 100%, 32px 32px, 32px 32px",
-        backgroundRepeat: "no-repeat, repeat, repeat",
-        backgroundAttachment: "scroll, fixed, fixed",
-      },
+      base: { backgroundColor: paper.ground },
     },
-
-    // The shell's own regions paint a flat fill over the ground. Clear them so
-    // the terrain and its grid stay continuous from the nav to the last panel.
+    // Astryx pins the header at z-index 1, under page content that stacks
+    // itself (a map card's rank pennant sits at 2), so scrolled content painted
+    // over the bar. It sits below the phone task dock and tab bar.
     "app-shell-header": {
-      base: { backgroundColor: "transparent" },
+      base: { backgroundColor: ink[900], zIndex: "10" },
     },
     "layout-content": {
       base: { backgroundColor: "transparent" },
     },
 
-    // -- Top nav: the status bar across the top of the screen --------------
-    "top-nav": {
-      base: {
-        backgroundColor: "var(--color-background-surface)",
-        borderBottom: `3px solid ${INK}`,
-        boxShadow: "var(--shadow-med)",
-      },
-    },
-    "top-nav-heading": {
-      base: {
-        fontFamily: "var(--font-family-heading)",
-        fontSize: "var(--font-size-lg)",
-        letterSpacing: "0.01em",
-      },
-    },
-    "top-nav-item": {
-      base: {
-        ...hudLabel,
-        border: "2px solid transparent",
-        borderRadius: "var(--radius-element)",
-        color: "var(--color-text-secondary)",
-      },
-      // The selected tab is the cursor: orange fill, black outline, no shadow,
-      // because the cursor sits flush on the chrome rather than above it.
-      selected: {
-        backgroundColor: "var(--color-accent)",
-        border: `2px solid ${INK}`,
-        color: "var(--color-on-accent)",
-      },
-    },
-
-    // -- Buttons: menu commands -------------------------------------------
+    // -- Buttons: keys --------------------------------------------------------
     button: {
       base: {
-        ...hudLabel,
-        border: `2px solid ${INK}`,
+        ...stepped,
+        borderStyle: "solid",
+        borderWidth: "1px",
         borderRadius: "var(--radius-element)",
-        boxShadow: "var(--shadow-low)",
-        "--button-focus-offset": "3px",
+        boxShadow: "none",
+        fontFamily: "var(--font-family-body)",
+        fontWeight: "650",
+        letterSpacing: "normal",
+        textTransform: "none",
+        "--button-focus-offset": "2px",
       },
+      "size:sm": { fontSize: "var(--text-13-5-size)" },
+      "size:md": { fontSize: "var(--text-14-5-size)" },
+      "size:lg": { fontSize: "var(--text-16-size)" },
       "variant:primary": {
-        backgroundColor: "var(--color-accent)",
-        color: "var(--color-on-accent)",
+        backgroundColor: airmail.red,
+        borderColor: airmail.red,
+        color: "#ffffff",
+        boxShadow: "0 1px 0 rgba(0, 0, 0, 0.15), 0 6px 14px -8px rgba(180, 20, 40, 0.7)",
       },
       "variant:secondary": {
-        backgroundColor: "var(--color-background-surface)",
-        color: "var(--color-text-primary)",
+        backgroundColor: paper.sheet,
+        borderColor: paper.ruleStrong,
+        color: text.primary,
       },
-      "variant:destructive": {
-        backgroundColor: "var(--color-error)",
-        color: "var(--color-on-error)",
-      },
-      // Ghost is the one command that is not a raised menu key.
       "variant:ghost": {
         backgroundColor: "transparent",
-        border: "2px solid transparent",
-        boxShadow: "none",
-        color: "var(--color-text-primary)",
+        borderColor: "transparent",
+        color: text.secondary,
+      },
+      "variant:destructive": {
+        backgroundColor: paper.sheet,
+        borderColor: `color-mix(in oklab, ${status.danger} 45%, white)`,
+        color: status.danger,
+      },
+      "variant:ink": {
+        backgroundColor: ink[900],
+        borderColor: ink[900],
+        color: "#ffffff",
+      },
+      "variant:on-ink": {
+        backgroundColor: ink[850],
+        borderColor: ink[700],
+        color: text.onInk,
+      },
+      "variant:ghost-on-ink": {
+        backgroundColor: "transparent",
+        borderColor: "transparent",
+        color: text.onInkSecondary,
       },
     },
 
-    // -- Panels ------------------------------------------------------------
-    card: {
+    // -- Placeholders: nothing pulses ------------------------------------------
+    skeleton: {
       base: {
-        ...panel,
-        boxShadow: "var(--shadow-med)",
+        backgroundColor: paper.well,
+        opacity: "1",
+        animationName: "none",
       },
+    },
+
+    // -- Sheets ----------------------------------------------------------------
+    card: {
+      base: sheet,
       "variant:muted": {
-        backgroundColor: "var(--color-background-muted)",
+        backgroundColor: paper.well,
+        borderColor: "transparent",
+        boxShadow: "none",
       },
       "variant:transparent": {
-        border: "none",
+        backgroundColor: "transparent",
+        borderColor: "transparent",
         boxShadow: "none",
+      },
+      "variant:well": {
+        backgroundColor: paper.well,
+        borderColor: "transparent",
+        boxShadow: "none",
+      },
+      "variant:owed": {
+        boxShadow: SHADOW_OWED,
+      },
+      "variant:ink": {
+        backgroundColor: ink[900],
+        borderColor: ink[800],
+        boxShadow: "none",
+        color: text.onInk,
       },
       ...factionCardVariants,
     },
-
-    // A map on the board is a key on the menu, and the chosen one wears the
-    // cursor: the accent outline with the accent ring inside it, sitting flush
-    // on the board instead of above it.
     "selectable-card": {
       base: {
-        ...panel,
-        backgroundColor: "var(--color-background-surface)",
-        boxShadow: "var(--shadow-med)",
+        ...stepped,
+        backgroundColor: "#ffffff",
+        borderColor: paper.ruleStrong,
+        borderStyle: "solid",
+        borderWidth: "1px",
+        borderRadius: "var(--radius-element)",
+        boxShadow: "none",
       },
       "selected:true": {
-        borderColor: "var(--color-accent)",
-        boxShadow: "var(--shadow-inset-selected)",
+        backgroundColor: ink[100],
+        borderColor: ink[900],
+        boxShadow: `inset 0 0 0 1px ${ink[900]}`,
       },
     },
-    // A map plate on the catalog board is a menu key that opens a screen, so
-    // it is the same raised panel as a selectable card. It goes down into its
-    // own shadow when pressed, which is the one gesture this system has.
     "clickable-card": {
-      base: {
-        ...panel,
-        backgroundColor: "var(--color-background-surface)",
-        boxShadow: "var(--shadow-med)",
-      },
+      base: { ...stepped, ...sheet },
     },
     section: {
-      "variant:section": {
-        ...panel,
-        boxShadow: "var(--shadow-med)",
-      },
+      "variant:section": sheet,
       "variant:muted": {
-        ...panel,
-        backgroundColor: "var(--color-background-muted)",
-        boxShadow: "var(--shadow-med)",
+        backgroundColor: paper.well,
+        borderRadius: "var(--radius-container)",
+        boxShadow: "none",
       },
     },
     banner: {
       base: {
-        ...panel,
-        boxShadow: "var(--shadow-low)",
+        borderStyle: "solid",
+        borderWidth: "1px",
+        borderRadius: "var(--radius-container)",
+        boxShadow: "none",
+      },
+      "status:error": {
+        backgroundColor: status.dangerWash,
+        borderColor: "#f2b6bf",
+        color: "#6d0f1c",
+      },
+      "status:success": {
+        backgroundColor: "#e3f4ea",
+        borderColor: "#a9dcc0",
+        color: "#0e4f31",
       },
     },
-    // A dialog is a menu the game opened over the map, so it takes the panel
-    // outline and the highest cast shadow rather than a floating white card.
     dialog: {
       base: {
-        ...panel,
-        backgroundColor: "var(--color-background-surface)",
-        boxShadow: "var(--shadow-high)",
+        backgroundColor: paper.sheet,
+        borderStyle: "none",
+        borderRadius: "var(--radius-container)",
+        boxShadow: SHADOW_FLOAT,
       },
     },
-    // The system is daylight only, so a tooltip is the game's own help window:
-    // a cream menu panel cast over what it explains. The stock dark chip is the
-    // one surface in the app that would have had no daylight in it, and text
-    // colored for cream is unreadable on it.
+    "bottom-sheet": {
+      base: {
+        backgroundColor: paper.sheet,
+        borderTopLeftRadius: "16px",
+        borderTopRightRadius: "16px",
+        boxShadow: SHADOW_FLOAT_UP,
+      },
+    },
+    popover: {
+      base: {
+        backgroundColor: paper.sheet,
+        borderColor: "rgba(10, 17, 40, 0.25)",
+        borderStyle: "solid",
+        borderWidth: "1px",
+        borderRadius: "var(--radius-container)",
+        boxShadow: SHADOW_FLOAT,
+      },
+    },
     tooltip: {
       base: {
-        ...panel,
-        backgroundColor: "var(--color-background-popover)",
-        color: "var(--color-text-primary)",
-        boxShadow: "var(--shadow-high)",
+        backgroundColor: ink[900],
+        color: text.onInk,
+        borderRadius: "var(--radius-inner)",
+        boxShadow: SHADOW_FLOAT,
       },
     },
-    // An empty state always sits inside a panel already. It gets a recessed
-    // well rather than a second outline; stacked chrome is the tell of a
-    // system that stopped thinking about where its components live.
     "empty-state": {
       base: {
-        backgroundColor: "var(--color-background-muted)",
-        border: `2px dashed rgba(22, 24, 29, 0.3)`,
-        borderRadius: "var(--radius-element)",
+        backgroundColor: paper.sheet,
+        borderColor: paper.ruleStrong,
+        borderStyle: "dashed",
+        borderWidth: "1px",
+        borderRadius: "var(--radius-container)",
         boxShadow: "none",
       },
     },
+    "empty-state-title": {
+      base: { fontSize: "18px", fontWeight: "700" },
+    },
 
-    // -- Type: box-art headings, HUD labels, briefing body -----------------
+    // -- Type --------------------------------------------------------------------
     heading: {
+      // The condensed cut, its word space opened back up so "Your move" never
+      // reads "Yourmove".
       "level:1": {
-        letterSpacing: "0.005em",
-        lineHeight: "1.15",
+        fontStretch: "62%",
+        letterSpacing: "-0.01em",
+        wordSpacing: "0.12em",
+        textWrap: "balance",
       },
       "level:2": {
-        letterSpacing: "0.01em",
-        lineHeight: "1.2",
+        fontStretch: "68%",
+        letterSpacing: "-0.005em",
+        wordSpacing: "0.1em",
+        textWrap: "balance",
       },
-      // Below level 2 the signage face turns into noise; the body face carries
-      // small headings at full weight instead.
-      "level:3": { fontFamily: "var(--font-family-body)" },
-      "level:4": { fontFamily: "var(--font-family-body)" },
-      "level:5": { ...hudLabel, color: "var(--color-text-secondary)" },
-      "level:6": { ...hudLabel, color: "var(--color-text-secondary)" },
+      "level:3": { fontStretch: "100%" },
+      "level:4": { fontStretch: "100%" },
+      "level:5": capsLabel,
+      "level:6": capsLabel,
     },
     text: {
-      // Supporting text stays in the body voice and preserves authored casing.
+      "color:danger": { color: status.danger },
+      // 4.6:1 on white.
+      "color:tertiary": { color: text.tertiary },
+      "color:on-ink": { color: text.onInk },
+      "color:on-ink-secondary": { color: text.onInkSecondary },
       "type:supporting": {
-        fontFamily: "var(--font-family-body)",
-        letterSpacing: "0.05em",
+        color: "var(--color-text-secondary)",
+        letterSpacing: "normal",
         textTransform: "none",
       },
       "type:label": {
-        ...hudLabel,
-        color: "var(--color-text-secondary)",
+        letterSpacing: "normal",
+        textTransform: "none",
+      },
+      "type:code": {
+        fontStretch: "87.5%",
+        fontVariantNumeric: "tabular-nums",
       },
     },
     code: {
       base: {
-        backgroundColor: "var(--color-background-muted)",
-        border: `2px solid ${INK}`,
+        backgroundColor: paper.well,
+        borderStyle: "none",
         borderRadius: "var(--radius-inner)",
         fontFamily: "var(--font-family-code)",
-        fontSize: "var(--font-size-sm)",
+        fontStretch: "87.5%",
+        fontSize: "var(--text-12-5-size)",
+      },
+    },
+    link: {
+      base: {
+        textUnderlineOffset: "3px",
+        textDecorationThickness: "1px",
       },
     },
 
-    // -- HUD readouts: the stat block on a CO intel screen -----------------
+    // -- Rows -------------------------------------------------------------------
     "metadata-list": {
-      base: {
-        borderTop: `2px solid ${INK}`,
-      },
+      base: { borderTop: `1px solid ${paper.rule}` },
     },
     "metadata-list-item": {
-      base: {
-        borderBottom: `2px solid var(--color-border-soft)`,
-      },
+      base: { borderBottom: `1px solid ${paper.rule}` },
     },
-
-    // -- Rows: the unit roster --------------------------------------------
     list: {
-      base: {
-        backgroundColor: "var(--color-background-surface)",
-        border: `2px solid ${INK}`,
-        borderRadius: "var(--radius-container)",
-        boxShadow: "var(--shadow-med)",
-        overflow: "hidden",
-      },
+      base: { ...sheet, overflow: "hidden" },
     },
     "list-item": {
-      base: {
-        borderBottom: `2px solid var(--color-border-soft)`,
-      },
+      base: { borderBottom: `1px solid ${paper.rule}` },
+    },
+    "table-header-cell": {
+      base: capsLabel,
     },
 
-    // A chosen crest wears the cursor, the same way a selected tab does: orange
-    // fill, flush on the surface rather than raised above it.
     "toggle-button": {
+      base: { ...stepped },
       "isPressed:true": {
-        backgroundColor: "var(--color-accent)",
-        borderColor: INK,
+        backgroundColor: ink[900],
+        borderColor: ink[900],
+        color: "#ffffff",
         boxShadow: "none",
       },
     },
 
-    // -- Chips and markers -------------------------------------------------
+    // -- Chips and marks ------------------------------------------------------------
     badge: {
       base: {
-        ...hudLabel,
-        border: `2px solid ${INK}`,
-        borderRadius: "var(--radius-inner)",
-        fontSize: "var(--font-size-sm)",
+        borderStyle: "none",
+        borderRadius: "999px",
+        fontFamily: "var(--font-family-body)",
+        fontSize: "var(--text-nav-size)",
+        fontWeight: "700",
+        fontVariantNumeric: "tabular-nums",
+        letterSpacing: "normal",
+        textTransform: "none",
       },
     },
+    // The fill sits on the neutral color so Astryx's named colors keep theirs.
     token: {
       base: {
-        border: `2px solid ${INK}`,
+        borderStyle: "none",
         borderRadius: "var(--radius-inner)",
-        fontFamily: "var(--font-family-code)",
-        // Bitmap glyphs lose their shape below this; a faction letter that
-        // cannot be read is a faction encoded by color alone.
-        fontSize: "var(--font-size-base)",
-        fontWeight: "700",
+        fontFamily: "var(--font-family-body)",
+        fontSize: "var(--text-12-size)",
+        fontWeight: "650",
         letterSpacing: "0.02em",
+        wordSpacing: "0.14em",
+      },
+      // One size on every pointer: the coarse rule's 44px controls would
+      // otherwise make a 36px tag.
+      "size:sm": { height: "22px", paddingInline: "8px" },
+      "color:default": {
+        backgroundColor: paper.well,
+        color: text.secondary,
       },
       ...factionTokenVariants,
     },
     "status-dot": {
-      base: {
-        border: `2px solid ${INK}`,
-      },
+      base: { borderStyle: "none" },
     },
 
-    // -- Portraits and art: never round off a sprite -----------------------
+    // -- Pixel art: never round or smooth a sprite -----------------------------------
     avatar: {
       base: {
-        border: `2px solid ${INK}`,
-        borderRadius: "var(--radius-element)",
+        borderStyle: "none",
         imageRendering: "pixelated",
       },
     },
     thumbnail: {
       base: {
-        border: `2px solid ${INK}`,
+        backgroundColor: ink[900],
+        borderStyle: "none",
         borderRadius: "var(--radius-element)",
+        boxShadow: `inset 0 0 0 1px ${ink[700]}`,
         imageRendering: "pixelated",
       },
     },
 
-    // -- Fields: recessed, the way an input box sinks into a menu ----------
-    // A run of keys sunk into the panel the way a field is, so the chosen unit
-    // reads as the key standing proud of the track around it.
+    // -- Fields -----------------------------------------------------------------------
+    "field-label": {
+      base: {
+        color: text.primary,
+        fontWeight: "var(--text-label-weight)",
+      },
+    },
     "segmented-control": {
       base: {
-        backgroundColor: "var(--color-background-muted)",
-        border: `2px solid ${INK}`,
+        backgroundColor: paper.well,
+        borderColor: paper.rule,
+        borderStyle: "solid",
+        borderWidth: "1px",
         borderRadius: "var(--radius-element)",
-        boxShadow: `inset 2px 2px 0 0 rgba(22, 24, 29, 0.12)`,
-        gap: "var(--spacing-1)",
-        padding: "var(--spacing-1)",
+        boxShadow: "none",
+        gap: "3px",
+        padding: "3px",
       },
     },
     "segmented-control-item": {
       base: {
-        ...hudLabel,
-        border: "2px solid transparent",
-        borderRadius: "var(--radius-element)",
+        ...stepped,
+        borderStyle: "none",
+        borderRadius: "var(--radius-inner)",
         boxShadow: "none",
-        color: "var(--color-text-secondary)",
+        color: text.secondary,
+        fontWeight: "600",
+        letterSpacing: "normal",
+        textTransform: "none",
       },
-      // The chosen unit is a key standing proud of the track: the system's
-      // outline, in ink, and the full-strength voice the others give up.
       selected: {
-        border: `2px solid ${INK}`,
-        color: "var(--color-text-primary)",
+        backgroundColor: "#ffffff",
+        color: text.primary,
+        boxShadow: "0 1px 2px rgba(16, 27, 58, 0.18)",
       },
     },
-    "text-input": {
-      base: {
-        backgroundColor: "#fffdf7",
-        border: `2px solid ${INK}`,
-        borderRadius: "var(--radius-element)",
-        boxShadow: `inset 2px 2px 0 0 rgba(22, 24, 29, 0.12)`,
-      },
-    },
-    "number-input": {
-      base: {
-        backgroundColor: "#fffdf7",
-        border: `2px solid ${INK}`,
-        borderRadius: "var(--radius-element)",
-        boxShadow: `inset 2px 2px 0 0 rgba(22, 24, 29, 0.12)`,
-      },
-    },
-    // A moderator writes the reason for a judgement here, so it sinks into the
-    // panel exactly as the one-line fields beside it do.
-    "text-area": {
-      base: {
-        backgroundColor: "#fffdf7",
-        border: `2px solid ${INK}`,
-        borderRadius: "var(--radius-element)",
-        boxShadow: `inset 2px 2px 0 0 rgba(22, 24, 29, 0.12)`,
-      },
-    },
-    selector: {
-      base: {
-        backgroundColor: "#fffdf7",
-        border: `2px solid ${INK}`,
-        borderRadius: "var(--radius-element)",
-        boxShadow: `inset 2px 2px 0 0 rgba(22, 24, 29, 0.12)`,
-      },
-    },
+    // A one-line field stands 44px on every pointer; buttons keep the 40px
+    // control height.
+    "text-input": { base: oneLineField },
+    "number-input": { base: oneLineField },
+    "text-area": { base: field },
+    selector: { base: oneLineField },
     "file-input": {
       base: {
-        backgroundColor: "#fffdf7",
-        border: `2px dashed ${INK}`,
-        borderRadius: "var(--radius-element)",
+        ...field,
+        borderStyle: "dashed",
       },
     },
     "checkbox-indicator": {
       base: {
-        border: `2px solid ${INK}`,
+        borderColor: paper.ruleStrong,
         borderRadius: "var(--radius-inner)",
       },
+    },
+    switch: {
+      base: { ...stepped },
+    },
+
+    // -- Navigation ---------------------------------------------------------------------
+    tab: {
+      base: {
+        ...stepped,
+        color: text.secondary,
+        fontWeight: "600",
+        letterSpacing: "normal",
+        textTransform: "none",
+      },
+      selected: { color: text.primary },
+    },
+    "tab-indicator": {
+      base: {
+        backgroundColor: ink[900],
+        borderTopLeftRadius: "3px",
+        borderTopRightRadius: "3px",
+      },
+    },
+    "dropdown-menu-item": {
+      base: { ...stepped, fontWeight: "600" },
     },
   },
 });

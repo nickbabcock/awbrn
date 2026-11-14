@@ -9,6 +9,34 @@ import { useGameStore } from "./store.ts";
 
 type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;
 
+/** A game that accepts the motion preference every new game is given. */
+function bareGame(): GameInstance {
+  return { setReducedMotion: vi.fn().mockResolvedValue(undefined) } as unknown as GameInstance;
+}
+
+/** A page whose motion preference the test controls. */
+function stubMotionPreference(reduced: boolean) {
+  const query = {
+    matches: reduced,
+    listeners: new Set<(event: MediaQueryListEvent) => void>(),
+    addEventListener(_type: "change", listener: (event: MediaQueryListEvent) => void) {
+      this.listeners.add(listener);
+    },
+    removeEventListener(_type: "change", listener: (event: MediaQueryListEvent) => void) {
+      this.listeners.delete(listener);
+    },
+    change(matches: boolean) {
+      this.matches = matches;
+      for (const listener of this.listeners) listener({ matches } as MediaQueryListEvent);
+    },
+  };
+  vi.stubGlobal("window", {
+    matchMedia: (media: string) =>
+      media === "(prefers-reduced-motion: reduce)" ? query : { matches: false },
+  });
+  return query;
+}
+
 function surfaceFixture() {
   const runner = new GameRunner();
   const createGame = vi.fn<GameWorker["createGame"]>();
@@ -49,7 +77,7 @@ describe("GameRunner surface lifecycle", () => {
 
     runner.dispose();
     createGame.mock.calls[0]![4]!({ type: "NewDay", day: 7 });
-    resolve({} as GameInstance);
+    resolve(bareGame());
     await pending;
 
     expect(handleEvent).not.toHaveBeenCalled();
@@ -68,11 +96,11 @@ describe("GameRunner surface lifecycle", () => {
     internals.startSurface(surface, transport);
     const earlier = internals.createGamePromise!;
 
-    const currentGame = {} as GameInstance;
+    const currentGame = bareGame();
     createGame.mockResolvedValueOnce(currentGame);
     internals.startSurface({ ...surface, offscreen: {} as OffscreenCanvas }, transport);
     await internals.createGamePromise;
-    resolve({} as GameInstance);
+    resolve(bareGame());
     await earlier;
 
     expect(internals.game).toBe(currentGame);
@@ -146,6 +174,27 @@ describe("GameRunner camera", () => {
     expect(game.centerOn).toHaveBeenNthCalledWith(2, { x: 1, y: 2 }, false);
     expect(game.setClearColor).toHaveBeenCalledWith({ r: 10, g: 17, b: 40, a: 1 });
     runner.dispose();
+  });
+
+  it("gives the engine the motion preference, and every change to it", async () => {
+    const query = stubMotionPreference(true);
+    try {
+      const { runner, internals, createGame, surface, transport } = surfaceFixture();
+      const game = bareGame();
+      createGame.mockResolvedValue(game);
+      internals.startSurface(surface, transport);
+      await internals.createGamePromise;
+
+      expect(game.setReducedMotion).toHaveBeenCalledWith(true);
+
+      query.change(false);
+      expect(game.setReducedMotion).toHaveBeenLastCalledWith(false);
+
+      runner.dispose();
+      expect(query.listeners.size).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps the latest board view for the page to read", () => {

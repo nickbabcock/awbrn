@@ -108,8 +108,8 @@ impl InspectionFields {
 /// What the readout says about an inspected unit.
 ///
 /// These are the same facts the board paints. A player who only wants the
-/// number should not have to read a field of colour to get it, and a player
-/// who cannot see colour at all gets the whole feature here.
+/// number should not have to read a field of color to get it, and a player
+/// who cannot see color at all gets the whole feature here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InspectionReadout {
     /// Movement points, after fuel and the commander.
@@ -677,7 +677,7 @@ pub(crate) fn sync_fire_outline(
 /// beside it. Sight is a soft claim — terrain conceals, and a unit inside the
 /// ring can still be missed — while a firing band is a hard rule. The line
 /// style carries that difference, so the two fields stay apart for a player who
-/// cannot separate them by colour.
+/// cannot separate them by color.
 pub(crate) fn sync_vision_outline(
     mut commands: Commands,
     game_map: Res<GameMap>,
@@ -773,7 +773,7 @@ pub struct InspectionMoveGlass;
 
 /// Draw the movement field of a unit the player is reading rather than moving.
 ///
-/// The glass is the selection's own, in the same colours and with the same
+/// The glass is the selection's own, in the same colors and with the same
 /// edges, because a player must not have to learn that cyan means one thing
 /// under their unit and another under an enemy. Only the ownership differs: the
 /// selection paints its own unit, and this paints every other one.
