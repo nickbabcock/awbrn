@@ -315,8 +315,8 @@ pub struct RolloutConfig {
 }
 
 impl RolloutConfig {
-    /// Three turns after each line, for the seed and the 16 best lines,
-    /// with the opening plays.
+    /// The rollout of `planner-v9`: three turns after each line, the seed
+    /// and the 16 best lines, with the opening plays.
     pub const THREE_TURNS: Self = Self {
         turns: 3,
         top: 16,
@@ -495,6 +495,36 @@ impl PlannerConfig {
     pub const V8_MOVE: Self = Self {
         identifier: "planner-v8-move",
         baseline: crate::profile::V8_MOVE_GREEDY_CONFIG,
+        ..Self::V8
+    };
+
+    /// planner-v8 with these additions:
+    ///
+    /// - The greedy policy [`crate::profile::V9_GREEDY_CONFIG`]: the tree
+    ///   move model at strength 1 with the next-unit model, which chooses
+    ///   which unit acts next ([`crate::agents::Weights::move2`] and
+    ///   [`crate::agents::Weights::move2_order`]), on the scoring of
+    ///   planner-v8 that plays the last two days and, on a map with no
+    ///   headquarters, gives every lab, of any owner, the headquarters
+    ///   weights ([`crate::agents::Weights::decisive_labs`]). Each simulated
+    ///   line, reply and rollout turn keeps its own turn so far.
+    /// - The contest of decisive captures: [`PlannerConfig::fog_repair`],
+    ///   [`PlannerConfig::last_days`], [`PlannerConfig::contest`],
+    ///   [`PlannerConfig::march_guard`] and [`PlannerConfig::run`].
+    /// - The rollout check of three turns ([`RolloutConfig::THREE_TURNS`]) in
+    ///   place of the Hard reply check.
+    ///
+    /// Use a node budget of 256. The rollouts do not spend it, and a turn
+    /// takes several times as long as a turn of planner-v8-move.
+    pub const V9: Self = Self {
+        identifier: "planner-v9",
+        baseline: crate::profile::V9_GREEDY_CONFIG,
+        fog_repair: true,
+        last_days: true,
+        contest: true,
+        march_guard: true,
+        run: true,
+        rollout: Some(RolloutConfig::THREE_TURNS),
         ..Self::V8
     };
 

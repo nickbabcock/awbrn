@@ -2,8 +2,8 @@
 
 `awbrn_ai::agents::move_policy2` loads these files with `include_bytes!`, as
 the first move model loads its JSON (`../move-policy/README.md`): no file is
-read at run time, so they work in Wasm. A greedy policy plays them with
-`Weights::move2` and `Weights::move2_order`.
+read at run time, so they work in Wasm. `planner-v9` (`PlannerConfig::V9`)
+plays them in its greedy policy (`profile::V9_GREEDY_CONFIG`).
 
 | File | Model | Trees | Bytes |
 | --- | --- | --- | --- |
@@ -41,8 +41,8 @@ own log.
 
 The move model gives the utility of an order as `s` times the tree score plus
 `1 - s` times the greedy reference, a conditional logit over the three greedy
-score features for each group. `Weights::move2` is `s`. At `s = 1` the
-trees alone choose.
+score features for each group. `Weights::move2` is `s`. `planner-v9` uses
+`s = 1`, the trees alone.
 
 The next-unit model (`Weights::move2_order`) scores each unit that can act
 from three blocks of its move features (the highest value over its orders,
@@ -85,6 +85,9 @@ The first fog model was measured with foot decisions weighted to 40,000
 (0.413 in `../move-policy/README.md`). With that weighting the linear row
 scores 0.418 and the fog trees 0.523.
 
+Play of `planner-v9` against `planner-v8-move` is in
+`crates/awbrn-ai-diagnostics/README.md` ("Measure planner-v9").
+
 ## Limits
 
 - The features of an order do not see the orders that the other units will
@@ -122,6 +125,20 @@ The turn so far also differs in one case. In fog, a move can be trapped by a
 unit out of sight and stop short. The extractor logs the human order where
 the unit stopped; an agent in play logs the order and the destination that
 it chose, before the move ran.
+
+In `planner-v9` play the features also differ from the fit in two places
+that the check does not cover:
+
+- `decisive_labs`: on a map with labs and no headquarters, every lab gets the
+  headquarters weights in the greedy scores, so the greedy score features of
+  orders whose scores read a lab differ there. Maps with a headquarters do
+  not change. (`play_last_days` changes only the score of the end of the
+  turn, which is not a candidate order.)
+- `fog_repair`: in fog, a property out of sight has the capture points of an
+  untouched property in the position that the planner and its greedy policy
+  read, where the extractor reads the observation as it is.
+
+`planner-v9` has no fog estimate (its fog memory is off), as the extractor.
 
 Then fit each model. The mise task `ai:fit:move2` runs `policy2/fit.py` with
 uv, which installs Python 3.13.9 and the NumPy, SciPy and LightGBM versions

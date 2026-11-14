@@ -539,6 +539,7 @@ impl AgentSpec {
                     "v7" => PlannerConfig::V7,
                     "v8" => PlannerConfig::V8,
                     "v8-move" => PlannerConfig::V8_MOVE,
+                    "v9" => PlannerConfig::V9,
                     "v6-fog" => PlannerConfig::V6_FOG,
                     other => {
                         return Err(PlanError::Configuration(format!(
@@ -739,6 +740,8 @@ mod tests {
         for (name, identifier, expected) in [
             ("v7", "planner-v7", "40093fcd6d29e46f"),
             ("v8", "planner-v8", "b49a8d012bf9d12e"),
+            ("v8-move", "planner-v8-move", "5ff8c2c6aa41cc2f"),
+            ("v9", "planner-v9", "5f66d922728e7e26"),
         ] {
             let spec: AgentSpec = serde_json::from_value(serde_json::json!({
                 "kind": "planner", "identifier": identifier, "configuration": name

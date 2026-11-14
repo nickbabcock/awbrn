@@ -3763,3 +3763,40 @@ fn a_decisive_lab_capture_is_worth_a_headquarters() {
         "{with} with the switch, {without} without"
     );
 }
+
+/// planner-v9 is planner-v8 with the tree move model at strength 1 and the
+/// next-unit model, the contest switches with the two greedy switches, and
+/// the rollout check of three turns: the configuration that the tests above
+/// play as `move2_combo(1.0, true)`, under its own names.
+#[test]
+fn planner_v9_adds_only_its_parts() {
+    let v9 = PlannerConfig::V9;
+    let combo = move2_combo(1.0, true);
+    assert_eq!(
+        PlannerConfig {
+            identifier: combo.identifier,
+            baseline: crate::baseline::BaselineConfig {
+                identifier: combo.baseline.identifier,
+                ..v9.baseline
+            },
+            ..v9
+        },
+        combo
+    );
+    assert_eq!(
+        v9.baseline,
+        crate::baseline::BaselineConfig {
+            identifier: v9.baseline.identifier,
+            weights: crate::agents::Weights {
+                play_last_days: true,
+                decisive_labs: true,
+                move2: 1.0,
+                move2_order: true,
+                ..crate::profile::V8_GREEDY_CONFIG.weights
+            },
+            ..crate::profile::V8_GREEDY_CONFIG
+        }
+    );
+    assert_eq!(v9.baseline.weights.move2_trees, 0, "every tree scores");
+    assert_eq!(v9.rollout, Some(RolloutConfig::THREE_TURNS));
+}

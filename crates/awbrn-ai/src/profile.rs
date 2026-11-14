@@ -76,6 +76,27 @@ pub const V8_MOVE_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     ..V8_GREEDY_CONFIG
 };
 
+/// The [`V8_GREEDY_CONFIG`] scoring with the tree move model at strength 1
+/// and the next-unit model ([`crate::agents::Weights::move2`] and
+/// [`crate::agents::Weights::move2_order`]), which keeps playing on the last
+/// two days ([`crate::agents::Weights::play_last_days`]) and values a
+/// decisive lab as a headquarters ([`crate::agents::Weights::decisive_labs`]).
+/// In fog games, the models are the fog models.
+///
+/// [`PlannerConfig::V9`] uses it for its seed plan, its fallback, its
+/// simulated replies and both sides of its rollouts.
+pub const V9_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v9",
+    weights: Weights {
+        play_last_days: true,
+        decisive_labs: true,
+        move2: 1.0,
+        move2_order: true,
+        ..V8_GREEDY_CONFIG.weights
+    },
+    ..V8_GREEDY_CONFIG
+};
+
 /// How hard an opponent is meant to be, as a player reads it.
 ///
 /// One tier holds one profile at a time. The tier is for selection. A match
