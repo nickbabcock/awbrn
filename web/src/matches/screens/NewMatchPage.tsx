@@ -167,15 +167,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const selectedMap = pickedMap ?? defaultMap ?? fallbackMap;
   const matchName = ownName ?? selectedMap?.name ?? "";
 
-  const createMatchMutation = useMutation({
-    mutationFn: createMatchFn,
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: matchKeys.browse() }),
-        queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
-      ]);
-    },
-  });
+  const createMatchMutation = useMutation({ mutationFn: createMatchFn });
 
   async function handleImported(map: MapCatalogEntry): Promise<void> {
     await queryClient.invalidateQueries({ queryKey: mapKeys.all });
@@ -250,6 +242,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
           }),
         )
         .catch(() => undefined);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: matchKeys.browse() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.awaiting() }),
+      ]);
       await navigate({ to: "/matches/$matchId", params: { matchId: match.matchId } });
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "The lobby could not be opened.");
