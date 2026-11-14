@@ -524,7 +524,7 @@ export function WaitCell({
   name: string;
 }) {
   return (
-    <HStack as="span" role={line ? "status" : undefined} xstyle={styles.waitCell}>
+    <HStack as="span" xstyle={styles.waitCell}>
       <HStack
         as="span"
         xstyle={[

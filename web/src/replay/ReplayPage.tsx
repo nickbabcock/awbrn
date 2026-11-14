@@ -12,14 +12,12 @@ import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionByCode } from "#/factions.ts";
 import type { ArmyView } from "#/matches/components/Armies.tsx";
-import { BattleCalculator } from "#/matches/components/BattleCalculator.tsx";
 import { InkIconKey } from "#/matches/components/MatchFrame.tsx";
 import type { LogBoundary } from "#/matches/components/turn_log.ts";
-import { useLeaving } from "#/matches/components/useLeaving.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
 import { ProblemBanner } from "#/ui/EmptySheet.tsx";
-import { IconBack, IconCalculator, IconUpload } from "#/ui/icons.tsx";
+import { IconBack, IconUpload } from "#/ui/icons.tsx";
 import { Page } from "#/ui/Page.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { readArchiveOutline } from "./archive_outline.ts";
@@ -59,10 +57,6 @@ export function ReplayPage() {
   const [replayError, setReplayError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [outline, setOutline] = useState<LogBoundary[] | null>(null);
-  // The calculator does not wait on a replay: a player who came to check a
-  // matchup has nothing to load first.
-  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
-  const calculatorSheet = useLeaving(isCalculatorOpen ? true : null);
   const loadCount = useRef(0);
   const mapId = playerRoster?.mapId ?? null;
   const { data: awbwMap } = useQuery({
@@ -246,25 +240,6 @@ export function ReplayPage() {
           variant="primary"
         />
       </section>
-      <HStack justify="center">
-        <Button
-          icon={<Icon icon={IconCalculator} />}
-          label="Calculator"
-          onClick={() => setIsCalculatorOpen(true)}
-          variant="ghost"
-        />
-      </HStack>
-      {/* No board to stand on, so the calculator is a sheet at every width. */}
-      {calculatorSheet.value ? (
-        <BattleCalculator
-          isOpen={calculatorSheet.isOpen}
-          onDismiss={() => setIsCalculatorOpen(false)}
-          onRestoreFocus={() => {}}
-          presentation="sheet"
-          roster={null}
-          runner={runner}
-        />
-      ) : null}
     </Page>
   );
 }
