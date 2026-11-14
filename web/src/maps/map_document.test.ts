@@ -56,4 +56,26 @@ describe("awbrn map documents", () => {
         }),
     ).not.toThrow();
   });
+
+  it("gives a seat its holdings when its player picks another army", () => {
+    const { document } = importedMapDocumentSchema.parse(
+      importAwbwMapDocument(awbwMapDataSchema.parse(map178597)),
+    );
+
+    // The map draws Orange Star and Blue Moon. The first seat plays Yellow
+    // Comet, which takes the Blue Moon side nobody picked.
+    const match = new WasmMatch({
+      map: document,
+      players: [
+        { factionId: 4, team: null, startingFunds: 0, coId: 1 },
+        { factionId: 1, team: null, startingFunds: 0, coId: 2 },
+      ],
+      fogEnabled: false,
+      startingFunds: 0,
+    });
+
+    const state = match.playerGameState(0);
+    expect(state.myFunds).toBeGreaterThan(0);
+    expect(state.units.length).toBe(document.units.length);
+  });
 });

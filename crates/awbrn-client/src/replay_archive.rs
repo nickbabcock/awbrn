@@ -85,9 +85,10 @@ impl AwbrnReplayFile {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let armies: Vec<_> = players.iter().map(|player| player.faction).collect();
         Ok(GameSetup {
             // The map carries its own starting units.
-            map: AwbrnMap::from_map(self.setup.map.map()),
+            map: AwbrnMap::from_map(&self.setup.map.map().with_seat_armies(&armies)),
             players,
             fog_enabled: self.setup.fog_enabled,
             rng_seed: self.setup.rng_seed.unwrap_or(0),
