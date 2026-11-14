@@ -7,7 +7,10 @@ import { defineConfig } from "vite";
 
 const srcDir = fileURLToPath(new URL("./src", import.meta.url));
 
-export default defineConfig({
+// A function, so every config load builds new plugin instances. Vite imports
+// the bundled config afresh on each restart and Node never unloads it, so
+// plugins created at the module's top level would keep each old server alive.
+export default defineConfig(() => ({
   resolve: {
     tsconfigPaths: true,
   },
@@ -41,4 +44,4 @@ export default defineConfig({
       "Cross-Origin-Opener-Policy": "same-origin",
     },
   },
-});
+}));
