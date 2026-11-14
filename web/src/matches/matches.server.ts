@@ -104,6 +104,7 @@ type MatchActionDiagnostics =
   | "invalidSlot"
   | "privateJoinRequired"
   | "slotTaken"
+  | "armyTaken"
   | "hotseatDisabled";
 
 type MatchRow = Awaited<ReturnType<typeof queryMatchRow>>;
@@ -636,6 +637,11 @@ async function insertParticipant(
             sql`${slotIndex} >= 0`,
             sql`${slotIndex} < ${matches.maxPlayers}`,
             or(eq(matches.isPrivate, false), sql`${matches.joinSlug} = ${joinSlug}`),
+            sql`NOT EXISTS (
+              SELECT 1 FROM match_participants other
+              WHERE other.matchId = ${matches.id}
+                AND other.factionId = ${factionId}
+            )`,
             sql`(
               COALESCE(json_extract(${matches.settings}, '$.hotseatEnabled'), 0) = 1
               OR NOT EXISTS (
@@ -654,7 +660,7 @@ async function insertParticipant(
     return ok(undefined);
   }
 
-  const diagnostics = await diagnoseJoinFailure(matchId, viewer.id, slotIndex, joinSlug);
+  const diagnostics = await diagnoseJoinFailure(matchId, viewer.id, slotIndex, factionId, joinSlug);
   return joinFailureFromDiagnostics(diagnostics);
 }
 
@@ -717,6 +723,16 @@ async function updateParticipant(
     nextReady = false;
   }
 
+  // Holdings are handed out by army at setup, so a shared army would give
+  // one seat everything and the other nothing.
+  if (
+    match.participants.some(
+      (entry) => entry.slotIndex !== slotIndex && entry.factionId === nextFactionId,
+    )
+  ) {
+    return err("participantInvalid", "another seat already has that army", 409);
+  }
+
   if (nextCoId !== null && match.settings.bannedCoIds.includes(nextCoId)) {
     return err("participantInvalid", `${coDisplayName(nextCoId)} is banned in this match`, 409);
   }
@@ -759,6 +775,7 @@ async function diagnoseJoinFailure(
   matchId: string,
   userId: string,
   slotIndex: number,
+  factionId: number,
   joinSlug: string | null,
 ): Promise<MatchActionDiagnostics> {
   const row = await queryMatchRow(matchId);
@@ -788,6 +805,15 @@ async function diagnoseJoinFailure(
     }
   }
 
+  const armyHolder = await db
+    .select({ slotIndex: matchParticipants.slotIndex })
+    .from(matchParticipants)
+    .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.factionId, factionId)))
+    .get();
+  if (armyHolder && armyHolder.slotIndex !== slotIndex) {
+    return "armyTaken";
+  }
+
   return "slotTaken";
 }
 
@@ -805,6 +831,8 @@ function joinFailureFromDiagnostics(diagnostics: MatchActionDiagnostics): MatchR
       return err("alreadyJoined", "you have already claimed a slot in this lobby", 409);
     case "slotTaken":
       return err("slotTaken", "that lobby slot has already been claimed", 409);
+    case "armyTaken":
+      return err("armyTaken", "another seat has this seat's army; ask them to switch", 409);
   }
 }
 

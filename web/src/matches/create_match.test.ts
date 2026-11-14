@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { drizzle } from "drizzle-orm/d1";
-import { mapRevisions, maps, user } from "#/db/global.ts";
+import { eq } from "drizzle-orm";
+import { matchParticipants, mapRevisions, maps, user } from "#/db/global.ts";
 import { defaultMatchClock, matchCreateRequestSchema } from "./schemas.ts";
-import { createMatch } from "./matches.server.ts";
+import { createMatch, mutateMatch } from "./matches.server.ts";
 import { canonicalizeAwbwMap } from "#/server_wasm.ts";
 import awbwMap from "../../../assets/maps/61748.json";
 import { awbwMapDataSchema } from "#/awbw/schemas.ts";
@@ -121,5 +122,47 @@ describe("createMatch", () => {
         details: undefined,
       },
     });
+  });
+
+  it("keeps two seats from holding the same army", async () => {
+    await seed();
+    const created = await createMatch(
+      matchCreateRequestSchema.parse({
+        ...request,
+        map: mapRef,
+        aiSeats: [{ slotIndex: 1, profileId: "ai-medium-v1" }],
+      }),
+      creator,
+    );
+    if (!created.ok) throw new Error(created.error.message);
+    const { matchId } = created.value;
+    const aiSeat = await db
+      .select({ factionId: matchParticipants.factionId })
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, matchId))
+      .get();
+    const aiArmy = aiSeat!.factionId;
+    const freeArmy = aiArmy === 1 ? 2 : 1;
+
+    const joinTaken = await mutateMatch(matchId, creator, {
+      action: "join",
+      slotIndex: 0,
+      factionId: aiArmy,
+    });
+    expect(joinTaken.ok ? null : joinTaken.error.code).toBe("armyTaken");
+
+    const joined = await mutateMatch(matchId, creator, {
+      action: "join",
+      slotIndex: 0,
+      factionId: freeArmy,
+    });
+    expect(joined.ok).toBe(true);
+
+    const switched = await mutateMatch(matchId, creator, {
+      action: "updateParticipant",
+      slotIndex: 0,
+      factionId: aiArmy,
+    });
+    expect(switched.ok ? null : switched.error.code).toBe("participantInvalid");
   });
 });

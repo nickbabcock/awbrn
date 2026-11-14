@@ -384,7 +384,15 @@ pub(crate) fn detect_pending_live_match(
     mut transitions: LoadingTransitions,
     asset_loader: ClientAssetLoader,
 ) {
-    commands.insert_resource(PendingLoadedMatchMap(AwbrnMap::from_map(pending.map.map())));
+    // Draw the map as the engine set it up, with each seat's holdings in the
+    // army its player picked, so fogged properties show the right colors.
+    let armies: Vec<_> = pending
+        .players
+        .iter()
+        .filter_map(|player| awbrn_types::PlayerFaction::from_id(player.faction_id))
+        .collect();
+    let map = pending.map.map().with_seat_armies(&armies);
+    commands.insert_resource(PendingLoadedMatchMap(AwbrnMap::from_map(&map)));
     commands.insert_resource(LiveMatchBootstrap {
         players: pending.players.clone(),
         observation: pending.observation.clone(),
