@@ -34,7 +34,7 @@ describe("pacing a dragged scrubber's seeks", () => {
     seek.request(3);
     seek.settle();
     expect(sent).toEqual([3]);
-    expect(seek.isInFlight).toBe(false);
+    expect(seek.flying).toBeNull();
   });
 
   it("lets a return to the end replace a moment still waiting", () => {
@@ -76,7 +76,7 @@ describe("pacing a dragged scrubber's seeks", () => {
     let isOpen = false;
     const { seek, sent } = host(() => isOpen);
     seek.request(3);
-    expect(seek.isInFlight).toBe(false);
+    expect(seek.flying).toBeNull();
 
     isOpen = true;
     seek.request(4);

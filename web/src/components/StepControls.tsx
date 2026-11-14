@@ -89,6 +89,9 @@ type Draft = { value: number; isDragging: boolean } | null;
  */
 function useScrubDraft(review: ReviewModel) {
   const [draft, setDraft] = useState<Draft>(null);
+  // Let go and caught up with: a later move through the game is not this
+  // drag's, so the thumb must not jump back to where it was let go.
+  if (draft !== null && !draft.isDragging && !review.isSeeking) setDraft(null);
   const held = draft !== null && (draft.isDragging || review.isSeeking) ? draft.value : null;
   return { held, isDragging: draft?.isDragging ?? false, setDraft };
 }

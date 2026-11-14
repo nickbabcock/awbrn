@@ -14,7 +14,10 @@ use bevy::prelude::*;
 use crate::features::event_bus::{EventSink, ReplayPositionChanged};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::controls::advance_replay_action;
-use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplaySeekCommand};
+use crate::modes::replay::presentation::{
+    ReplayAdvanceLock, ReplayFollowupCommand, ReplaySeekCommand,
+};
+use crate::render::animation::UnitPathAnimation;
 use crate::replay_archive::ReplayBoundary;
 use awbrn_bevy::replay::ReplayState;
 
@@ -93,27 +96,30 @@ pub(crate) fn handle_replay_navigation(
     mut replay_state: ResMut<ReplayState>,
     outline: Res<ReplayOutline>,
     loaded_replay: Res<LoadedReplay>,
-    replay_lock: Res<ReplayAdvanceLock>,
-    mut held_jump: Local<Option<u32>>,
+    mut replay_lock: ResMut<ReplayAdvanceLock>,
+    mut paths: Query<&mut UnitPathAnimation>,
 ) {
     let total = loaded_replay.0.len();
     let mut blocked = replay_lock.is_active();
-    let requested: Vec<_> = requests.read().map(|request| request.target).collect();
-    // A drag that begins while a step is being watched still has to land
-    // where it was let go, so its jump waits for the step rather than being
-    // dropped. A request in the frame the step ends is newer, and replaces
-    // it; one that arrives while the step is still held is dropped as before.
-    let held = if blocked {
-        None
-    } else {
-        held_jump.take().filter(|_| requested.is_empty())
-    };
 
-    for target in held.map(ReplayTarget::Jump).into_iter().chain(requested) {
-        if blocked {
-            if let ReplayTarget::Jump(index) = target {
-                *held_jump = Some(index);
+    for request in requests.read() {
+        let target = request.target;
+        // A dragged scrubber does not wait for a step being watched: the step
+        // is finished on the spot, so the jump lands in the update that asked
+        // for it. A walk cut to one tile is over: the step's transitions put
+        // the unit on its tile, and the walk system restores its idle pose.
+        if let (ReplayTarget::Jump(_), Some(entity)) = (target, replay_lock.active_entity()) {
+            if let Ok(mut animation) = paths.get_mut(entity) {
+                animation.path.truncate(1);
             }
+            if let Some(followup) = replay_lock.release_for(entity) {
+                commands.queue(ReplayFollowupCommand {
+                    transitions: followup.transitions,
+                });
+            }
+            blocked = false;
+        }
+        if blocked {
             continue;
         }
         let current = replay_state.next_action_index as usize;

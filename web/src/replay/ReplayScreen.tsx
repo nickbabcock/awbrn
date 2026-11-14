@@ -62,6 +62,9 @@ import { ModalSheet } from "#/ui/ModalSheet.tsx";
 
 const PHONE_MEDIA = "(max-width: 720px)";
 
+/** Where a dragged scrubber's thumb is, or any other move through the archive. */
+type ReplayMove = number | ((runner: GameRunner) => Promise<void>);
+
 /**
  * A replay, read back: a finished match at its own address, or an archive
  * loaded from a file.
@@ -134,21 +137,23 @@ export function ReplayScreen({
   };
   const [stepError, setStepError] = useState<string | null>(null);
 
-  const lastStepRef = useRef<((runner: GameRunner) => Promise<void>) | null>(null);
-  function stepReplay(step: (runner: GameRunner) => Promise<void>) {
+  const lastStepRef = useRef<ReplayMove | null>(null);
+  // Every move through the archive takes its turn in one queue, so a key and
+  // a drag never race: one move is out, and only the newest waits behind it.
+  const [moves, isMoving] = useLatestSeek<ReplayMove>((step) => {
     lastStepRef.current = step;
     setStepError(null);
-    void step(runner).catch((stepFailure: unknown) => {
-      setStepError(
-        stepFailure instanceof Error ? stepFailure.message : "The replay could not be stepped.",
-      );
-      console.error("Error stepping the replay:", stepFailure);
-    });
-  }
-  const [scrub, isScrubbing] = useLatestSeek<number>((index) => {
-    stepReplay((game) => game.replayJump(index).finally(() => scrub.settle()));
+    void (typeof step === "number" ? runner.replayJump(step) : step(runner))
+      .catch((stepFailure: unknown) => {
+        setStepError(
+          stepFailure instanceof Error ? stepFailure.message : "The replay could not be stepped.",
+        );
+        console.error("Error stepping the replay:", stepFailure);
+      })
+      .finally(() => moves.settle());
     return true;
   });
+  const stepReplay = (step: ReplayMove) => moves.request(step);
 
   // The outline is read from the file in the page; one that does not count
   // the engine's actions describes some other reading of the archive.
@@ -185,8 +190,8 @@ export function ReplayScreen({
           onStep: (delta) => stepReplay((game) => game.replayStep(delta)),
           onTurnStep: (delta) => stepReplay((game) => game.replayStepTurn(delta)),
           onSeekLatest: () => stepReplay((game) => game.replaySeekEnd()),
-          onSeek: (index) => scrub.request(index),
-          isSeeking: isScrubbing,
+          onSeek: stepReplay,
+          isSeeking: isMoving,
           dayStarts: boundaries === null ? undefined : dayStarts(boundaries),
           hasLastKey: true,
         };
@@ -206,7 +211,7 @@ export function ReplayScreen({
       ? onRetry
       : () => {
           const step = lastStepRef.current;
-          if (step) stepReplay(step);
+          if (step !== null) stepReplay(step);
         };
   const notice = shownError ? (
     <MatchNotice

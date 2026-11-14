@@ -200,7 +200,9 @@ mod tests {
     use crate::modes::replay::timeline::{
         ReplayNavigate, ReplayOutline, ReplayTarget, handle_replay_navigation,
     };
+    use crate::render::animation::UnitPathAnimation;
     use awbrn_bevy::GameWorldPlugin;
+    use awbrn_bevy::MapPosition;
     use awbrn_bevy::replay::AwbwUnitId;
     use awbrn_bevy::world::{GameMap, StrongIdMap};
     use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
@@ -398,49 +400,62 @@ mod tests {
     }
 
     #[test]
-    fn a_jump_asked_for_while_a_step_is_watched_lands_once_the_step_ends() {
-        let (mut app, _) = replay_navigation_test_app();
-        let entity = app.world_mut().spawn_empty().id();
-        app.world_mut()
-            .resource_mut::<ReplayAdvanceLock>()
-            .hold_for_test(entity);
-
-        for index in [9, 12] {
-            app.world_mut().write_message(ReplayNavigate {
-                target: ReplayTarget::Jump(index),
-            });
+    fn a_jump_asked_for_while_a_step_is_watched_lands_in_the_same_update() {
+        let (mut app, replay) = replay_navigation_test_app();
+        let watched = replay
+            .turns
+            .iter()
+            .position(action_requires_path_animation)
+            .unwrap();
+        ReplaySeekCommand {
+            target_index: watched as u32,
         }
-        app.update();
-        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 0);
-
-        app.world_mut()
-            .resource_mut::<ReplayAdvanceLock>()
-            .release_for(entity);
-        app.update();
-        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 12);
-    }
-
-    #[test]
-    fn a_step_asked_for_as_the_watched_step_ends_replaces_a_held_jump() {
-        let (mut app, _) = replay_navigation_test_app();
-        let entity = app.world_mut().spawn_empty().id();
-        app.world_mut()
-            .resource_mut::<ReplayAdvanceLock>()
-            .hold_for_test(entity);
+        .apply(app.world_mut());
         app.world_mut().write_message(ReplayNavigate {
-            target: ReplayTarget::Jump(12),
+            target: ReplayTarget::Boundary(watched as u32 + 1),
+        });
+        app.update();
+        let walker = app
+            .world()
+            .resource::<ReplayAdvanceLock>()
+            .active_entity()
+            .expect("the step is being watched");
+        app.add_observer(crate::core::on_map_position_insert);
+        let size = crate::core::SpriteSize {
+            width: 23.0,
+            height: 24.0,
+            z_index: 0,
+        };
+        app.world_mut()
+            .entity_mut(walker)
+            .insert((size, Transform::default()));
+
+        app.world_mut().write_message(ReplayNavigate {
+            target: ReplayTarget::Jump(watched as u32 + 5),
         });
         app.update();
 
-        app.world_mut()
-            .resource_mut::<ReplayAdvanceLock>()
-            .release_for(entity);
-        app.world_mut().write_message(ReplayNavigate {
-            target: ReplayTarget::Boundary(4),
-        });
-        app.update();
-        app.update();
-        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 4);
+        assert_eq!(
+            app.world().resource::<ReplayState>().next_action_index as usize,
+            watched + 5
+        );
+        assert!(!app.world().resource::<ReplayAdvanceLock>().is_active());
+        assert!(
+            app.world()
+                .get::<UnitPathAnimation>(walker)
+                .is_none_or(|animation| animation.path.len() < 2),
+            "the walk is over, so it cannot carry the unit on past the jump"
+        );
+        let world = app.world();
+        assert_eq!(
+            world.get::<Transform>(walker).unwrap().translation,
+            crate::core::coords::map_position_to_world_translation(
+                &size,
+                *world.get::<MapPosition>(walker).unwrap(),
+                world.resource::<GameMap>(),
+            ),
+            "the walker stands on its tile rather than part-way along the walk"
+        );
     }
 
     #[test]

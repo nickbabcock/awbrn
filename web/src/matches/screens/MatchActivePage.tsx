@@ -127,6 +127,20 @@ const REVIEW_RESTORE_FAILED = "The live board could not be restored. Reconnect t
 /** The host's answer when a match's log cannot be opened for reading. */
 const REVIEW_REFUSED = "this match cannot be reviewed";
 
+/**
+ * One boundary asked of the host, `null` being the match as it stands. A
+ * scrubbed one is passed over rather than watched, so even the action after
+ * the board's own is shown as a position.
+ */
+interface ReviewSeek {
+  index: number | null;
+  isScrub: boolean;
+}
+
+function isSameReviewSeek(a: ReviewSeek, b: ReviewSeek): boolean {
+  return a.index === b.index && a.isScrub === b.isScrub;
+}
+
 export function MatchActivePage({
   joinSlug = null,
   matchId,
@@ -248,14 +262,15 @@ export function MatchActivePage({
     });
   }, [runner]);
   /**
-   * The scrubber's seeks, paced by the host's answers. `null` is the match as
-   * it stands, which a drag let go of at the end goes back to.
+   * Every question about the match's past, paced by the host's answers, so a
+   * key, the log and a drag never race: one is out, and only the newest
+   * waits behind it.
    */
-  const [scrub, isScrubbing] = useLatestSeek<number | null>((index) => {
+  const [seeks, isSeeking] = useLatestSeek<ReviewSeek>(({ index }) => {
     if (index === null) return returnToLiveMatch();
     beginReview();
     return requestReviewSeek(index);
-  });
+  }, isSameReviewSeek);
 
   const handleMatchMessage = useCallback(
     (message: MatchWebSocketMessage) => {
@@ -300,7 +315,7 @@ export function MatchActivePage({
           // A question about the past that was refused leaves the board where
           // it is. The keys come back rather than staying pressed.
           setIsReviewBusy(false);
-          scrub.reset();
+          seeks.reset();
           returningToLiveRef.current = false;
           setMatchError(message.message);
           restoreAfterRefusal();
@@ -344,12 +359,12 @@ export function MatchActivePage({
           setIsReviewBusy(false);
           // A dragged scrubber passes over moments rather than watching them,
           // so even the one action after the last is shown as a position.
-          const isScrubbed = scrub.isInFlight;
+          const isScrubbed = seeks.flying?.target.isScrub ?? false;
           if (message.observation === null) {
             // A fogged match has no public board, so somebody holding no seat
             // in it has no earlier board to be shown either.
             returningToLiveRef.current = false;
-            scrub.reset();
+            seeks.reset();
             setReviewError("A fogged match can only be read back by the seats playing it.");
             return;
           }
@@ -375,7 +390,7 @@ export function MatchActivePage({
                 console.error("Error returning to the live match:", error);
                 setReviewError(REVIEW_RESTORE_FAILED);
               });
-            scrub.settle();
+            seeks.settle();
             return;
           }
 
@@ -391,7 +406,7 @@ export function MatchActivePage({
               console.error("Error showing a reviewed position:", error);
               setReviewError("That moment of the match could not be shown.");
             });
-          scrub.settle();
+          seeks.settle();
           return;
         }
         case "spectatorState": {
@@ -409,7 +424,7 @@ export function MatchActivePage({
         }
       }
     },
-    [finishActivatingPower, finishEndingTurn, finishResigning, restoreAfterRefusal, runner, scrub],
+    [finishActivatingPower, finishEndingTurn, finishResigning, restoreAfterRefusal, runner, seeks],
   );
   // The server lets only a signed-in viewer onto the match, so a signed-out
   // one is asked to sign in rather than shown a connection that cannot open.
@@ -725,15 +740,15 @@ export function MatchActivePage({
         setIsReviewBusy(false);
         return;
       }
-      requestReviewSeek(target);
+      seeks.request({ index: target, isScrub: false });
     },
     [
       beginReview,
       currentReviewIndex,
       isOutlineFresh,
       outlineRevision,
-      requestReviewSeek,
       reviewOutline,
+      seeks,
       sendMessage,
     ],
   );
@@ -765,8 +780,8 @@ export function MatchActivePage({
       setIsReviewBusy(false);
       return;
     }
-    requestReviewSeek(target);
-  }, [isOutlineFresh, requestReviewSeek, reviewOutline, reviewPosition]);
+    seeks.request({ index: target, isScrub: false });
+  }, [isOutlineFresh, reviewOutline, reviewPosition, seeks]);
 
   /** Come back to the match as it stands. */
   const returnToLiveMatch = useCallback(() => {
@@ -788,7 +803,7 @@ export function MatchActivePage({
     isReviewingRef.current = false;
     returningToLiveRef.current = false;
     pendingStepRef.current = null;
-    scrub.reset();
+    seeks.reset();
     setIsReviewing(false);
     setIsReviewBusy(false);
     setReviewPosition(null);
@@ -801,7 +816,7 @@ export function MatchActivePage({
     void runner.exitBoardReview().catch((error: unknown) => {
       console.error("Error giving the board back after a dropped connection:", error);
     });
-  }, [runner, scrub, status]);
+  }, [runner, seeks, status]);
 
   // The seat spending its bank is the only one that can run out while the page
   // is open, so it sets how often every readout redraws.
@@ -881,25 +896,26 @@ export function MatchActivePage({
               nextTurnStart(reviewOutline, currentReviewIndex) !== null),
           latestLabel: "Live",
           isBusy: isReviewBusy || status !== "connected",
-          onSeekStart: () => {
-            beginReview();
-            requestReviewSeek(0);
-          },
+          onSeekStart: () => seeks.request({ index: 0, isScrub: false }),
           onStep: (delta: number) => requestStep("action", delta),
           onTurnStep: (delta: number) => requestStep("turn", delta),
-          onSeekLatest: returnToLiveMatch,
+          onSeekLatest: () => seeks.request({ index: null, isScrub: false }),
           onSeek:
             reviewOutline === null
               ? undefined
               : (index: number) => {
                   if (index >= reviewOutline.length - 1 && !isReviewingRef.current) return;
-                  scrub.request(index);
+                  // A step still waiting on the outline is older than the drag.
+                  pendingStepRef.current = null;
+                  seeks.request({ index, isScrub: true });
                 },
-          isSeeking: isScrubbing,
+          isSeeking,
           onSeekRelease: (index: number) => {
             // Let go at the end is back to the match as it stands. That end
             // moves, so it is named rather than counted to.
-            if (reviewShown !== null && index >= reviewShown.total) scrub.request(null);
+            if (reviewShown !== null && index >= reviewShown.total) {
+              seeks.request({ index: null, isScrub: true });
+            }
           },
           dayStarts: reviewOutline === null ? undefined : dayStarts(reviewOutline),
           hasLastKey: false,
@@ -934,8 +950,7 @@ export function MatchActivePage({
                 // out rather than being jumped to as the scrubber does.
                 onSeek: (index: number) => {
                   if (index >= reviewOutline.length - 1 && !isReviewing) return;
-                  beginReview();
-                  requestReviewSeek(index);
+                  seeks.request({ index, isScrub: false });
                 },
               }
         }
@@ -949,7 +964,7 @@ export function MatchActivePage({
         onDismissMatchError={() => setMatchError(null)}
         onReturnToLive={() => {
           setReviewError(null);
-          if (isReviewingRef.current) returnToLiveMatch();
+          if (isReviewingRef.current) seeks.request({ index: null, isScrub: false });
         }}
         players={livePlayers}
         reconnect={reconnect}
