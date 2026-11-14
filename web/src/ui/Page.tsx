@@ -71,6 +71,7 @@ function SectionTabs({
     <nav aria-label={section.label} {...stylex.props(styles.tabs)}>
       {pages.map((page) => (
         <Link
+          activeOptions={{ exact: true }}
           aria-current={page.to === selected ? "page" : undefined}
           key={page.to}
           to={page.to}

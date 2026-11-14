@@ -23,8 +23,8 @@ import { IconClose } from "#/ui/icons.tsx";
 import { useCompactTouch } from "#/ui/useCompactTouch.ts";
 
 /**
- * A dialog on desktop and a bottom sheet on a compact touch screen, chosen
- * when it opens. A confirmation opens on its safe key: mark that key
+ * A dialog on desktop and a bottom sheet on a compact touch screen. A
+ * confirmation opens on its safe key: mark that key
  * `data-autofocus`.
  */
 export function ModalSheet({

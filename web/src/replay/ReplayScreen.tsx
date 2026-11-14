@@ -4,7 +4,7 @@ import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { HStack, Stack, VStack } from "@astryxdesign/core/Stack";
 import { borderVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLeaving } from "#/matches/components/useLeaving.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { ImmersiveNoticeLine, useImmersiveNotice } from "#/components/GameFullscreen.tsx";
@@ -108,6 +108,12 @@ export function ReplayScreen({
     canvasClassName: stylex.props(styles.gameCanvas).className ?? "",
   });
   const isImmersiveNotice = useImmersiveNotice(fullscreenMode);
+  // The board takes the keys once an archive opens, so the arrows step it
+  // without a click on the board first.
+  const isOpen = replayPosition !== null;
+  useEffect(() => {
+    if (isOpen) focus();
+  }, [focus, isOpen]);
   const tableRef = useRef<HTMLDivElement>(null);
   const isPhone = useMediaQuery(PHONE_MEDIA);
   const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);

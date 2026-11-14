@@ -67,14 +67,6 @@ describe("archive outline", () => {
   });
 
   it("reads every action of an AWBW archive under the turn it was taken in", async () => {
-    const action = (json: object) => {
-      const text = JSON.stringify(json);
-      return `s:${new TextEncoder().encode(text).length}:"${text}";`;
-    };
-    const turn = (player: number, day: number, actions: object[]) =>
-      `p:${player};d:${day};a:a:3:{i:0;i:${player};i:1;i:${day};i:2;a:${actions.length}:{${actions
-        .map((each, index) => `i:${index};${action(each)}`)
-        .join("")}}}`;
     const unit = { global: { units_name: "Md.Tank", units_x: 7, units_y: 8 } };
     const log = [
       turn(11, 1, [
@@ -104,7 +96,26 @@ describe("archive outline", () => {
     expect(outline?.[1]?.summary).toEqual({ unit: "md-tank", verb: "Moves", tile: { x: 7, y: 8 } });
     expect(dayStarts(outline!)).toEqual([4]);
   });
+
+  it("places an AWBW capture made without a move on its building", async () => {
+    const log = turn(11, 1, [
+      { action: "Capt", Move: [], Capt: { buildingInfo: { buildings_x: 3, buildings_y: 5 } } },
+    ]);
+    const outline = await readArchiveOutline(await storedZip("a1234", await gzip(log)));
+    expect(outline?.[1]?.summary).toEqual({ unit: null, verb: "Captures", tile: { x: 3, y: 5 } });
+  });
 });
+
+/** One AWBW turn line: the player, the day and the actions taken. */
+function turn(player: number, day: number, actions: object[]): string {
+  const action = (json: object) => {
+    const text = JSON.stringify(json);
+    return `s:${new TextEncoder().encode(text).length}:"${text}";`;
+  };
+  return `p:${player};d:${day};a:a:3:{i:0;i:${player};i:1;i:${day};i:2;a:${actions.length}:{${actions
+    .map((each, index) => `i:${index};${action(each)}`)
+    .join("")}}}`;
+}
 
 async function gzip(text: string): Promise<Uint8Array> {
   const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));

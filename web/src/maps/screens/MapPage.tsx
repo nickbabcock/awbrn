@@ -87,7 +87,7 @@ export function MapPage({ mapId }: { mapId: string }) {
                   <MapTagsKey actor={actor} map={map} />
                 </Stack>
               </Stack>
-              <MapRankMedal rank={map.rank} size="lg" xstyle={styles.medal} />
+              <MapRankMedal isUnrankedShown rank={map.rank} size="lg" xstyle={styles.medal} />
             </Stack>
 
             <Stack xstyle={styles.cta}>

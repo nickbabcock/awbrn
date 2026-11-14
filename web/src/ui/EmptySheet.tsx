@@ -13,7 +13,7 @@ export function EmptySheet({
 }: {
   action?: ReactNode;
   art?: ReactNode;
-  headingLevel?: 2 | 3 | 4;
+  headingLevel?: 1 | 2 | 3 | 4;
   title: string;
 }) {
   return (
@@ -29,19 +29,23 @@ export function EmptySheet({
 
 export function ProblemBanner({
   action,
+  description,
   icon,
   status = "error",
   title,
 }: {
   action?: ReactNode;
+  description?: ReactNode;
   icon?: ReactNode;
   status?: "error" | "warning" | "success" | "info";
   title: ReactNode;
 }) {
   return (
     <Banner
+      description={description}
       endContent={action}
       icon={icon ?? (status === "error" ? <Icon icon={IconRefresh} /> : undefined)}
+      role={status === "error" ? "alert" : undefined}
       status={status}
       title={title}
     />

@@ -1,8 +1,9 @@
 /**
  * How the map catalog is paged and searched.
  *
- * The catalog is the list of maps AWBRN holds. A map enters it by import and
- * stays, so a page can be addressed by the position of its last row. The best
+ * The catalog is the list of maps AWBRN holds, so a page can be addressed by
+ * the position of its last row. A re-rank moves a map, so a catalog read page
+ * by page while a moderator ranks can repeat or miss that map. The best
  * rank leads (S, A, B, C, then unranked), and within a rank the newest map
  * leads. The cursor holds the last row's rank place as well as its age, so a
  * page reads on from where the last one stopped.

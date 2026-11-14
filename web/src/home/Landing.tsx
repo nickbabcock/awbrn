@@ -15,7 +15,7 @@ import {
   textSizeVars,
   typeScaleVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
-import { useSuspenseInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
@@ -50,13 +50,13 @@ const homeRoute = getRouteApi("/");
 const PHONE_MAP_ROWS = 2;
 
 export function Landing() {
-  const { data } = useSuspenseInfiniteQuery(rankedMapsQueryOptions());
+  const { data } = useInfiniteQuery(rankedMapsQueryOptions());
   const lobbies = useSuspenseInfiniteQuery(matchesBrowseQueryOptions());
   const {
     featured,
     rows,
     replay: replayMap,
-  } = useMemo(() => chooseLandingMaps(data.pages.flatMap((page) => page.maps)), [data]);
+  } = useMemo(() => chooseLandingMaps(data?.pages.flatMap((page) => page.maps) ?? []), [data]);
   const lobby = lobbies.data.pages[0]?.matches[0] ?? null;
 
   return (

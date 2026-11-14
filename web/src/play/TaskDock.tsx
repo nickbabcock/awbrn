@@ -5,12 +5,13 @@ import type { ReactNode } from "react";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { AirmailBand } from "#/ui/AirmailBand.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { ShellMode } from "#/ui/ShellMode.tsx";
 
 /**
  * The task dock (phone only) keeps the choice so far and its key under the
- * thumb while a long form scrolls. A task screen renders
- * `<ShellMode mode="task" />` so the tab bar steps aside for it, and puts the
- * dock last in its page so it sticks to the bottom of the screen.
+ * thumb while a long form scrolls. It takes the task shell, so the tab bar
+ * steps aside only while a dock stands in for it. A screen puts the dock last
+ * in its page so it sticks to the bottom of the screen.
  */
 export function TaskDock({
   isOwed = false,
@@ -25,6 +26,7 @@ export function TaskDock({
 }) {
   return (
     <section aria-label={label} {...stylex.props(styles.dock)}>
+      <ShellMode mode="task" />
       {isOwed ? <AirmailBand thickness={5} xstyle={styles.band} /> : null}
       <HStack xstyle={styles.line}>{line}</HStack>
       <HStack xstyle={styles.keys}>{keys}</HStack>

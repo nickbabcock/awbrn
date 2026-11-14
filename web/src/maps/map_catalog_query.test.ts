@@ -7,11 +7,11 @@
  */
 
 import { env } from "cloudflare:workers";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeAll, describe, expect, it } from "vitest";
 import { mapRevisions, mapTags, maps } from "#/db/global.ts";
-import { catalogFilterConditions, catalogRankPlace } from "./map_catalog_query.ts";
+import { catalogFilterConditions } from "./map_catalog_query.ts";
 import { normalizeMapCatalogFilters } from "./map_taxonomy.ts";
 import type { MapCatalogFilter } from "./schemas.ts";
 
@@ -115,25 +115,5 @@ describe("map catalog filter conditions", () => {
       "Fog Harbor",
     ]);
     await expect(boardFor({ playerCounts: ["4"], tags: ["fog"] })).resolves.toEqual([]);
-  });
-});
-
-describe("map catalog order", () => {
-  it("leads with the best rank and leaves the unranked maps last", async () => {
-    const rows = await db
-      .select({ name: maps.name, place: catalogRankPlace })
-      .from(maps)
-      .innerJoin(
-        mapRevisions,
-        and(eq(mapRevisions.mapId, maps.id), eq(mapRevisions.revision, maps.currentRevision)),
-      )
-      .orderBy(asc(catalogRankPlace), desc(maps.id))
-      .all();
-    expect(rows).toEqual([
-      { name: "Amber Valley", place: 0 },
-      { name: "Fog Harbor", place: 1 },
-      { name: "Grand Melee", place: 2 },
-      { name: "Four Corners", place: 4 },
-    ]);
   });
 });

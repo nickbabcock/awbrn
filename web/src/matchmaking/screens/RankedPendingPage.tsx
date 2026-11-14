@@ -29,7 +29,6 @@ import { useSeatChanges } from "#/matches/useSeatChanges.ts";
 import { Countdown } from "#/matchmaking/components/Countdown.tsx";
 import { updateRankedConfirmationFn } from "#/matchmaking/matchmaking.functions.ts";
 import { rankedKeys } from "#/matchmaking/matchmaking.keys.ts";
-import { rankedOverviewQueryOptions } from "#/matchmaking/matchmaking.queries.ts";
 import { rankedPoolCopy } from "#/matchmaking/ranked_display.ts";
 import { CoBrief } from "#/play/CoBrief.tsx";
 import { useOpeningCo } from "#/play/opening_co.ts";
@@ -79,10 +78,6 @@ export function RankedPendingPage({
   const mapQuery = useQuery(mapRevisionQueryOptions(match.mapId, match.mapRevision));
   const mapEntryQuery = useQuery(mapCatalogEntryQueryOptions(match.mapId, match.mapRevision));
   const mapName = mapQuery.data?.metadata.name ?? mapEntryQuery.data?.name ?? `Map ${match.mapId}`;
-  const { data: overview } = useQuery(rankedOverviewQueryOptions());
-  const pool = overview?.pools.find((entry) =>
-    entry.pending.some((pairing) => pairing.matchId === matchId),
-  )?.pool;
 
   const currentUserId = session?.user.id ?? null;
   const seatChanges = useSeatChanges(
@@ -154,7 +149,6 @@ export function RankedPendingPage({
         queryClient.invalidateQueries({ queryKey: matchKeys.awaiting() }),
       ]);
       if (actions.some((action) => action.action === "refuse")) {
-        await queryClient.invalidateQueries({ queryKey: rankedOverviewQueryOptions().queryKey });
         await navigate({ to: "/ranked" });
       }
     },
@@ -295,8 +289,8 @@ export function RankedPendingPage({
                     </Fact>
                     <Fact>{seat.slotIndex === 0 ? "Moves first" : "Moves second"}</Fact>
                     <Fact>
-                      {pool
-                        ? rankedPoolCopy(pool).name
+                      {match.pool
+                        ? rankedPoolCopy(match.pool).name
                         : match.settings.fogEnabled
                           ? "Fog"
                           : "Ranked"}

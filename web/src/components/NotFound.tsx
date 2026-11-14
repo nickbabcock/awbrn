@@ -13,7 +13,11 @@ export function NotFound({
 }) {
   return (
     <Page width="narrow">
-      <EmptySheet action={<RouterButton label={label} to={to} variant="ink" />} title={title} />
+      <EmptySheet
+        action={<RouterButton label={label} to={to} variant="ink" />}
+        headingLevel={1}
+        title={title}
+      />
     </Page>
   );
 }

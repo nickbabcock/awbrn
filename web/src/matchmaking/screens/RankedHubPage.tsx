@@ -30,6 +30,7 @@ import {
 } from "#/matchmaking/matchmaking.queries.ts";
 import { HARD_MAX_ACTIVE_MATCHES } from "#/matchmaking/matchmaking.ts";
 import {
+  formatRating,
   leadingOwedPairingId,
   OPEN_RANKED_POOLS,
   rankedPoolCopy,
@@ -464,6 +465,7 @@ function Standings({ pool }: { pool: RankedPool }) {
         <tbody>
           {data.entries.map((entry) => (
             <StandingRow
+              isProvisional={entry.isProvisional}
               isViewer={entry.isViewer}
               key={entry.userId}
               name={entry.name}
@@ -472,18 +474,21 @@ function Standings({ pool }: { pool: RankedPool }) {
               ratedMatches={entry.ratedMatches}
             />
           ))}
-          {/* A provisional rating is not listed yet; the viewer still sees theirs. */}
+          {/* Below the listed places, or with none yet, the viewer still sees theirs. */}
           {viewer && session ? (
             <StandingRow
+              isProvisional={viewer.isProvisional}
               isViewer
               name={session.user.name}
               place={
-                <>
-                  <Text aria-hidden="true" color="inherit" type="inherit">
-                    –
-                  </Text>
-                  <VisuallyHidden>Not placed yet</VisuallyHidden>
-                </>
+                viewer.rank ?? (
+                  <>
+                    <Text aria-hidden="true" color="inherit" type="inherit">
+                      –
+                    </Text>
+                    <VisuallyHidden>Not placed yet</VisuallyHidden>
+                  </>
+                )
               }
               rating={viewer.rating}
               ratedMatches={viewer.ratedMatches}
@@ -496,12 +501,14 @@ function Standings({ pool }: { pool: RankedPool }) {
 }
 
 function StandingRow({
+  isProvisional,
   isViewer,
   name,
   place,
   rating,
   ratedMatches,
 }: {
+  isProvisional: boolean;
   isViewer: boolean;
   name: string;
   place: ReactNode;
@@ -522,7 +529,7 @@ function StandingRow({
         </HStack>
       </td>
       <td {...stylex.props(styles.td, styles.ratingCell, figureStyles.figure, styles.rating)}>
-        {Math.round(rating)}
+        {formatRating(rating, isProvisional)}
       </td>
       <td
         {...stylex.props(

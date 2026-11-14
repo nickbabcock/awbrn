@@ -26,6 +26,7 @@ import {
 import { MapRankMedal } from "#/maps/components/MapRankMedal.tsx";
 import { MAP_BOARD_LOADING_PLATES, useMapBoardSummary } from "#/maps/map_board.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
+import { importFailureMessage } from "#/maps/map_import.ts";
 import { importAwbwMapFn } from "#/maps/maps.functions.ts";
 import { mapKeys } from "#/maps/maps.keys.ts";
 import {
@@ -760,14 +761,14 @@ function AwbwImport({
 
   async function run(): Promise<void> {
     if (sourceMapId === null || sourceMapId <= 0) {
-      fail("Enter the map's AWBW id.");
+      fail("Enter the map's AWBW id");
       return;
     }
     setError(null);
     try {
       await mutation.mutateAsync({ data: { sourceMapId } });
     } catch (importError) {
-      fail(formatImportError(importError));
+      fail(importFailureMessage(importError));
     }
   }
 
@@ -792,13 +793,6 @@ function AwbwImport({
       />
     </HStack>
   );
-}
-
-function formatImportError(error: unknown): string {
-  const message = error instanceof Error ? error.message : "";
-  if (/not found|404/i.test(message)) return "AWBW has no map with that id.";
-  if (/signed in/i.test(message)) return "Sign in to import a map.";
-  return "The map could not be imported. Try again in a moment.";
 }
 
 const styles = stylex.create({

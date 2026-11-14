@@ -477,9 +477,9 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
                     <VStack hAlign="start" xstyle={setupStyles.phoneHidden}>
                       {claimKey(false)}
                     </VStack>
-                  ) : (
+                  ) : openSlots.length === 0 ? (
                     <Text color="secondary">Every seat is taken</Text>
-                  )}
+                  ) : null}
                 </SheetBody>
               )}
             </Sheet>
@@ -713,7 +713,9 @@ function SeatLine({
       <HStack as="span" xstyle={styles.state}>
         {participant === null ? (
           canClaim ? (
-            <Button label="Claim" onClick={onClaim} size="sm" />
+            <Button label={`Claim seat ${slotIndex + 1}`} onClick={onClaim} size="sm">
+              Claim
+            </Button>
           ) : null
         ) : participant.ready ? (
           <HStack as="span" xstyle={styles.ready}>

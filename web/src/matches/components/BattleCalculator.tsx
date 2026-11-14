@@ -1385,6 +1385,9 @@ const styles = stylex.create({
     outline: "none",
     // The BottomSheet handle is out of flow. Reserve its space above the form.
     paddingBlockStart: spacingVars["--spacing-6"],
+    // The sheet ends at the bottom edge of the device, clear of the home
+    // indicator.
+    paddingBlockEnd: "env(safe-area-inset-bottom, 0px)",
   },
   fighterFields: {
     display: "flex",

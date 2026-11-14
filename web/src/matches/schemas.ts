@@ -242,7 +242,6 @@ export interface MatchBrowseSummary {
   maxPlayers: number;
   participantCount: number;
   openSlotCount: number;
-  joinedPlayerNames: string[];
   /** The taken seats, in slot order. */
   seats: MatchBrowseSeat[];
   settings: MatchSettings;
@@ -288,7 +287,10 @@ export interface MyMatchSummary {
 }
 
 export interface MyMatchesResponse {
+  /** The viewer's ongoing matches. */
   matches: MyMatchSummary[];
+  /** The viewer has held a seat in any match, finished ones included. */
+  hasPlayed: boolean;
 }
 
 /** How many of the viewer's matches are waiting on them to act. */

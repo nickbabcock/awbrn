@@ -125,7 +125,7 @@ function LobbyRow({
     enabled: isMine,
   });
   const ownCoId = detail?.participants.find((seat) => seat.userId === viewerId)?.coId ?? null;
-  const names = lobby.joinedPlayerNames;
+  const names = lobby.seats.map((seat) => seat.userName);
 
   return (
     <li {...stylex.props(styles.row)}>

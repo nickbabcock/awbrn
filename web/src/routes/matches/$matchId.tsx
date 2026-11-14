@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { sessionQueryOptions } from "#/auth/auth.queries.ts";
 import { mapCatalogEntryQueryOptions, mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
-import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
+import { matchDetailQueryOptions, myMatchesQueryOptions } from "#/matches/matches.queries.ts";
 import { MatchActivePage } from "#/matches/screens/MatchActivePage.tsx";
 import { MatchLobbyPage } from "#/matches/screens/MatchLobbyPage.tsx";
 import { MatchReplayPage } from "#/matches/screens/MatchReplayPage.tsx";
@@ -27,7 +28,16 @@ export const Route = createFileRoute("/matches/$matchId")({
     // rather than replacing an identifier a moment later. A map that cannot be
     // read is not a reason to fail the page: the screen has its own fallback.
     if (match.phase === "lobby" || match.phase === "pending") {
+      const session = await context.queryClient.ensureQueryData(sessionQueryOptions());
+      // A seat with no commander opens on the player's last one, which is read
+      // from their matches, so the stamp is there on the first paint.
+      const needsOpeningCo = match.participants.some(
+        (seat) => seat.userId === session?.user.id && seat.coId === null && !seat.ready,
+      );
       await Promise.all([
+        needsOpeningCo
+          ? context.queryClient.ensureQueryData(myMatchesQueryOptions()).catch(() => undefined)
+          : null,
         context.queryClient
           .ensureQueryData(mapCatalogEntryQueryOptions(match.mapId, match.mapRevision))
           .catch(() => undefined),
