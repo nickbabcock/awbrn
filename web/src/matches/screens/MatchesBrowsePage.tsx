@@ -8,7 +8,7 @@ import { useState } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { CoStamp } from "#/components/CoStamp.tsx";
 import { unitSpriteStyle } from "#/components/game_sprites.ts";
-import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
+import { getFactionById } from "#/factions.ts";
 import { mapCatalogEntryQueryOptions } from "#/maps/maps.queries.ts";
 import { matchDetailQueryOptions, matchesBrowseQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchBrowseSummary } from "#/matches/schemas.ts";
@@ -204,14 +204,10 @@ function SeatStamps({
           xstyle={styles.takenStamp}
         />
       ))}
+      {/* The summary does not carry the map's armies, so an open seat shows
+          none rather than a guess. */}
       {open.map((slotIndex) => (
-        <CoStamp
-          factionCode={getFactionById(defaultFactionIdForSlot(slotIndex))?.code}
-          isDecorative
-          isOpenSeat
-          key={slotIndex}
-          xstyle={styles.openStamp}
-        />
+        <CoStamp isDecorative isOpenSeat key={slotIndex} xstyle={styles.openStamp} />
       ))}
     </HStack>
   );

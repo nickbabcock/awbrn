@@ -133,7 +133,7 @@ export function ReplayPage() {
         army: {
           entry: player,
           hasLiveStats: true,
-          isActive: playerRoster?.activePlayerId === player.playerId,
+          isActive: !player.eliminated && playerRoster?.activePlayerId === player.playerId,
           name: playerNames[player.userId] ?? `Player ${player.turnOrder + 1}`,
         },
         isViewer: false,

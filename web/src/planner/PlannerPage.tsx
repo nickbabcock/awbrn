@@ -665,7 +665,6 @@ export function PlannerPage() {
                 <UnitActionMenu
                   anchor={unitActions.anchor ?? press}
                   attacker={unitActions.attacker ?? undefined}
-                  destination={unitActions.destination}
                   isEnabled
                   onChoose={(index) => {
                     void runner.chooseUnitAction(index).catch((cause) => {

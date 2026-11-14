@@ -37,7 +37,7 @@ import {
 import type { MapCatalogEntry, MapCatalogFilter } from "#/maps/schemas.ts";
 import { ClockSettings, validateClock } from "#/matches/components/ClockSettings.tsx";
 import { NO_AI_SEATS, SeatRoster } from "#/matches/components/SeatRoster.tsx";
-import { createMatchFn } from "#/matches/matches.functions.ts";
+import { createMatchFn, mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { defaultMatchClock, type AiProfileId, type MatchClock } from "#/matches/schemas.ts";
 import { MatchThumb } from "#/play/MatchThumb.tsx";
@@ -232,6 +232,24 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
           aiSeats: [...aiSeats].map(([slotIndex, profileId]) => ({ slotIndex, profileId })),
         },
       });
+      // The roster put the host in seat 1. Should taking it fail, the lobby
+      // still offers the seat, so the match is opened either way.
+      await queryClient
+        .fetchQuery(mapRevisionQueryOptions(selectedMap.mapId, selectedMap.revision))
+        .then(({ slotFactionIds }) =>
+          mutateMatchFn({
+            data: {
+              matchId: match.matchId,
+              action: {
+                action: "join",
+                slotIndex: 0,
+                factionId: slotFactionIds[0],
+                joinSlug: match.joinSlug,
+              },
+            },
+          }),
+        )
+        .catch(() => undefined);
       await navigate({ to: "/matches/$matchId", params: { matchId: match.matchId } });
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "The lobby could not be opened.");
