@@ -72,6 +72,31 @@ describe("pacing a dragged scrubber's seeks", () => {
     expect(heard.at(-1)).toBe(false);
   });
 
+  it("keeps a window of overlapping seeks out, and waits for all of them before one that cannot overlap", () => {
+    const sent: (number | null)[] = [];
+    const seek = new LatestSeek<number | null>(
+      (target) => {
+        sent.push(target);
+        return true;
+      },
+      () => {},
+      { window: 3, overlaps: (target) => target !== null },
+    );
+    seek.request(1);
+    seek.request(2);
+    seek.request(3);
+    seek.request(4);
+    seek.request(null);
+    expect(sent).toEqual([1, 2, 3]);
+    expect(seek.flying).toEqual({ target: 1 });
+
+    seek.settle();
+    seek.settle();
+    expect(sent).toEqual([1, 2, 3]);
+    seek.settle();
+    expect(sent).toEqual([1, 2, 3, null]);
+  });
+
   it("is not left waiting on a seek that never got out", () => {
     let isOpen = false;
     const { seek, sent } = host(() => isOpen);

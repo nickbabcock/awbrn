@@ -65,7 +65,7 @@ pub(crate) fn on_map_position_insert(
 
     transform.translation = final_world_pos;
 
-    info!(
+    debug!(
         "Observer: Updated Transform for entity {:?} to position ({}, {}) -> {:?}",
         entity,
         map_position.x(),

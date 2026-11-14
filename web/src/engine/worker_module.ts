@@ -6,6 +6,7 @@ import init, {
   type BattleForecastResponse,
   type BattleRequestWire,
   type CanvasDisplay,
+  type GameEvent,
   type MovePlannerSetup,
   type MovePlannerSummary,
   BevyApp,
@@ -246,19 +247,38 @@ export const createGame = async (
   display: CanvasDisplay,
   assetPaths: ReadonlyMap<string, string>,
   inputConfig: SharedCanvasInputConfig,
-  eventCallback: ConstructorParameters<typeof BevyApp>[3],
+  onEvents: (events: GameEvent[]) => void,
 ) => {
   await initialized;
   // The engine needs absolute URLs. Vite gives the assets root-relative paths,
   // so resolving them against this module uses only its origin.
   const assetConfig = resolveGameAssets(assetPaths, import.meta.url);
-  const app = new BevyApp(canvas, display, assetConfig, eventCallback);
+  // One update reports its position, roster and day separately. Sent as one
+  // message, the page redraws once for them rather than once for each, which
+  // is what keeps it free to read a drag while the board follows it.
+  let pending: GameEvent[] | null = null;
+  const app = new BevyApp(canvas, display, assetConfig, (event) => {
+    if (pending === null) {
+      pending = [];
+      queueMicrotask(() => {
+        const events = pending ?? [];
+        pending = null;
+        onEvents(events);
+      });
+    }
+    pending.push(event);
+  });
   const inputBridge = new WorkerInputBridge(inputConfig, app);
 
+  // Calls answered by the next frame the engine draws, once it has shown them.
+  let awaitingFrame: (() => void)[] = [];
   function update() {
     inputBridge.drain();
     if (inputBridge.shouldUpdate()) {
       app.update();
+      const shown = awaitingFrame;
+      awaitingFrame = [];
+      for (const resolve of shown) resolve();
     }
     requestAnimationFrame(update);
   }
@@ -352,8 +372,9 @@ export const createGame = async (
     replaySeek: async (index: number) => {
       app.replay_seek(index);
     },
-    replayJump: async (index: number) => {
+    replayJump: (index: number) => {
       app.replay_jump(index);
+      return new Promise<void>((resolve) => awaitingFrame.push(resolve));
     },
     replaySeekEnd: async () => {
       app.replay_seek_end();

@@ -10,7 +10,7 @@ import { useCanvasCourierSurface, pressBoardKey } from "#/canvas_courier/index.t
 import { TileDetails, TileLine, TileWindow } from "#/components/TileInfoBar.tsx";
 import { ImmersiveNoticeLine, useImmersiveNotice } from "#/components/GameFullscreen.tsx";
 import { ReviewFoot, PhoneReviewBar, type ReviewModel } from "#/components/StepControls.tsx";
-import { useLatestSeek } from "#/components/latest_seek.ts";
+import { useLatestSeek, type LatestSeekOptions } from "#/components/latest_seek.ts";
 import { sessionQueryOptions } from "#/auth/auth.queries.ts";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
@@ -137,9 +137,17 @@ interface ReviewSeek {
   isScrub: boolean;
 }
 
-function isSameReviewSeek(a: ReviewSeek, b: ReviewSeek): boolean {
-  return a.index === b.index && a.isScrub === b.isScrub;
-}
+/**
+ * The host's answers wait mostly on the trip rather than the work, so a drag
+ * keeps a few moments out at once and is shown more of what it crosses. A
+ * step, the log and the way back to live go one at a time, so each answer is
+ * read as the question it belongs to.
+ */
+const REVIEW_SEEKS: LatestSeekOptions<ReviewSeek> = {
+  isSame: (a, b) => a.index === b.index && a.isScrub === b.isScrub,
+  window: 3,
+  overlaps: (seek) => seek.isScrub && seek.index !== null,
+};
 
 export function MatchActivePage({
   joinSlug = null,
@@ -270,7 +278,7 @@ export function MatchActivePage({
     if (index === null) return returnToLiveMatch();
     beginReview();
     return requestReviewSeek(index);
-  }, isSameReviewSeek);
+  }, REVIEW_SEEKS);
 
   const handleMatchMessage = useCallback(
     (message: MatchWebSocketMessage) => {

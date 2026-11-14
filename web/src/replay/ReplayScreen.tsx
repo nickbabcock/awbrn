@@ -138,18 +138,45 @@ export function ReplayScreen({
   const [stepError, setStepError] = useState<string | null>(null);
 
   const lastStepRef = useRef<ReplayMove | null>(null);
+  const failed = (stepFailure: unknown) => {
+    setStepError(
+      stepFailure instanceof Error ? stepFailure.message : "The replay could not be stepped.",
+    );
+    console.error("Error stepping the replay:", stepFailure);
+  };
+  // Dragged moments the engine has not yet drawn a frame for. Counted outside
+  // React, so a drag does not redraw the screen for each one it sends.
+  const scrubsShowingRef = useRef(0);
+  // A drag let go before the engine drew its last moment, which the thumb
+  // waits for.
+  const isLandingRef = useRef(false);
+  const [isLanding, setIsLanding] = useState(false);
   // Every move through the archive takes its turn in one queue, so a key and
   // a drag never race: one move is out, and only the newest waits behind it.
+  // A dragged moment is not waited on. The engine draws the newest one it has
+  // each frame, so the next can go at once, and a key that follows still
+  // reaches the engine after it.
   const [moves, isMoving] = useLatestSeek<ReplayMove>((step) => {
     lastStepRef.current = step;
-    setStepError(null);
-    void (typeof step === "number" ? runner.replayJump(step) : step(runner))
-      .catch((stepFailure: unknown) => {
-        setStepError(
-          stepFailure instanceof Error ? stepFailure.message : "The replay could not be stepped.",
-        );
-        console.error("Error stepping the replay:", stepFailure);
-      })
+    // Only when there is one to clear: an update here redraws the whole
+    // screen, and a drag sends a move for every moment the thumb crosses.
+    if (stepError !== null) setStepError(null);
+    if (typeof step === "number") {
+      scrubsShowingRef.current += 1;
+      void runner
+        .replayJump(step)
+        .catch(failed)
+        .finally(() => {
+          scrubsShowingRef.current -= 1;
+          if (scrubsShowingRef.current === 0 && isLandingRef.current) {
+            isLandingRef.current = false;
+            setIsLanding(false);
+          }
+        });
+      return false;
+    }
+    void step(runner)
+      .catch(failed)
       .finally(() => moves.settle());
     return true;
   });
@@ -191,7 +218,12 @@ export function ReplayScreen({
           onTurnStep: (delta) => stepReplay((game) => game.replayStepTurn(delta)),
           onSeekLatest: () => stepReplay((game) => game.replaySeekEnd()),
           onSeek: stepReplay,
-          isSeeking: isMoving,
+          isSeeking: isMoving || isLanding,
+          onSeekRelease: () => {
+            if (scrubsShowingRef.current === 0) return;
+            isLandingRef.current = true;
+            setIsLanding(true);
+          },
           dayStarts: boundaries === null ? undefined : dayStarts(boundaries),
           hasLastKey: true,
         };

@@ -304,8 +304,9 @@ export class GameRunner {
           size,
           gameAssetPaths,
           inputConfig,
-          proxy((event: GameEvent) => {
-            if (version === this.surfaceVersion) this.handleGameEvent(event);
+          proxy((events: GameEvent[]) => {
+            if (version !== this.surfaceVersion) return;
+            for (const event of events) this.handleGameEvent(event);
           }),
         )
         .then(async (game) => {
@@ -521,7 +522,8 @@ export class GameRunner {
 
   /**
    * Stand at one boundary without watching the action that reaches it, even
-   * when it is the next one. A dragged scrubber moves this way.
+   * when it is the next one. A dragged scrubber moves this way. It settles
+   * once the engine has drawn the frame that shows it.
    */
   async replayJump(index: number): Promise<void> {
     const game = await this.requireGame();

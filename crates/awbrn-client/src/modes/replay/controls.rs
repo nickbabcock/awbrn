@@ -459,6 +459,18 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_shows_the_newest_of_the_jumps_sent_before_it() {
+        let (mut app, _) = replay_navigation_test_app();
+        for index in [9, 12] {
+            app.world_mut().write_message(ReplayNavigate {
+                target: ReplayTarget::Jump(index),
+            });
+        }
+        app.update();
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 12);
+    }
+
+    #[test]
     fn a_jump_is_reported_in_the_update_that_makes_it() {
         let (mut app, _) = replay_rewind_controls_test_app();
         let reported = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

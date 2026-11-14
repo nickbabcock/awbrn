@@ -102,8 +102,13 @@ pub(crate) fn handle_replay_navigation(
     let total = loaded_replay.0.len();
     let mut blocked = replay_lock.is_active();
 
-    for request in requests.read() {
-        let target = request.target;
+    let requested: Vec<_> = requests.read().map(|request| request.target).collect();
+    for (index, &target) in requested.iter().enumerate() {
+        // A drag sends a jump for every moment the thumb crosses, and the
+        // frame shows only the newest thing asked for.
+        if matches!(target, ReplayTarget::Jump(_)) && index + 1 < requested.len() {
+            continue;
+        }
         // A dragged scrubber does not wait for a step being watched: the step
         // is finished on the spot, so the jump lands in the update that asked
         // for it. A walk cut to one tile is over: the step's transitions put
