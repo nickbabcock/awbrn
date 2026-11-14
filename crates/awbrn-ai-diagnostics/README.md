@@ -86,8 +86,8 @@ stopping rule. A clean day-limit exit scores as a draw. Invalid commands or
 other missing outcomes stop the run with an error.
 
 The planner respects the plan's `node_budget`, including reply evaluations.
-Use `256` to match the Medium and Hard profiles, which use `planner-v8` and
-`planner-v8-move`.
+Use `256` to match the Medium and Hard profiles, which use `planner-v8-move`
+and `planner-v9`.
 `planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
 it. A budget of `1` scores only the seed turn. Use a new run directory after a
 policy or budget change.
@@ -223,9 +223,9 @@ Wall-clock limits are excluded from CI; tests check deterministic work limits.
 
 ## Measure planner-v8
 
-`planner-v8` is the planner of the Medium profile. The Hard profile seats
-`planner-v8-move`, which adds the move model
-(`assets/ai-diagnostics/move-policy/README.md`). The experiments that were
+The Medium profile seats `planner-v8-move`, which adds the move model
+(`assets/ai-diagnostics/move-policy/README.md`) to `planner-v8`, and the
+Hard profile seats `planner-v9` (below). The experiments that were
 not kept are in `crates/awbrn-ai/diagnostics/experiments-not-kept.md`.
 `planner-v8` is `planner-v7` with:
 
@@ -281,8 +281,8 @@ directories outside the worktree.
 and the next-unit model in its greedy policy
 (`assets/ai-diagnostics/move-policy2/README.md`), the contest of decisive
 captures (`planner/contest.rs`), and a rollout check of three turns in place
-of the Hard reply check (`awbrn_ai::planner::RolloutConfig`). No profile
-seats it.
+of the Hard reply check (`awbrn_ai::planner::RolloutConfig`). The Hard
+profile (`ai-hard-v5`) seats it.
 
 The plans `planner-v9-vs-v8-move-fixed280.json` and
 `planner-v9-vs-v8-move-fog-fixed280.json` compare it with `planner-v8-move`

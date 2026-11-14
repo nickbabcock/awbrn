@@ -7,8 +7,8 @@
 //! engine of a Worker. Build it natively to get the ratio for the same games.
 //! The work counts must be equal in the two builds.
 //!
-//! `uncapped` is planner-v2 with no work limit. `v8` is the current Hard
-//! configuration.
+//! `uncapped` is planner-v2 with no work limit. `v9` is the Hard
+//! configuration and `v8-move` the Medium one.
 //!
 //! ```text
 //! cargo build --release -p awbrn-ai-diagnostics --example planner_timing \

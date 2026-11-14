@@ -33,17 +33,17 @@ export const aiProfileDisplays: readonly AiProfileDisplay[] = [
     blurb: "Scores one order at a time. In fog, values positions hidden from enemy sight.",
   },
   {
-    id: "ai-medium-v1",
+    id: "ai-medium-v2",
     tier: "medium",
     label: "Medium",
-    blurb:
-      "Plans its whole turn. It sets up kills, guards its bases, and keeps units out of focused fire.",
+    blurb: "Plans its whole turn, and moves its units the way strong human players do.",
   },
   {
-    id: "ai-hard-v4",
+    id: "ai-hard-v5",
     tier: "hard",
     label: "Hard",
-    blurb: "Plans its whole turn, and moves its units the way strong human players do.",
+    blurb:
+      "Plays its best plans a few turns ahead before it moves, fights for its headquarters, and moves like strong human players.",
   },
 ];
 
@@ -65,7 +65,7 @@ export function aiSeatName(id: AiProfileId): string {
 }
 
 /** The default opponent a host is offered. */
-export const DEFAULT_AI_PROFILE_ID: AiProfileId = "ai-medium-v1";
+export const DEFAULT_AI_PROFILE_ID: AiProfileId = "ai-medium-v2";
 
 /** Every identifier, in the order a picker offers them. */
 export const orderedAiProfileIds: readonly AiProfileId[] = aiProfileIds;

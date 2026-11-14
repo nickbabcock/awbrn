@@ -10,9 +10,9 @@ describe("who holds a seat", () => {
   });
 
   it("reads an opponent off the column that names one", () => {
-    expect(seatOccupant({ userId: null, aiProfileId: "ai-hard-v4" })).toEqual({
+    expect(seatOccupant({ userId: null, aiProfileId: "ai-hard-v5" })).toEqual({
       kind: "ai",
-      profileId: "ai-hard-v4",
+      profileId: "ai-hard-v5",
     });
   });
 
@@ -41,7 +41,7 @@ describe("who holds a seat", () => {
   });
 
   it("says which seats the server owes a turn", () => {
-    expect(isServerPlayed({ userId: null, aiProfileId: "ai-medium-v1" })).toBe(true);
+    expect(isServerPlayed({ userId: null, aiProfileId: "ai-medium-v2" })).toBe(true);
     expect(isServerPlayed({ userId: "alice", aiProfileId: null })).toBe(false);
   });
 

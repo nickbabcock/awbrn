@@ -2,7 +2,8 @@
 
 `awbrn_ai::agents::move_policy2` loads these files with `include_bytes!`, so
 they work in Wasm. `planner-v9` (`PlannerConfig::V9`) plays them in its
-greedy policy (`profile::V9_GREEDY_CONFIG`).
+greedy policy (`profile::V9_GREEDY_CONFIG`). The Hard profile (`ai-hard-v5`)
+seats `planner-v9`.
 
 | File | Model | Trees | Bytes |
 | --- | --- | --- | --- |

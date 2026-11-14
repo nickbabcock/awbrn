@@ -566,35 +566,51 @@ fn the_production_profile_solves_all_puzzles() {
     for puzzle in suite() {
         // The ignored test below holds the puzzle that the profile does not
         // pass.
-        if puzzle.name == "capture-denial" {
+        if puzzle.name == "hq-block" {
             continue;
         }
         solve_with_the_production_profile(&puzzle);
     }
 }
 
-/// Our tank hits the enemy infantry on our city so that its capture cannot
-/// finish.
+/// The enemy infantry cannot reach our headquarters on its next turn.
 #[test]
-#[ignore = "planner-v8 does not pass this puzzle"]
-fn the_production_profile_solves_the_capture_denial_puzzle() {
+#[ignore = "planner-v9 does not pass this puzzle"]
+fn the_production_profile_solves_the_hq_block_puzzle() {
     let puzzle = suite()
         .into_iter()
-        .find(|puzzle| puzzle.name == "capture-denial")
+        .find(|puzzle| puzzle.name == "hq-block")
         .unwrap();
     solve_with_the_production_profile(&puzzle);
+}
+
+/// The Medium profile (planner-v8-move) passes the puzzle that the Hard
+/// profile does not.
+#[test]
+fn the_medium_profile_solves_the_hq_block_puzzle() {
+    let puzzle = suite()
+        .into_iter()
+        .find(|puzzle| puzzle.name == "hq-block")
+        .unwrap();
+    solve_with_profile(&crate::profile::MEDIUM, &puzzle);
 }
 
 /// Play the turn of `puzzle` with the Hard profile, and panic when the turn
 /// does not solve it.
 fn solve_with_the_production_profile(puzzle: &crate::puzzles::Puzzle) {
-    let mut agent = crate::profile::HARD.agent(7);
+    solve_with_profile(&crate::profile::HARD, puzzle);
+}
+
+/// Play the turn of `puzzle` with `profile`, and panic when the turn does
+/// not solve it.
+fn solve_with_profile(profile: &crate::profile::AiProfile, puzzle: &crate::puzzles::Puzzle) {
+    let mut agent = profile.agent(7);
     let mut entropy = Rng::from_seed(11);
     let result = crate::harness::run_agent_turn_unmeasured(
         puzzle.state.clone(),
         &mut *agent,
         &mut entropy,
-        crate::profile::HARD.node_budget(),
+        profile.node_budget(),
     )
     .unwrap();
     let turn = crate::puzzles::PuzzleTurn {

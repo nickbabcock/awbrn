@@ -201,10 +201,10 @@ fn a_seat_plays_the_same_way_from_the_same_seed() {
 }
 
 #[test]
-fn current_hard_tier_seats_v4_and_plays_in_fog() {
+fn current_hard_tier_seats_v5_and_plays_in_fog() {
     let current = profile_for_tier(AiTier::Hard);
-    assert_eq!(current.id, "ai-hard-v4");
-    assert_eq!(profile("ai-hard-v4"), Some(&HARD));
+    assert_eq!(current.id, "ai-hard-v5");
+    assert_eq!(profile("ai-hard-v5"), Some(&HARD));
 
     let mut setup = contested_setup();
     setup.fog_enabled = true;
