@@ -92,16 +92,6 @@ function teamName(entry: PlayerRosterEntry): string | null {
   return entry.team ? `Team ${entry.team}` : null;
 }
 
-function TeamMark({ entry }: { entry: PlayerRosterEntry }) {
-  const team = teamName(entry);
-  if (team === null) return null;
-  return (
-    <Text color="inherit" type="inherit" xstyle={textStyles.team}>
-      {team}
-    </Text>
-  );
-}
-
 /** An army's faction color mixed into the ink under it. */
 function armyWash(factionCode: string, percent: number, isOwed = false) {
   return washStyles.wash(
@@ -334,38 +324,15 @@ function MovingDot() {
   return <Stack as="span" aria-label="On the move" role="img" xstyle={chipStyles.dot} />;
 }
 
-function ArmyStamp({
-  entry,
-  hasTag = false,
-  size,
-}: {
-  entry: PlayerRosterEntry;
-  /** Sets the tag CO's stamp beside the CO's, when the army has one. */
-  hasTag?: boolean;
-  size: "sm" | "md";
-}) {
-  const state = entry.eliminated ? "canceled" : "default";
-  const stamp = (
+function ArmyStamp({ entry, size }: { entry: PlayerRosterEntry; size: "sm" | "md" }) {
+  return (
     <CoStamp
       coKey={entry.coKey}
       factionCode={entry.displayFactionCode}
-      label={entry.coName ?? "No commander"}
+      label={coName(entry)}
       size={size}
-      state={state}
+      state={entry.eliminated ? "canceled" : "default"}
     />
-  );
-  if (!hasTag || !entry.tagCoKey) return stamp;
-  return (
-    <HStack as="span" xstyle={chipStyles.stamps}>
-      {stamp}
-      <CoStamp
-        coKey={entry.tagCoKey}
-        factionCode={entry.displayFactionCode}
-        label={`Tag: ${entry.tagCoName ?? "unknown CO"}`}
-        size="sm"
-        state={state}
-      />
-    </HStack>
   );
 }
 
@@ -381,7 +348,7 @@ function StampKey({
   onOpen?: () => void;
   size: "sm" | "md";
 }) {
-  if (!onOpen) return <ArmyStamp entry={entry} hasTag size={size} />;
+  if (!onOpen) return <ArmyStamp entry={entry} size={size} />;
   return (
     <button
       aria-haspopup="dialog"
@@ -390,7 +357,7 @@ function StampKey({
       type="button"
       {...stylex.props(cardStyles.stampKey)}
     >
-      <ArmyStamp entry={entry} hasTag size={size} />
+      <ArmyStamp entry={entry} size={size} />
     </button>
   );
 }
@@ -490,7 +457,6 @@ export function ArmyCard({
           </HStack>
           <HStack as="span" xstyle={cardStyles.crestLine}>
             <FactionCrest factionCode={entry.displayFactionCode} size={14} />
-            <TeamMark entry={entry} />
             {entry.eliminated && fall?.reason ? (
               <Text color="inherit" type="inherit" xstyle={[textStyles.ellipsis, textStyles.why]}>
                 {fall.reason}
@@ -608,7 +574,6 @@ export function Ledger({
               </HStack>
               <HStack as="span" xstyle={ledgerStyles.line2}>
                 <FactionCrest factionCode={entry.displayFactionCode} size={14} />
-                <TeamMark entry={entry} />
                 {entry.eliminated ? (
                   fall?.reason ? (
                     <Text
@@ -782,7 +747,7 @@ export function ArmyPlate({
         xstyle={[plateStyles.layout, view.isRecordOnly && plateStyles.layoutRecordOnly]}
       >
         <Stack as="span" xstyle={plateStyles.stamp}>
-          <ArmyStamp entry={entry} hasTag size="sm" />
+          <ArmyStamp entry={entry} size="sm" />
         </Stack>
         <HStack as="span" xstyle={[plateStyles.name, view.isRecordOnly && plateStyles.nameAlone]}>
           {army.isActive && showUnits ? <MovingDot /> : null}
@@ -795,7 +760,6 @@ export function ArmyPlate({
             {army.name}
           </Text>
           {hasYouTag && isViewer ? <YouTag isSmall /> : null}
-          <TeamMark entry={entry} />
         </HStack>
         {entry.eliminated ? (
           <Text
@@ -944,7 +908,7 @@ export function ArmySheet({
 
   return (
     <ModalSheet
-      headStart={<ArmyStamp entry={entry} hasTag size="sm" />}
+      headStart={<ArmyStamp entry={entry} size="sm" />}
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       title={view.isViewer ? `${view.army.name} (you)` : view.army.name}
@@ -1079,12 +1043,6 @@ const textStyles = stylex.create({
     color: awbrnVars.textOnInkSecondary,
     fontSize: matchType.figure,
   },
-  team: {
-    flexShrink: 0,
-    color: awbrnVars.textOnInkSecondary,
-    fontSize: matchType.figure,
-    whiteSpace: "nowrap",
-  },
 });
 
 const washStyles = stylex.create({
@@ -1208,11 +1166,6 @@ const powerStyles = stylex.create({
 });
 
 const chipStyles = stylex.create({
-  stamps: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: spacingVars["--spacing-1"],
-  },
   clock: {
     display: "inline-flex",
     alignItems: "center",
