@@ -276,15 +276,16 @@ function armyFor(armies: readonly MatchArmy[], slot: number | null): MatchArmy |
 }
 
 const styles = stylex.create({
-  // The log takes what the rail has left under the armies (at least 180px)
-  // and scrolls inside it, so the rail foot stays put.
+  // The log takes what the rail has left under the armies and scrolls inside
+  // it, so the rail foot stays put. Its 160px floor still leaves a five-army
+  // replay its whole ledger in an 800px window.
   log: {
     display: "flex",
     flexDirection: "column",
     flexBasis: 0,
     flexGrow: 1,
     flexShrink: 0,
-    minBlockSize: "180px",
+    minBlockSize: "160px",
     paddingBlockStart: awbrnVars.spacing2_5,
     borderBlockEndColor: awbrnVars.ink800,
     borderBlockEndStyle: "solid",

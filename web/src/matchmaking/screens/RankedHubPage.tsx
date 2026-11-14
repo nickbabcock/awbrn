@@ -442,10 +442,13 @@ function Standings({ pool }: { pool: RankedPool }) {
         <thead>
           <tr>
             <th {...stylex.props(styles.th, styles.placeCell)} scope="col">
+              <Text aria-hidden="true" color="inherit" type="inherit">
+                #
+              </Text>
               <VisuallyHidden>Place</VisuallyHidden>
             </th>
             <th {...stylex.props(styles.th)} scope="col">
-              <VisuallyHidden>Player</VisuallyHidden>
+              Player
             </th>
             <th {...stylex.props(styles.th, styles.ratingCell)} scope="col">
               Rating

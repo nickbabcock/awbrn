@@ -56,17 +56,21 @@ type TierPickerProps = {
 /** Rows by tier number, stamps alphabetical. On a phone the weaker tiers fold behind one key. */
 export function TierPicker(props: TierPickerProps) {
   const bands = coTierBands(props.tierList);
-  // Folded even when the pick sits in a later tier: the task dock and the
-  // briefing already show it, and the picker stays short above the dock.
   const [isExpanded, setIsExpanded] = useState(false);
+  // The fold starts below the pick, so the player always sees it marked.
+  const chosenTier =
+    props.mode === "pick"
+      ? (bands.find((band) => band.cos.some((co) => co.awbwId === props.chosenCoId))?.tier ?? 0)
+      : 0;
+  const openTiers = Math.max(PHONE_OPEN_TIERS, chosenTier + 1);
   const folded = bands
-    .filter((band) => band.tier >= PHONE_OPEN_TIERS)
+    .filter((band) => band.tier >= openTiers)
     .reduce((count, band) => count + band.cos.length, 0);
 
   return (
     <VStack xstyle={styles.tiers}>
       {bands.map((band) => {
-        const isFolded = !isExpanded && band.tier >= PHONE_OPEN_TIERS;
+        const isFolded = !isExpanded && band.tier >= openTiers;
         const bandIds = band.cos.map((co) => co.awbwId);
         const isBandBanned = bandIds.every((coId) => props.bannedCoIds.has(coId));
         return (
@@ -94,6 +98,9 @@ export function TierPicker(props: TierPickerProps) {
                   {band.tier}
                 </Text>
               )}
+              <Text color="inherit" type="inherit" aria-hidden="true" xstyle={styles.tierName}>
+                {band.name}
+              </Text>
             </HStack>
             <HStack xstyle={styles.cos}>
               {band.cos.map((co) => {
@@ -143,6 +150,7 @@ export function TierPicker(props: TierPickerProps) {
                     {...stylex.props(
                       styles.key,
                       styles.pick,
+                      props.isDisabled && styles.pickInert,
                       isChosen && styles.picked,
                       isBanned && styles.pickBanned,
                     )}
@@ -221,6 +229,15 @@ const styles = stylex.create({
     },
   },
   tierKey: {
+    flexDirection: {
+      default: "column",
+      [pageLayout.phoneMedia]: "row",
+    },
+    alignItems: {
+      default: "start",
+      [pageLayout.phoneMedia]: "baseline",
+    },
+    gap: spacingVars["--spacing-1-5"],
     paddingBlockStart: {
       default: spacingVars["--spacing-1-5"],
       [pageLayout.phoneMedia]: 0,
@@ -233,6 +250,11 @@ const styles = stylex.create({
     fontStretch: "62%",
     lineHeight: 1,
     color: colorVars["--color-text-primary"],
+  },
+  tierName: {
+    color: colorVars["--color-text-secondary"],
+    fontSize: typeScaleVars["--text-heading-5-size"],
+    fontWeight: typeScaleVars["--text-heading-5-weight"],
   },
   key: {
     borderStyle: "none",
@@ -293,6 +315,12 @@ const styles = stylex.create({
       [pageLayout.reducedMotionMedia]: "0s",
     },
     transitionTimingFunction: awbrnVars.easeStep,
+  },
+  // A picker nobody can pick from yet (signed out, unseated, ready) shows the
+  // roster without the hover tone and hand that promise a choice.
+  pickInert: {
+    backgroundColor: "transparent",
+    cursor: "default",
   },
   picked: {
     backgroundColor: awbrnVars.ink900,

@@ -54,7 +54,9 @@ export function AccountMenu({ session }: { session: Session }) {
         queryClient.invalidateQueries({ queryKey: matchKeys.details() }),
       ]);
       setIsOpen(false);
-      await router.invalidate();
+      // Drop loads cached while signed in, but do not reload this page: a
+      // members-only page would redirect to /auth and show the form first.
+      router.clearCache();
       await navigate({ to: "/" });
     } catch (error) {
       setSignOutError(error instanceof Error ? error.message : "Sign out failed");
