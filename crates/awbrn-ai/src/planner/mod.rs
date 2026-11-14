@@ -54,6 +54,7 @@ use awvm::transition::Command;
 
 use crate::agent::{Agent, NodeBudget, Play};
 use crate::agents::GreedyAgent;
+use crate::agents::move_policy2::{LogEntry, TurnLog};
 use crate::baseline::BaselineConfig;
 use crate::eval::{EvalWeights, Evaluator};
 use crate::fog::{FogEstimate, FogMemory};
@@ -570,6 +571,13 @@ pub struct PlannerAgent {
     meter: MeterLog,
     /// The powers that the last plan of this turn holds.
     hold: Option<crate::power::PowerHold>,
+    /// The unit orders that this agent played in this turn, for a greedy
+    /// policy that reads the turn so far ([`crate::agents::Weights::uses_turn_log`]).
+    /// The order of the last decision joins the log when the host reports
+    /// it accepted ([`Agent::refresh`]). An order that is refused, or that
+    /// the host drops without a report, does not.
+    played: TurnLog,
+    played_pending: Option<LogEntry>,
 }
 
 /// The own power meter at the start of the recent own turns, for the march
@@ -661,6 +669,8 @@ impl PlannerAgent {
             fog: None,
             meter: MeterLog::default(),
             hold: None,
+            played: TurnLog::new(),
+            played_pending: None,
         }
     }
 
@@ -684,6 +694,8 @@ impl PlannerAgent {
             self.positions.clear();
             self.next = 0;
             self.hold = None;
+            self.played.clear();
+            self.played_pending = None;
         }
     }
 
@@ -740,6 +752,7 @@ impl PlannerAgent {
         let planning = modeled.as_ref().unwrap_or(session);
         let mut planner = TurnPlanner {
             config: &self.config,
+            played: &self.played,
             rollout: self.rollout.take(),
             seed: Rng::mix(self.seed ^ u64::from(self.plans_this_turn)),
             seat,
@@ -798,6 +811,30 @@ impl PlannerAgent {
         budget: NodeBudget,
         session: &Session,
     ) -> Option<Play> {
+        if !self.config.baseline.weights.uses_turn_log() {
+            return self.act_unlogged(view, budget, session);
+        }
+        if !session.is_commandable() {
+            return None;
+        }
+        self.begin_turn(view);
+        // An order that is still pending was not accepted: the host asks
+        // again without a refresh, as after a refusal that it does not
+        // report ([`Agent::reject`]).
+        self.played_pending = None;
+        let play = self.act_unlogged(view, budget, session);
+        self.played_pending = play
+            .as_ref()
+            .and_then(|play| LogEntry::of_play(session.state(), play));
+        play
+    }
+
+    fn act_unlogged(
+        &mut self,
+        view: &Observation,
+        budget: NodeBudget,
+        session: &Session,
+    ) -> Option<Play> {
         if !session.is_commandable() {
             return None;
         }
@@ -833,6 +870,9 @@ impl PlannerAgent {
                 self.fallback.set_power_hold(self.hold);
                 self.fallback
                     .set_viewer(session.state().players.seat(&view.recipient));
+                if self.config.baseline.weights.uses_turn_log() {
+                    self.fallback.set_turn_log(&self.played);
+                }
                 let modeled = (self.config.fog_memory && session.state().settings.fog)
                     .then(|| Session::new(self.memory.planning_state(session.state())));
                 return self
@@ -883,7 +923,14 @@ impl Agent for PlannerAgent {
         self.remember(view);
     }
 
+    fn refresh(&mut self, _view: &Observation) {
+        if let Some(entry) = self.played_pending.take() {
+            self.played.push(entry);
+        }
+    }
+
     fn reject(&mut self, _view: &Observation) {
+        self.played_pending = None;
         self.stats.rejections += 1;
         self.plan.clear();
         self.positions.clear();
@@ -898,6 +945,10 @@ impl Agent for PlannerAgent {
 struct TurnPlanner<'a> {
     rollout: Option<GreedyAgent>,
     config: &'a PlannerConfig,
+    /// The unit orders of this turn before the position of the plan. Each
+    /// own line starts from it, for a greedy policy that reads the turn so
+    /// far.
+    played: &'a TurnLog,
     seed: u64,
     seat: PlayerIdx,
     evaluator: &'a mut Evaluator,
@@ -1434,6 +1485,12 @@ impl TurnPlanner<'_> {
         hard.set_fog(None);
         hard.set_viewer(Some(self.seat));
         hard.set_power_hold(self.march.hold);
+        // The reply is a new turn of the enemy, so its turn so far starts
+        // empty.
+        let logged = self.config.baseline.weights.uses_turn_log();
+        if logged {
+            hard.clear_turn_log();
+        }
         let mut entropy = MeanLuck;
         let root = session.state().clone();
         session.reset(line.end_state.clone());
@@ -1471,7 +1528,13 @@ impl TurnPlanner<'_> {
                 for play in plays {
                     let order = play_order(session, &play)?;
                     self.work += 1;
+                    let entry = logged
+                        .then(|| LogEntry::of_order(session.state(), order))
+                        .flatten();
                     session.apply(order, &mut entropy, &mut ()).ok()?;
+                    if let Some(entry) = entry {
+                        hard.push_turn_log(entry);
+                    }
                 }
             }
             while session.state().turn.active_player == enemy
@@ -1486,7 +1549,13 @@ impl TurnPlanner<'_> {
                         })
                         .ok()?,
                 };
+                let entry = logged
+                    .then(|| LogEntry::of_order(session.state(), order))
+                    .flatten();
                 session.apply(order, &mut entropy, &mut ()).ok()?;
+                if let Some(entry) = entry {
+                    hard.push_turn_log(entry);
+                }
             }
             self.nodes_left -= 1;
             Some(self.leaf_value(session))
@@ -1515,6 +1584,12 @@ impl TurnPlanner<'_> {
         hard.set_fog(self.fog.clone());
         hard.set_viewer(Some(self.seat));
         hard.set_power_hold(self.march.hold);
+        // The turn so far of the line: the orders played in this turn, then
+        // the orders of the line.
+        let logged = self.config.baseline.weights.uses_turn_log();
+        if logged {
+            hard.set_turn_log(self.played);
+        }
         let mut plays = Vec::new();
         let mut root = None;
         let mut prefix = prefix.iter();
@@ -1534,6 +1609,20 @@ impl TurnPlanner<'_> {
                     || !matches!(state.match_state, Match::Active { .. })
                 {
                     break;
+                }
+                // The turn so far of the greedy policy is the orders played
+                // in this turn, then the orders of this line: in debug
+                // builds, one entry for each unit order of either.
+                if cfg!(debug_assertions) && logged {
+                    let unit_orders = plays
+                        .iter()
+                        .filter(|play: &&Play| is_unit_order(play.kind()))
+                        .count();
+                    debug_assert_eq!(
+                        hard.turn_log().len(),
+                        self.played.len() + unit_orders,
+                        "the turn so far of a line"
+                    );
                 }
                 let next = loop {
                     match prefix.next() {
@@ -1568,6 +1657,9 @@ impl TurnPlanner<'_> {
                         }
                     },
                 };
+                let entry = logged
+                    .then(|| LogEntry::of_order(session.state(), order))
+                    .flatten();
                 let mark = match session.apply(order, &mut entropy, &mut ()) {
                     Ok(mark) => mark,
                     // With the power first by default, a later power position
@@ -1577,6 +1669,9 @@ impl TurnPlanner<'_> {
                     Err(_) if from_prefix && lenient => continue,
                     Err(_) => return None,
                 };
+                if let Some(entry) = entry {
+                    hard.push_turn_log(entry);
+                }
                 plays.push(play);
                 root.get_or_insert(mark);
             }
@@ -1612,6 +1707,12 @@ impl TurnPlanner<'_> {
             penalty: 0.0,
         })
     }
+}
+
+/// Whether the turn so far keeps an order of this kind
+/// ([`crate::agents::move_policy2::ActionClass`]).
+fn is_unit_order(kind: OrderKind) -> bool {
+    crate::agents::move_policy2::ActionClass::of(kind).is_some()
 }
 
 /// The plays of an alternative: the opening plays, then the power of the

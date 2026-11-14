@@ -10,6 +10,7 @@
 
 pub mod classifier;
 pub mod move_policy;
+pub mod move_policy2;
 pub mod portfolio;
 pub mod random;
 pub mod search;

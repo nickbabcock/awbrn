@@ -145,6 +145,7 @@ fn the_replay_score_keeps_terminal_scores() {
     let mut replay = ReplayReader::new(ReplayScore::CUP_3_4);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &PlannerConfig::V6,
         seed: 7,
         seat,
@@ -206,6 +207,7 @@ fn the_replay_score_is_antisymmetric_and_fog_keeps_the_stock_score() {
     let expected = evaluator.value_in(&fog, seats[0]);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &PlannerConfig::V6,
         seed: 7,
         seat: seats[0],
@@ -254,6 +256,7 @@ fn print_puzzle_candidates() {
         let mut evaluator = Evaluator::new(config.eval_weights);
         let mut planner = TurnPlanner {
             rollout: None,
+            played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
             config: &config,
             seed: 1,
             seat,
@@ -394,6 +397,7 @@ fn stored_line_positions_and_replies_match_command_replay() {
             let mut evaluator = Evaluator::new(config.eval_weights);
             let mut planner = TurnPlanner {
                 rollout: None,
+                played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
                 config: &config,
                 seed: 7,
                 seat,
@@ -484,6 +488,7 @@ fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &config,
         seed: 7,
         seat,
@@ -611,6 +616,7 @@ fn the_reply_estimate_lists_destroyed_units_as_exposed() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &config,
         seed: 1,
         seat,
@@ -641,6 +647,7 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
         let mut evaluator = Evaluator::new(config.eval_weights);
         let mut planner = TurnPlanner {
             rollout: None,
+            played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
             config: &config,
             seed: 1,
             seat,
@@ -685,6 +692,7 @@ fn a_power_plan_uses_the_power_first() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &config,
         seed: 1,
         seat,
@@ -1502,6 +1510,7 @@ fn probe_planner<'a>(
 ) -> TurnPlanner<'a> {
     TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config,
         seed: 1,
         seat,
@@ -2724,6 +2733,7 @@ fn only_the_own_lines_read_the_known_map_in_fog() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &config,
         seed: 7,
         seat: ours,
@@ -2746,4 +2756,230 @@ fn only_the_own_lines_read_the_known_map_in_fog() {
     let (known, plain) = planner.rollout.as_ref().unwrap().fog_feature_builds();
     assert_eq!(known, 0, "the reply does not read the known map");
     assert!(plain > 0, "the reply has move features");
+}
+
+/// A planner whose greedy policy reads the turn so far keeps an order in its
+/// log only when the host reports it accepted ([`Agent::refresh`]). The
+/// server asks again after a refused command without [`Agent::reject`]; the
+/// refused order must not join the log.
+#[test]
+fn a_refused_order_does_not_join_the_turn_so_far() {
+    let config = move2_config(1.0, true);
+    let mut agents = [
+        PlannerAgent::with_config(1, config),
+        PlannerAgent::with_config(2, config),
+    ];
+    let mut session = Session::new(arena(false, 3));
+    let mut entropy = Rng::from_seed(5);
+    let budget = NodeBudget::new(16).expect("a budget");
+    let mut log = TurnLog::new();
+    let mut turn = None;
+    let (mut accepted, mut refused) = (0, 0);
+    for _ in 0..2_000 {
+        let state = session.state().clone();
+        if !matches!(state.match_state, Match::Active { .. }) || state.turn.day > 5 {
+            break;
+        }
+        let player = state.turn.active_player.clone();
+        if turn.as_ref() != Some(&(player.clone(), state.turn.day)) {
+            turn = Some((player.clone(), state.turn.day));
+            log.clear();
+        }
+        let seat = state.players.seat(&player).expect("seat").get();
+        let view = awvm::semantic::observe(&awvm::semantic::AwbwVisibility, &state, &player)
+            .expect("observe");
+        let agent = &mut agents[seat];
+        let play = agent.act(&view, budget);
+        assert_eq!(
+            agent.played, log,
+            "the turn so far has only accepted orders"
+        );
+        let command = match play {
+            Some(play) => {
+                let entry = LogEntry::of_play(&state, &play);
+                if entry.is_some() && (accepted + refused) % 5 == 2 {
+                    refused += 1;
+                    continue;
+                }
+                if let Some(entry) = entry {
+                    log.push(entry);
+                    accepted += 1;
+                }
+                play.command(&session).expect("command")
+            }
+            None => awvm::transition::Command::EndTurn {
+                player: player.clone(),
+            },
+        };
+        let order = session.resolve(&command).expect("legal");
+        session
+            .apply(order, &mut entropy, &mut ())
+            .expect("applies");
+        let after = session.state();
+        if matches!(after.match_state, Match::Active { .. }) && after.turn.active_player == player {
+            let view = awvm::semantic::observe(&awvm::semantic::AwbwVisibility, after, &player)
+                .expect("observe");
+            agents[seat].refresh(&view);
+        }
+    }
+    assert!(
+        accepted > 10 && refused > 2,
+        "{accepted} accepted, {refused} refused"
+    );
+}
+
+/// planner-v8 with the tree move model in its greedy policy at `strength`,
+/// with the next-unit model when `order`.
+fn move2_config(strength: f64, order: bool) -> PlannerConfig {
+    PlannerConfig {
+        identifier: "planner-v8-move2",
+        baseline: crate::baseline::BaselineConfig {
+            identifier: "greedy-v8-move2",
+            weights: crate::agents::Weights {
+                move2: strength,
+                move2_order: order,
+                ..crate::profile::V8_GREEDY_CONFIG.weights
+            },
+            ..crate::profile::V8_GREEDY_CONFIG
+        },
+        ..PlannerConfig::V8
+    }
+}
+
+/// The planners with the tree move model play legal games with and without
+/// fog, the same game twice, and other games than planner-v8. Each one keeps
+/// the log of the orders that it played in the turn: at each decision, the
+/// log is the unit orders of the turn before it, which a wrapper of the
+/// agent records from the accepted plays. Debug builds also check the turn
+/// so far of each simulated line ([`TurnPlanner::line`]).
+#[test]
+fn the_move2_planners_play_legal_games_and_keep_the_turn_so_far() {
+    struct Checked<'a> {
+        inner: &'a mut PlannerAgent,
+        turn: Option<(awvm::semantic::PlayerId, u64)>,
+        log: TurnLog,
+        pending: Option<LogEntry>,
+        checked: usize,
+    }
+    impl Agent for Checked<'_> {
+        fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play> {
+            let turn = (view.turn.active_player.clone(), view.turn.day);
+            if self.turn.as_ref() != Some(&turn) {
+                self.turn = Some(turn);
+                self.log.clear();
+            }
+            self.pending = None;
+            let play = self.inner.act(view, budget);
+            if self.inner.config.baseline.weights.uses_turn_log() {
+                assert_eq!(
+                    self.inner.played, self.log,
+                    "the planner keeps the turn so far"
+                );
+                self.checked += 1;
+            } else {
+                assert!(self.inner.played.is_empty());
+            }
+            let session = Session::from_observation(view).expect("the view reifies");
+            self.pending = play
+                .as_ref()
+                .and_then(|play| LogEntry::of_play(session.state(), play));
+            play
+        }
+        fn start_match(&mut self) {
+            self.inner.start_match();
+        }
+        fn start_turn(&mut self, view: &Observation) {
+            self.inner.start_turn(view);
+        }
+        fn refresh(&mut self, view: &Observation) {
+            if let Some(entry) = self.pending.take() {
+                self.log.push(entry);
+            }
+            self.inner.refresh(view);
+        }
+        fn reject(&mut self, view: &Observation) {
+            self.pending = None;
+            self.inner.reject(view);
+        }
+    }
+
+    let game = |config: PlannerConfig, fog: bool| {
+        let state = arena(fog, 3);
+        let mut session = Session::new(state.clone());
+        let mut first = PlannerAgent::with_config(1, config);
+        let mut second = PlannerAgent::with_config(2, config);
+        let mut checked = Checked {
+            inner: &mut first,
+            turn: None,
+            log: TurnLog::new(),
+            pending: None,
+            checked: 0,
+        };
+        let mut agents: [&mut dyn Agent; 2] = [&mut checked, &mut second];
+        let mut entropy = Rng::from_seed(5);
+        let limits = Limits {
+            days: 6,
+            nodes: NodeBudget::new(16).expect("a budget"),
+            ..Limits::DEFAULT
+        };
+        let record =
+            play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
+        assert!(checked.checked > 10 || !config.baseline.weights.uses_turn_log());
+        assert_eq!(record.refusals, 0);
+        assert_eq!(record.preflight_rejections, 0);
+        assert_eq!(record.unrealizable_plays, 0);
+        assert!(
+            checked.inner.stats().candidates > 0,
+            "the planner simulates lines"
+        );
+        (record.commands, session.state().clone())
+    };
+    for fog in [false, true] {
+        let v8 = game(PlannerConfig::V8, fog);
+        for config in [move2_config(0.5, false), move2_config(1.0, true)] {
+            let once = game(config, fog);
+            assert_eq!(once, game(config, fog), "{} repeats", config.identifier);
+            assert_ne!(once.1, v8.1, "{} plays its own game", config.identifier);
+        }
+    }
+}
+
+/// The command count and a digest of the final state of a game of `config`
+/// against itself on a small map, with a short day limit.
+fn golden_game(config: PlannerConfig, fog: bool) -> (u64, String) {
+    let state = arena(fog, 3);
+    let mut session = Session::new(state.clone());
+    let mut first = PlannerAgent::with_config(1, config);
+    let mut second = PlannerAgent::with_config(2, config);
+    let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+    let mut entropy = Rng::from_seed(5);
+    let limits = Limits {
+        days: 8,
+        nodes: NodeBudget::new(16).expect("a budget"),
+        ..Limits::DEFAULT
+    };
+    let record =
+        play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
+    let digest = crate::fingerprint::fnv1a(format!("{:?}", session.state()).as_bytes());
+    (record.commands, format!("{digest:016x}"))
+}
+
+/// With the switches of later configurations off, planner-v8 and
+/// planner-v8-move play the games they played before those switches were
+/// added. The values come from master before the tree move model.
+#[test]
+fn the_earlier_configurations_play_the_same_games() {
+    for (config, fog, commands, digest) in [
+        (PlannerConfig::V8, false, 109, "8b3eb86f4fd4ed5a"),
+        (PlannerConfig::V8, true, 111, "f53cafc64e9f6471"),
+        (PlannerConfig::V8_MOVE, false, 108, "4f256c7bef0e4b17"),
+        (PlannerConfig::V8_MOVE, true, 116, "8c1e45589c2acea7"),
+    ] {
+        assert_eq!(
+            golden_game(config, fog),
+            (commands, digest.to_owned()),
+            "{} fog {fog}",
+            config.identifier
+        );
+    }
 }
