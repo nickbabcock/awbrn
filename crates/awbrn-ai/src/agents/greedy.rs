@@ -406,6 +406,32 @@ pub struct Weights {
     /// ([`super::move_policy::fog_model`]) at the same strength.
     #[serde(skip_serializing_if = "is_zero")]
     pub move_policy: f64,
+    /// Whether the policy keeps playing on the last two days.
+    ///
+    /// The generic tactical policy otherwise ends the turn at once on the
+    /// day before the day limit and on the last day when the funds are at
+    /// least 10,000, to save them. A game that reaches the day limit is
+    /// decided by the properties held ([`awvm`] `day_limit_outcome`), so the
+    /// funds are worth nothing then, and the turns that the rule skips can
+    /// still capture, attack and defend. The field is left out of the
+    /// serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub play_last_days: bool,
+    /// Whether every lab counts as a headquarters on a map with no
+    /// headquarters.
+    ///
+    /// On such a map, a player who loses the last lab loses the match.
+    /// Without this switch, a lab counts as a property that neither pays nor
+    /// builds ([`Weights::other_property`]). With it, every lab on such a
+    /// map, of any owner and whether or not it is a last lab, gets the
+    /// headquarters weights wherever the scores weigh a property: the
+    /// capture of a lab and the denial of an enemy capture of one
+    /// ([`Weights::hq`]), the walk to one ([`Weights::hq_approach`]), and
+    /// the guard of an own lab that an enemy capturer nears. A map with a
+    /// headquarters does not change. The field is left out of the serialized
+    /// weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub decisive_labs: bool,
     /// The strength of the second move model: trees over the move features,
     /// the unit group, the other orders of the unit, the turn so far and
     /// the board near each destination ([`super::move_policy2`]). Zero turns
@@ -493,6 +519,8 @@ impl Weights {
         power_policy: false,
         firing_positions: 0.0,
         move_policy: 0.0,
+        play_last_days: false,
+        decisive_labs: false,
         move2: 0.0,
         move2_order: false,
         move2_trees: 0,
@@ -2319,13 +2347,24 @@ impl Board<'_> {
         threat::hostile(self.state, self.seat, other)
     }
 
+    /// Whether `terrain` is a lab that counts as a headquarters
+    /// ([`Weights::decisive_labs`]): the switch is on, and the map has no
+    /// headquarters.
+    fn decisive_lab(&self, terrain: Terrain) -> bool {
+        self.weights.decisive_labs
+            && ruleset::terrain_has(terrain, TerrainTrait::LabVictory)
+            && !has_headquarters(self.state)
+    }
+
     /// What one property is worth as a place to walk to.
     ///
     /// The same as [`Board::property_weight`] except for the headquarters,
     /// which is worth the match when it is captured and one more property
     /// while it is still being walked at.
     fn approach_weight(&self, terrain: Terrain) -> f64 {
-        if ruleset::terrain_has(terrain, TerrainTrait::CaptureDefeatsOwner) {
+        if ruleset::terrain_has(terrain, TerrainTrait::CaptureDefeatsOwner)
+            || self.decisive_lab(terrain)
+        {
             self.weights.hq_approach
         } else {
             self.property_weight(terrain)
@@ -2340,7 +2379,7 @@ impl Board<'_> {
     /// income one.
     fn property_weight(&self, terrain: Terrain) -> f64 {
         let has = |value| ruleset::terrain_has(terrain, value);
-        if has(TerrainTrait::CaptureDefeatsOwner) {
+        if has(TerrainTrait::CaptureDefeatsOwner) || self.decisive_lab(terrain) {
             self.weights.hq
         } else if has(TerrainTrait::ProducesGround) {
             self.weights.land
@@ -2802,6 +2841,14 @@ pub(crate) enum CaptureTurn {
     /// the capture, so the estimate is the largest rate of no power and each
     /// power that the meter of the owner can pay for now.
     Next,
+}
+
+/// Whether the board has a headquarters.
+pub(crate) fn has_headquarters(state: &State) -> bool {
+    state
+        .board
+        .tiles()
+        .any(|tile| ruleset::terrain_has(tile.terrain, TerrainTrait::CaptureDefeatsOwner))
 }
 
 /// The capture points that `unit` takes off a property in one turn, at
@@ -3750,6 +3797,7 @@ impl Scorer<'_> {
             return 0.0;
         };
         if self.policy.preserve_late_save
+            && !self.weights().play_last_days
             && self.board.state.turn.day.saturating_add(1) >= day_limit
             && player.funds >= LATE_SAVE_MIN_FUNDS
         {

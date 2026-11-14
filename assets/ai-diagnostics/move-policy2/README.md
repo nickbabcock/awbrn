@@ -36,7 +36,8 @@ load, join and supply. The features of one order:
 
 The turn so far is the unit orders that the player gave in this turn before
 the decision. In a game the agent keeps the log of its own orders. In a
-planner simulation each line and each reply keeps its own log.
+planner simulation each line, each reply and each rollout turn keeps its
+own log.
 
 The move model gives the utility of an order as `s` times the tree score plus
 `1 - s` times the greedy reference, a conditional logit over the three greedy
@@ -87,7 +88,7 @@ scores 0.418 and the fog trees 0.523.
 ## Limits
 
 - The features of an order do not see the orders that the other units will
-  give later in the turn.
+  give later in the turn. The rollout check of the planner does.
 - The fit has no unload decisions. The unload orders of a transport stay a
   choice of the greedy scores.
 - The models are fitted to Division 1 and highly rated games only.
