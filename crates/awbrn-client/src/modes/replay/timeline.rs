@@ -72,6 +72,11 @@ pub enum ReplayTarget {
     Turn(i32),
     /// One named boundary.
     Boundary(u32),
+    /// One named boundary, arrived at without watching the action that
+    /// reaches it, even when it is the next one. A dragged scrubber asks for
+    /// these, and a step being watched would hold the board against the rest
+    /// of the drag.
+    Jump(u32),
     Start,
     End,
 }
@@ -89,26 +94,40 @@ pub(crate) fn handle_replay_navigation(
     outline: Res<ReplayOutline>,
     loaded_replay: Res<LoadedReplay>,
     replay_lock: Res<ReplayAdvanceLock>,
+    mut held_jump: Local<Option<u32>>,
 ) {
     let total = loaded_replay.0.len();
     let mut blocked = replay_lock.is_active();
+    let requested: Vec<_> = requests.read().map(|request| request.target).collect();
+    // A drag that begins while a step is being watched still has to land
+    // where it was let go, so its jump waits for the step rather than being
+    // dropped. A request in the frame the step ends is newer, and replaces
+    // it; one that arrives while the step is still held is dropped as before.
+    let held = if blocked {
+        None
+    } else {
+        held_jump.take().filter(|_| requested.is_empty())
+    };
 
-    for request in requests.read() {
+    for target in held.map(ReplayTarget::Jump).into_iter().chain(requested) {
         if blocked {
+            if let ReplayTarget::Jump(index) = target {
+                *held_jump = Some(index);
+            }
             continue;
         }
         let current = replay_state.next_action_index as usize;
-        let Some(target) = resolve_target(request.target, current, total, &outline) else {
+        let Some(resolved) = resolve_target(target, current, total, &outline) else {
             continue;
         };
-        if target == current {
+        if resolved == current {
             continue;
         }
 
         // One step forward is the step the archive is presented by: the move
         // is animated and the action is watched. Anything else is a jump, and
         // a jump shows where it arrived rather than how it got there.
-        if target == current + 1 {
+        if resolved == current + 1 && !matches!(target, ReplayTarget::Jump(_)) {
             if advance_replay_action(&mut commands, &mut replay_state, &loaded_replay).is_locked() {
                 blocked = true;
             }
@@ -116,7 +135,7 @@ pub(crate) fn handle_replay_navigation(
         }
 
         commands.queue(ReplaySeekCommand {
-            target_index: target as u32,
+            target_index: resolved as u32,
         });
         blocked = true;
     }
@@ -131,7 +150,7 @@ fn resolve_target(
     let resolved = match target {
         ReplayTarget::Start => 0,
         ReplayTarget::End => total,
-        ReplayTarget::Boundary(index) => index as usize,
+        ReplayTarget::Boundary(index) | ReplayTarget::Jump(index) => index as usize,
         ReplayTarget::Action(delta) => current.saturating_add_signed(delta as isize),
         ReplayTarget::Turn(delta) => {
             let mut index = current;

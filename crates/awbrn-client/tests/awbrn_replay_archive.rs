@@ -51,6 +51,7 @@ fn replays_every_archived_action() {
     let mut timeline = ReplayTimeline::Awbrn {
         setup,
         current: Box::new(authority),
+        checkpoints: Default::default(),
     };
 
     for index in 0..archive.len() {

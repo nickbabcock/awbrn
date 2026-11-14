@@ -88,6 +88,7 @@ export interface GameInstance {
   replayStep: (delta: number) => Promise<void>;
   replayStepTurn: (delta: number) => Promise<void>;
   replaySeek: (index: number) => Promise<void>;
+  replayJump: (index: number) => Promise<void>;
   replaySeekEnd: () => Promise<void>;
   zoomBy: (factor: number, anchor?: CanvasPoint) => Promise<void>;
   fitBoard: () => Promise<void>;
@@ -350,6 +351,9 @@ export const createGame = async (
     },
     replaySeek: async (index: number) => {
       app.replay_seek(index);
+    },
+    replayJump: async (index: number) => {
+      app.replay_jump(index);
     },
     replaySeekEnd: async () => {
       app.replay_seek_end();

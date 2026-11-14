@@ -41,9 +41,12 @@ fn seed_initial_observations(world: &mut World) {
 /// jump would have to replay the archive to find out where it was going.
 fn build_replay_outline(world: &mut World) {
     let boundaries = world
-        .get_resource::<ReplayTransitionSource>()
-        .zip(world.get_resource::<LoadedReplay>())
-        .map(|(source, replay)| source.outline(&replay.0));
+        .try_resource_scope(|world, mut source: Mut<ReplayTransitionSource>| {
+            world
+                .get_resource::<LoadedReplay>()
+                .map(|replay| source.outline(&replay.0))
+        })
+        .flatten();
     match boundaries {
         Some(Ok(boundaries)) => {
             world.insert_resource(crate::modes::replay::timeline::ReplayOutline(boundaries));

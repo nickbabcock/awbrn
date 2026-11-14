@@ -519,6 +519,15 @@ export class GameRunner {
     await game.replaySeek(index);
   }
 
+  /**
+   * Stand at one boundary without watching the action that reaches it, even
+   * when it is the next one. A dragged scrubber moves this way.
+   */
+  async replayJump(index: number): Promise<void> {
+    const game = await this.requireGame();
+    await game.replayJump(index);
+  }
+
   /** Stand at the end of the loaded archive. */
   async replaySeekEnd(): Promise<void> {
     const game = await this.requireGame();

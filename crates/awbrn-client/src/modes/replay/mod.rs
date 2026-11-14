@@ -36,6 +36,7 @@ impl Plugin for ReplayPlugin {
             .add_systems(
                 Update,
                 timeline::emit_replay_position
+                    .after(timeline::handle_replay_navigation)
                     .run_if(resource_exists::<EventSink<ReplayPositionChanged>>)
                     .run_if(
                         resource_exists_and_changed::<awbrn_bevy::replay::ReplayState>

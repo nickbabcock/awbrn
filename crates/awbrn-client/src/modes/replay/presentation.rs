@@ -61,7 +61,7 @@ impl ReplayTransitionSource {
 
     /// The turn every boundary of the archive falls in.
     pub(crate) fn outline(
-        &self,
+        &mut self,
         archive: &crate::replay_archive::ReplayArchive,
     ) -> Result<Vec<crate::replay_archive::ReplayBoundary>, String> {
         self.timeline.outline(archive)
@@ -666,11 +666,35 @@ pub(crate) fn on_carried_by_add(trigger: On<Insert<CarriedBy>>, mut commands: Co
 
 /// Observer: when `CarriedBy` is removed, keep the entity hidden until the
 /// projection pass decides whether it is visible.
+///
+/// A unit despawned while it is carried loses `CarriedBy` on its way out, and
+/// is gone by the time the insert would apply.
 pub(crate) fn on_carried_by_remove(trigger: On<Remove<CarriedBy>>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert(Visibility::Hidden);
+    commands
+        .entity(trigger.entity)
+        .try_insert(Visibility::Hidden);
 }
 
 /// Forward semantic day changes to registered client sinks.
 pub(crate) fn on_new_day(trigger: On<NewDay>, sink: If<Res<EventSink<ExternalNewDay>>>) {
     sink.emit(ExternalNewDay { day: trigger.day });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_unit_can_leave_the_board_while_it_is_carried() {
+        let mut app = App::new();
+        app.add_observer(on_carried_by_remove);
+        let transport = app.world_mut().spawn_empty().id();
+        let cargo = app.world_mut().spawn(CarriedBy(transport)).id();
+        app.update();
+
+        app.world_mut().despawn(cargo);
+        app.update();
+
+        assert!(app.world().get_entity(cargo).is_err());
+    }
 }

@@ -10,6 +10,7 @@ import { useCanvasCourierSurface, pressBoardKey } from "#/canvas_courier/index.t
 import { TileDetails, TileLine, TileWindow } from "#/components/TileInfoBar.tsx";
 import { ImmersiveNoticeLine, useImmersiveNotice } from "#/components/GameFullscreen.tsx";
 import { ReviewFoot, PhoneReviewBar, type ReviewModel } from "#/components/StepControls.tsx";
+import { useLatestSeek } from "#/components/latest_seek.ts";
 import { sessionQueryOptions } from "#/auth/auth.queries.ts";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
@@ -246,6 +247,15 @@ export function MatchActivePage({
       console.error("Error restoring the board after a refused command:", error);
     });
   }, [runner]);
+  /**
+   * The scrubber's seeks, paced by the host's answers. `null` is the match as
+   * it stands, which a drag let go of at the end goes back to.
+   */
+  const [scrub, isScrubbing] = useLatestSeek<number | null>((index) => {
+    if (index === null) return returnToLiveMatch();
+    beginReview();
+    return requestReviewSeek(index);
+  });
 
   const handleMatchMessage = useCallback(
     (message: MatchWebSocketMessage) => {
@@ -290,6 +300,7 @@ export function MatchActivePage({
           // A question about the past that was refused leaves the board where
           // it is. The keys come back rather than staying pressed.
           setIsReviewBusy(false);
+          scrub.reset();
           returningToLiveRef.current = false;
           setMatchError(message.message);
           restoreAfterRefusal();
@@ -331,10 +342,14 @@ export function MatchActivePage({
         }
         case "reviewState": {
           setIsReviewBusy(false);
+          // A dragged scrubber passes over moments rather than watching them,
+          // so even the one action after the last is shown as a position.
+          const isScrubbed = scrub.isInFlight;
           if (message.observation === null) {
             // A fogged match has no public board, so somebody holding no seat
             // in it has no earlier board to be shown either.
             returningToLiveRef.current = false;
+            scrub.reset();
             setReviewError("A fogged match can only be read back by the seats playing it.");
             return;
           }
@@ -360,16 +375,23 @@ export function MatchActivePage({
                 console.error("Error returning to the live match:", error);
                 setReviewError(REVIEW_RESTORE_FAILED);
               });
+            scrub.settle();
             return;
           }
 
           setReviewPosition({ index: message.index, total: message.latestIndex });
           void runner
-            .applyReviewState(message.transition ?? { post: message.observation, events: [] })
+            .applyReviewState(
+              (isScrubbed ? null : message.transition) ?? {
+                post: message.observation,
+                events: [],
+              },
+            )
             .catch((error) => {
               console.error("Error showing a reviewed position:", error);
               setReviewError("That moment of the match could not be shown.");
             });
+          scrub.settle();
           return;
         }
         case "spectatorState": {
@@ -387,7 +409,7 @@ export function MatchActivePage({
         }
       }
     },
-    [finishActivatingPower, finishEndingTurn, finishResigning, restoreAfterRefusal, runner],
+    [finishActivatingPower, finishEndingTurn, finishResigning, restoreAfterRefusal, runner, scrub],
   );
   // The server lets only a signed-in viewer onto the match, so a signed-out
   // one is asked to sign in rather than shown a connection that cannot open.
@@ -748,13 +770,14 @@ export function MatchActivePage({
 
   /** Come back to the match as it stands. */
   const returnToLiveMatch = useCallback(() => {
-    if (!isReviewingRef.current) return;
+    if (!isReviewingRef.current) return false;
     // The end of a match still being played moves, so it is named rather than
     // counted to: an index that was the end a moment ago may be behind by the
     // time the question arrives. The board is only marked as coming back once
     // the question is away: a mark left standing over a question that never
     // left would read the next answer as this one's.
     returningToLiveRef.current = requestReviewSeek(null);
+    return returningToLiveRef.current;
   }, [requestReviewSeek]);
 
   // A connection that dropped took the reading with it: what the viewer was
@@ -765,6 +788,7 @@ export function MatchActivePage({
     isReviewingRef.current = false;
     returningToLiveRef.current = false;
     pendingStepRef.current = null;
+    scrub.reset();
     setIsReviewing(false);
     setIsReviewBusy(false);
     setReviewPosition(null);
@@ -777,7 +801,7 @@ export function MatchActivePage({
     void runner.exitBoardReview().catch((error: unknown) => {
       console.error("Error giving the board back after a dropped connection:", error);
     });
-  }, [runner, status]);
+  }, [runner, scrub, status]);
 
   // The seat spending its bank is the only one that can run out while the page
   // is open, so it sets how often every readout redraws.
@@ -823,6 +847,14 @@ export function MatchActivePage({
     ],
   );
 
+  // Before the first answer to a reading, the scrubber stands on the outline,
+  // so a drag that began the reading is not cut short under the pointer.
+  const reviewShown =
+    isReviewing && reviewPosition !== null
+      ? reviewPosition
+      : reviewOutline === null
+        ? null
+        : { index: reviewOutline.length - 1, total: reviewOutline.length - 1 };
   // A fogged match has no board a watcher may read, so it offers them no
   // controls for reading one either; nor does a match a signed-out viewer
   // cannot open.
@@ -830,11 +862,7 @@ export function MatchActivePage({
     spectatorFogActive === true || isSignedOut
       ? null
       : {
-          position: isReviewing
-            ? reviewPosition
-            : reviewOutline === null
-              ? null
-              : { index: reviewOutline.length - 1, total: reviewOutline.length - 1 },
+          position: reviewShown,
           isAtLatest: !isReviewing,
           canStepBack: isReviewing
             ? (reviewPosition?.index ?? 1) > 0
@@ -864,10 +892,15 @@ export function MatchActivePage({
             reviewOutline === null
               ? undefined
               : (index: number) => {
-                  if (index >= reviewOutline.length - 1 && !isReviewing) return;
-                  beginReview();
-                  requestReviewSeek(index);
+                  if (index >= reviewOutline.length - 1 && !isReviewingRef.current) return;
+                  scrub.request(index);
                 },
+          isSeeking: isScrubbing,
+          onSeekRelease: (index: number) => {
+            // Let go at the end is back to the match as it stands. That end
+            // moves, so it is named rather than counted to.
+            if (reviewShown !== null && index >= reviewShown.total) scrub.request(null);
+          },
           dayStarts: reviewOutline === null ? undefined : dayStarts(reviewOutline),
           hasLastKey: false,
         };
@@ -894,7 +927,17 @@ export function MatchActivePage({
         log={
           review === null || reviewOutline === null || currentReviewIndex === null
             ? null
-            : { boundaries: reviewOutline, currentIndex: currentReviewIndex }
+            : {
+                boundaries: reviewOutline,
+                currentIndex: currentReviewIndex,
+                // A row is read the way a step is, so the next action plays
+                // out rather than being jumped to as the scrubber does.
+                onSeek: (index: number) => {
+                  if (index >= reviewOutline.length - 1 && !isReviewing) return;
+                  beginReview();
+                  requestReviewSeek(index);
+                },
+              }
         }
         match={match}
         matchError={matchError}
@@ -1099,7 +1142,11 @@ function ActiveMatchScreen({
   isTurnSpent: boolean;
   isViewerOut: boolean;
   /** The match's outline and where the viewer stands in it, once the host has said. */
-  log: { boundaries: readonly LogBoundary[]; currentIndex: number } | null;
+  log: {
+    boundaries: readonly LogBoundary[];
+    currentIndex: number;
+    onSeek: (index: number) => void;
+  } | null;
   match: MatchSnapshot;
   matchError: string | null;
   onActivatePower: (level: ActivatablePowerLevel) => void;
@@ -1477,7 +1524,7 @@ function ActiveMatchScreen({
           boundaries={log.boundaries}
           currentIndex={log.currentIndex}
           isDisabled={review.isBusy}
-          onSeek={review.onSeek}
+          onSeek={log.onSeek}
         />
       ) : null}
     </>

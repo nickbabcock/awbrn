@@ -14,6 +14,7 @@ import {
   ReviewFoot,
   type ReviewModel,
 } from "#/components/StepControls.tsx";
+import { useLatestSeek } from "#/components/latest_seek.ts";
 import { TileDetails, TileLine, TileWindow } from "#/components/TileInfoBar.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
 import { useGameStore } from "#/engine/store.ts";
@@ -144,6 +145,10 @@ export function ReplayScreen({
       console.error("Error stepping the replay:", stepFailure);
     });
   }
+  const [scrub, isScrubbing] = useLatestSeek<number>((index) => {
+    stepReplay((game) => game.replayJump(index).finally(() => scrub.settle()));
+    return true;
+  });
 
   // The outline is read from the file in the page; one that does not count
   // the engine's actions describes some other reading of the archive.
@@ -180,7 +185,8 @@ export function ReplayScreen({
           onStep: (delta) => stepReplay((game) => game.replayStep(delta)),
           onTurnStep: (delta) => stepReplay((game) => game.replayStepTurn(delta)),
           onSeekLatest: () => stepReplay((game) => game.replaySeekEnd()),
-          onSeek: (index) => stepReplay((game) => game.replaySeek(index)),
+          onSeek: (index) => scrub.request(index),
+          isSeeking: isScrubbing,
           dayStarts: boundaries === null ? undefined : dayStarts(boundaries),
           hasLastKey: true,
         };

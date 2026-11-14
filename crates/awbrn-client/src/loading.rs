@@ -319,6 +319,7 @@ fn begin_replay(
                     crate::replay_archive::ReplayTimeline::Awbrn {
                         setup,
                         current: Box::new(authority),
+                        checkpoints: Default::default(),
                     },
                 ),
             );
