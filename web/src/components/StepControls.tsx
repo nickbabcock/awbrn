@@ -65,8 +65,15 @@ function positionLabel(review: ReviewModel, held: number | null): ReactNode {
 }
 
 function Position({ held, review }: { held: number | null; review: ReviewModel }) {
+  // Room for the widest label this total can show, so crossing 9 to 10 does
+  // not narrow the scrubber beside it and shift the thumb.
+  const total = String(review.position?.total ?? "");
   return (
-    <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.position]}>
+    <Text
+      color="inherit"
+      type="inherit"
+      xstyle={[figureStyles.figure, styles.position, styles.positionFits(total.length * 2 + 3)]}
+    >
       {positionLabel(review, held)}
     </Text>
   );
@@ -466,8 +473,12 @@ const styles = stylex.create({
     color: awbrnVars.textOnInkSecondary,
     fontSize: awbrnVars.text13,
     fontWeight: 500,
+    textAlign: "end",
     whiteSpace: "nowrap",
   },
+  positionFits: (chars: number) => ({
+    minInlineSize: `${chars}ch`,
+  }),
   phoneBar: {
     display: "grid",
     gap: spacingVars["--spacing-1"],
