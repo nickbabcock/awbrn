@@ -198,6 +198,23 @@ impl AwbwMap {
         factions
     }
 
+    /// Return this map with each seat's faction replaced by the army its
+    /// player chose, where `armies` lists one army per seat in seat order.
+    ///
+    /// A seat holds the properties and units of its [`Self::slot_factions`]
+    /// entry, and the engine finds a player's holdings by their army, so a
+    /// player who picks an army other than their seat's would otherwise own
+    /// nothing.
+    pub fn with_seat_armies(&self, armies: &[PlayerFaction]) -> AwbwMap {
+        let slots = self.slot_factions(armies.len());
+        self.map_factions(|faction| {
+            slots
+                .iter()
+                .position(|slot| *slot == faction)
+                .map_or(faction, |seat| armies[seat])
+        })
+    }
+
     /// Return this map with each player faction replaced by `map_faction`.
     ///
     /// Neutral terrain is unchanged. Use this method when a manifest gives an
@@ -650,6 +667,22 @@ mod tests {
             vec![PlayerFaction::CobaltIce, PlayerFaction::OrangeStar]
         );
         assert_eq!(map.slot_factions(1), vec![PlayerFaction::CobaltIce]);
+    }
+
+    #[test]
+    fn with_seat_armies_gives_each_seat_its_holdings_in_its_chosen_army() {
+        // An Orange Star HQ (42) and a Blue Moon HQ (47). The first seat
+        // plays Yellow Comet and the second takes the Orange Star army the
+        // first seat left, so the swap must not hand both HQs to one army.
+        let map = AwbwMap::parse_txt("42,47").unwrap();
+        let seated = map.with_seat_armies(&[PlayerFaction::YellowComet, PlayerFaction::OrangeStar]);
+
+        let owner = |x| match seated.terrain_at(Pos::new(x, 0)) {
+            Some(AwbwTerrain::Property(property)) => property.faction(),
+            other => panic!("expected a property, got {other:?}"),
+        };
+        assert_eq!(owner(0), Faction::Player(PlayerFaction::YellowComet));
+        assert_eq!(owner(1), Faction::Player(PlayerFaction::OrangeStar));
     }
 
     #[test]

@@ -1263,27 +1263,28 @@ impl TryFrom<MatchSetupInput> for GameSetup {
 
     fn try_from(value: MatchSetupInput) -> Result<Self, Self::Error> {
         let document = ValidatedMapDocument::try_from(value.map)?;
-        let awbw_map = document.into_map();
+        let players = value
+            .players
+            .into_iter()
+            .map(|player| {
+                let co_id = AwbwCoId::new(player.co_id);
+                let co = Co::from_awbw_id(co_id)
+                    .ok_or_else(|| format!("unknown AWBW coId {}", co_id.as_u32()))?;
+
+                Ok(PlayerSetup {
+                    faction: player.resolve_faction()?,
+                    team: player.team,
+                    starting_funds: player.starting_funds,
+                    co,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let armies: Vec<_> = players.iter().map(|player| player.faction).collect();
 
         Ok(Self {
             // The map carries its own starting units.
-            map: AwbrnMap::from_map(&awbw_map),
-            players: value
-                .players
-                .into_iter()
-                .map(|player| {
-                    let co_id = AwbwCoId::new(player.co_id);
-                    let co = Co::from_awbw_id(co_id)
-                        .ok_or_else(|| format!("unknown AWBW coId {}", co_id.as_u32()))?;
-
-                    Ok(PlayerSetup {
-                        faction: player.resolve_faction()?,
-                        team: player.team,
-                        starting_funds: player.starting_funds,
-                        co,
-                    })
-                })
-                .collect::<Result<Vec<_>, String>>()?,
+            map: AwbrnMap::from_map(&document.map().with_seat_armies(&armies)),
+            players,
             fog_enabled: value.fog_enabled,
             rng_seed: value.rng_seed.unwrap_or(0),
         })
