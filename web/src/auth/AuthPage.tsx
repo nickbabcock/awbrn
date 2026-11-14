@@ -61,7 +61,9 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
         queryClient.invalidateQueries({ queryKey: authKeys.all }),
         queryClient.invalidateQueries({ queryKey: matchKeys.details() }),
       ]);
-      await router.invalidate();
+      // Drop loads cached while signed out, but do not reload this page: its
+      // guard would redirect home too, holding the form up for a second load.
+      router.clearCache();
       await navigate({ to: "/" });
     } catch (nextError) {
       setProblem({

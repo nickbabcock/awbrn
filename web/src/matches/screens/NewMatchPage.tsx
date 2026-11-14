@@ -155,7 +155,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   // the one handed over from its page, or else the first card on the board.
   // It is derived rather than set after mount, so the seats and the dock are
   // drawn with the page instead of a moment after it.
-  const firstMap = catalogMaps[0] ?? null;
+  const firstMap = pickerMaps[0] ?? null;
   const isWaitingForHandOver = chosenMapId !== undefined && chosenMapQuery.isPending;
   const [defaultMap, setDefaultMap] = useState<MapCatalogEntry | null>(null);
   const fallbackMap = isWaitingForHandOver
@@ -489,7 +489,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
               <VStack xstyle={styles.pickerBody}>{emptyBoard}</VStack>
             ) : (
               <ul {...stylex.props(styles.pickerRows)}>
-                {catalogMaps.map((map) => (
+                {pickerMaps.map((map) => (
                   <li key={map.mapId}>
                     <MapRowKey
                       isChosen={selectedMap?.mapId === map.mapId}

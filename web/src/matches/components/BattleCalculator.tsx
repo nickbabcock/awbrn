@@ -611,7 +611,13 @@ function PanelFrame({ children, kit }: { children: React.ReactNode; kit: PanelKi
 
   const panel = (
     <>
-      <HStack align="center" gap={2} justify="between" wrap="wrap" xstyle={styles.header}>
+      <HStack
+        align="center"
+        gap={2}
+        justify="between"
+        wrap="wrap"
+        xstyle={[styles.header, kit.isSheet && styles.sheetHeader]}
+      >
         <Text color="inherit" type="inherit" xstyle={styles.panelLabel}>
           Battle calculator
         </Text>
@@ -1379,6 +1385,10 @@ const styles = stylex.create({
     maxWidth: "100%",
     borderRadius: `${radiusVars["--radius-container"]} ${radiusVars["--radius-container"]} 0 0`,
     borderBlockEndWidth: 0,
+  },
+  // Close stands clear of the sheet's rounded edge, as other sheets' keys do.
+  sheetHeader: {
+    paddingInlineEnd: spacingVars["--spacing-4"],
   },
   sheetBody: {
     minBlockSize: 0,

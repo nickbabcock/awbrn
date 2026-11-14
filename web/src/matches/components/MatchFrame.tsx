@@ -234,8 +234,9 @@ export function WatchingTag({ hasFog }: { hasFog: boolean }) {
 
 /**
  * The desktop turn strip. `isDayNew` lands the postmark: the live day just
- * changed. `isLive` cancels the postmark: the live match's day is being
- * played; a replay or a review shows the postmark alone.
+ * changed. `isLive` cancels the postmark and rings it with today's date: the
+ * live match's day is being played; a replay or a review shows the day alone,
+ * since today is not when it was played.
  */
 export function TurnStrip({
   clock,
@@ -267,7 +268,7 @@ export function TurnStrip({
             isNew={isDayNew}
             key={day}
             label={`Day ${day}`}
-            ringText={ringText ?? undefined}
+            ringText={(isLive && ringText) || undefined}
             tone="ink"
             word="DAY"
           />
