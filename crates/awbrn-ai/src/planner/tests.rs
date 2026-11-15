@@ -1,6 +1,6 @@
 use super::*;
 use crate::board::arena;
-use crate::harness::{Limits, play};
+use crate::harness::{Limits, next_command_fingerprint, play, play_observed};
 use crate::puzzles::{solve, suite};
 
 fn deterministic() -> PlannerConfig {
@@ -3584,9 +3584,14 @@ fn move2_combo(order: bool) -> PlannerConfig {
     }
 }
 
-/// The command count and a digest of the final state of a game of `config`
-/// against itself on a small map, with a short day limit.
-fn golden_game(config: PlannerConfig, fog: bool) -> (u64, String) {
+/// The command count and a digest of a game of `config` against itself on a
+/// small map, with a short day limit and `nodes` for each planning call. The
+/// digest covers the final state and every accepted command of both seats in
+/// order, so two games that reach the same end by different moves differ. The
+/// state is digested as it serializes rather than as `Debug` prints it, because
+/// `Debug` prints the unit index in its hash map's iteration order, which may
+/// differ between targets.
+fn golden_game(config: PlannerConfig, fog: bool, nodes: NodeBudget) -> (u64, String) {
     let state = arena(fog, 3);
     let mut session = Session::new(state.clone());
     let mut first = PlannerAgent::with_config(1, config);
@@ -3595,34 +3600,62 @@ fn golden_game(config: PlannerConfig, fog: bool) -> (u64, String) {
     let mut entropy = Rng::from_seed(5);
     let limits = Limits {
         days: 8,
-        nodes: NodeBudget::new(16).expect("a budget"),
+        nodes,
         ..Limits::DEFAULT
     };
-    let record =
-        play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
-    let digest = crate::fingerprint::fnv1a(format!("{:?}", session.state()).as_bytes());
+    let mut commands = Vec::new();
+    let record = play_observed(
+        state,
+        &mut session,
+        &mut agents,
+        &mut entropy,
+        limits,
+        |_, command| commands.extend(command.cloned()),
+    )
+    .expect("the game runs");
+    assert_eq!(record.commands, commands.len() as u64);
+    let digest = commands.iter().fold(
+        crate::fingerprint::fnv1a(&serde_json::to_vec(session.state()).expect("states serialize")),
+        next_command_fingerprint,
+    );
     (record.commands, format!("{digest:016x}"))
 }
 
-/// With the switches of later configurations off, planner-v8 and
-/// planner-v8-move play the games they played before those switches were
-/// added. The values come from master before the tree move model, re-pinned
-/// when a rules change moves the games.
+/// The planners of the seated profiles play the games pinned here, with and
+/// without fog: planner-v9 at the node budget of [`crate::profile::HARD`],
+/// and planner-v8-move, the planner of [`crate::profile::MEDIUM`], at 16
+/// nodes for each planning call rather than its profile's 256. A change in
+/// the play of either changes its games. Change a value only for a change of
+/// play that is meant; a failure prints every game's new values.
 #[test]
-fn the_earlier_configurations_play_the_same_games() {
-    for (config, fog, commands, digest) in [
-        (PlannerConfig::V8, false, 109, "8b3eb86f4fd4ed5a"),
-        (PlannerConfig::V8, true, 111, "5378e3e1fa6b27a1"),
-        (PlannerConfig::V8_MOVE, false, 108, "4f256c7bef0e4b17"),
-        (PlannerConfig::V8_MOVE, true, 116, "8c1e45589c2acea7"),
-    ] {
-        assert_eq!(
-            golden_game(config, fog),
-            (commands, digest.to_owned()),
-            "{} fog {fog}",
-            config.identifier
-        );
-    }
+fn the_seated_planners_play_the_pinned_games() {
+    let hard = crate::profile::HARD.node_budget();
+    let pins = [
+        (
+            PlannerConfig::V8_MOVE,
+            NodeBudget::SIXTEEN,
+            false,
+            108,
+            "d05733fe17350e74",
+        ),
+        (
+            PlannerConfig::V8_MOVE,
+            NodeBudget::SIXTEEN,
+            true,
+            116,
+            "4d918a857cee7630",
+        ),
+        (PlannerConfig::V9, hard, false, 176, "cdc11e3dd5e7dedb"),
+        (PlannerConfig::V9, hard, true, 151, "a44c33da4bb0df93"),
+    ];
+    let actual = pins.map(|(config, nodes, fog, _, _)| {
+        let (commands, digest) = golden_game(config, fog, nodes);
+        (config.identifier, fog, commands, digest)
+    });
+    let expected = pins.map(|(config, _, fog, commands, digest)| {
+        (config.identifier, fog, commands, digest.to_owned())
+    });
+    assert_eq!(actual, expected);
 }
 
 /// The planners on the tree move model with the contest switches and the
