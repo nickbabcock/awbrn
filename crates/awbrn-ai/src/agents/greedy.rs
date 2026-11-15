@@ -37,6 +37,7 @@
 //! recon covers — and for the cover it takes, which is the woods. Both are
 //! zero with the board lit, and the map is not built there.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use awvm::combat::{self, Forecast, Side};
@@ -835,6 +836,10 @@ pub struct GreedyAgent {
     /// lazy calculation.
     #[cfg(test)]
     eager_move_features: bool,
+    /// The choices that a memo answered, each checked against the decision
+    /// ([`GreedyAgent::check_memo_choice`]).
+    #[cfg(test)]
+    pub(crate) memo_checks: u64,
 }
 
 /// One production site with legal builds.
@@ -976,12 +981,144 @@ struct Selection {
     ready: bool,
     units: Option<Vec<awvm::semantic::UnitId>>,
     unitless: bool,
+    choice: Choice,
+}
+
+/// What one decision selects from, with the tie draws it makes on the way,
+/// so that the decision can be made again without scoring the position.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Choice {
     initial: Option<Order>,
     /// Keep every tie draw, including ties before a later higher score.
     draws: Vec<(u64, Order)>,
     /// Only draws at or after this index can change the final order.
     final_start: usize,
     sacrifice: Option<Order>,
+}
+
+impl Choice {
+    fn clear(&mut self) {
+        self.initial = None;
+        self.draws.clear();
+        self.final_start = 0;
+        self.sacrifice = None;
+    }
+
+    /// The order of the decision. It draws from `rng` as the decision does.
+    fn choose(&self, rng: &mut Rng) -> Option<Order> {
+        let mut chosen = self.initial;
+        for (index, (range, order)) in self.draws.iter().enumerate() {
+            let selected = rng.below(*range) == 0;
+            if index >= self.final_start && selected {
+                chosen = Some(*order);
+            }
+        }
+        match (chosen, self.sacrifice) {
+            (Some(order), Some(sacrifice)) if matches!(order.kind(), OrderKind::Wait) => {
+                Some(sacrifice)
+            }
+            (Some(order), _) => Some(order),
+            (None, sacrifice) => sacrifice,
+        }
+    }
+}
+
+/// The decisions of one planning call ([`crate::planner`]), so that a
+/// decision that repeats an earlier one of the call takes its choice instead
+/// of scoring the position again.
+///
+/// The lines and rollouts of a call often reach one position with one turn
+/// so far. A decision reads the position, the turn so far, the fog
+/// estimate, the viewer and the held powers, and it draws from the
+/// tie-break stream once for each tie ([`Choice::choose`]). An entry keeps
+/// each of these. It does not keep the policy, so a memo serves one policy.
+/// Fields and maps that the agent keeps across decisions do not change the
+/// choice, so a decision that the memo answers leaves them as they are.
+#[derive(Debug, Default)]
+pub(crate) struct DecisionMemo {
+    /// The last entry of each hash ([`position_hash`]).
+    last: HashMap<u64, usize>,
+    entries: Vec<MemoEntry>,
+}
+
+#[derive(Debug)]
+struct MemoEntry {
+    /// The entry before this one with the same hash.
+    earlier: Option<usize>,
+    state: State,
+    log: TurnLog,
+    fog: Option<Arc<FogEstimate>>,
+    viewer: Option<PlayerIdx>,
+    power_hold: Option<crate::power::PowerHold>,
+    choice: Choice,
+}
+
+impl MemoEntry {
+    fn answers(&self, agent: &GreedyAgent, state: &State) -> bool {
+        // The entry holds its estimate, so an equal pointer is the same
+        // estimate.
+        let same_fog = match (&self.fog, &agent.fog) {
+            (Some(entry), Some(agent)) => Arc::ptr_eq(entry, agent),
+            (entry, agent) => entry.is_none() && agent.is_none(),
+        };
+        same_fog
+            && self.viewer == agent.viewer
+            && self.power_hold == agent.power_hold
+            && self.log == agent.turn_log
+            && self.state == *state
+    }
+}
+
+impl DecisionMemo {
+    /// The most entries of a memo, which starts again empty when it is full.
+    /// It holds the decisions of a planning call of planner-v9 that are not
+    /// repeats. An entry is mostly the units of its position.
+    const ENTRIES: usize = 4096;
+
+    fn find(&self, hash: u64, agent: &GreedyAgent, state: &State) -> Option<&Choice> {
+        let mut at = self.last.get(&hash).copied();
+        while let Some(index) = at {
+            let entry = &self.entries[index];
+            if entry.answers(agent, state) {
+                return Some(&entry.choice);
+            }
+            at = entry.earlier;
+        }
+        None
+    }
+
+    fn insert(&mut self, hash: u64, agent: &GreedyAgent, state: &State) {
+        if self.entries.len() == Self::ENTRIES {
+            self.entries.clear();
+            self.last.clear();
+        }
+        let index = self.entries.len();
+        self.entries.push(MemoEntry {
+            earlier: self.last.insert(hash, index),
+            state: state.clone(),
+            log: agent.turn_log.clone(),
+            fog: agent.fog.clone(),
+            viewer: agent.viewer,
+            power_hold: agent.power_hold,
+            choice: agent.selection.choice.clone(),
+        });
+    }
+}
+
+/// A hash of the turn and the units of `state`, for [`DecisionMemo`]. The
+/// positions that differ only elsewhere share it, which costs a comparison.
+fn position_hash(state: &State) -> u64 {
+    let turn = state.turn.day ^ ((state.turn.position as u64) << 32);
+    state.units.iter().fold(Rng::mix(turn), |hash, unit| {
+        let hash = Rng::mix(
+            hash ^ u64::from(unit.id.get()) ^ u64::from(unit.hp) << 32 ^ (unit.action as u64) << 40,
+        );
+        let location = match unit.location {
+            Location::Board { position } => u64::from(position.x) << 8 | u64::from(position.y),
+            Location::Cargo { transport, .. } => u64::from(transport.get()) << 16,
+        };
+        Rng::mix(hash ^ location)
+    })
 }
 
 impl Selection {
@@ -992,10 +1129,12 @@ impl Selection {
             ready: false,
             units: None,
             unitless: true,
-            initial: None,
-            draws: Vec::new(),
-            final_start: 0,
-            sacrifice: None,
+            choice: Choice {
+                initial: None,
+                draws: Vec::new(),
+                final_start: 0,
+                sacrifice: None,
+            },
         }
     }
 
@@ -1019,27 +1158,7 @@ impl Selection {
             None => self.units = None,
         }
         self.unitless = scope.is_none_or(|scope| scope.unitless);
-        self.initial = None;
-        self.draws.clear();
-        self.final_start = 0;
-        self.sacrifice = None;
-    }
-
-    fn choose(&self, rng: &mut Rng) -> Option<Order> {
-        let mut chosen = self.initial;
-        for (index, (range, order)) in self.draws.iter().enumerate() {
-            let selected = rng.below(*range) == 0;
-            if index >= self.final_start && selected {
-                chosen = Some(*order);
-            }
-        }
-        match (chosen, self.sacrifice) {
-            (Some(order), Some(sacrifice)) if matches!(order.kind(), OrderKind::Wait) => {
-                Some(sacrifice)
-            }
-            (Some(order), _) => Some(order),
-            (None, sacrifice) => sacrifice,
-        }
+        self.choice.clear();
     }
 }
 
@@ -1149,6 +1268,8 @@ impl GreedyAgent {
             policy2_out: None,
             #[cfg(test)]
             eager_move_features: false,
+            #[cfg(test)]
+            memo_checks: 0,
         }
     }
 
@@ -1235,6 +1356,7 @@ impl GreedyAgent {
                 None,
                 Some(&mut candidates),
                 Some(&mut moves),
+                None,
             );
             moves
         })
@@ -1258,6 +1380,7 @@ impl GreedyAgent {
                 None,
                 Some(&mut candidates),
                 Some(&mut moves),
+                None,
             );
             moves
         });
@@ -1320,6 +1443,7 @@ impl GreedyAgent {
                     unitless: true,
                 }),
                 Some(&mut candidates),
+                None,
                 None,
             );
             ScoredOrders { candidates }
@@ -1872,7 +1996,19 @@ impl GreedyAgent {
 
     /// Select an order for the current session without constructing its command.
     pub(crate) fn order_in_session(&mut self, session: &Session) -> Option<Order> {
-        self.act_in_session_scoped::<false>(session, None, None, None)
+        self.act_in_session_scoped::<false>(session, None, None, None, None)
+    }
+
+    /// [`GreedyAgent::order_in_session`], which takes the choice of an
+    /// earlier decision of `memo` with the same inputs and keeps the choice
+    /// of a new one there. The order and the draws from the tie-break stream
+    /// are those of the decision without the memo.
+    pub(crate) fn order_in_session_with(
+        &mut self,
+        session: &Session,
+        memo: &mut DecisionMemo,
+    ) -> Option<Order> {
+        self.act_in_session_scoped::<false>(session, None, None, None, Some(memo))
     }
 
     /// Select a play for part of a turn from an existing session.
@@ -1890,6 +2026,7 @@ impl GreedyAgent {
             }),
             None,
             None,
+            None,
         )
         .and_then(|order| Play::from_order(session, order))
     }
@@ -1897,7 +2034,7 @@ impl GreedyAgent {
     /// Score every legal order without consuming the tie-break stream.
     pub(crate) fn score_in_session(&mut self, session: &Session) -> ScoredOrders {
         let mut candidates = Vec::new();
-        self.act_in_session_scoped::<true>(session, None, Some(&mut candidates), None);
+        self.act_in_session_scoped::<true>(session, None, Some(&mut candidates), None, None);
         ScoredOrders { candidates }
     }
 
@@ -1937,6 +2074,7 @@ impl GreedyAgent {
         scope: Option<LegalScope<'_>>,
         scored: Option<&mut Vec<ScoredOrder>>,
         moves: Option<&mut Vec<MoveCandidate>>,
+        memo: Option<&mut DecisionMemo>,
     ) -> Option<Order> {
         if !session.is_commandable() {
             return None;
@@ -1957,13 +2095,74 @@ impl GreedyAgent {
                 .matches(session.position_key(), log_key, scope)
             {
                 if self.selection.ready {
-                    return self.selection.choose(&mut self.rng);
+                    return self.selection.choice.choose(&mut self.rng);
                 }
                 self.selection.ready = true;
             } else {
                 self.selection.begin(session.position_key(), log_key, scope);
             }
         }
+        // A decision for some units only, one that collects features or
+        // orders, and one in a session with guessed health read more than an
+        // entry keeps.
+        let mut memo = memo
+            .filter(|_| {
+                !RECORD
+                    && scope.is_none()
+                    && self.policy2_out.is_none()
+                    && session.knows_all_health()
+            })
+            .map(|memo| (position_hash(session.state()), memo));
+        if let Some((hash, memo)) = memo.as_mut() {
+            self.selection.ready = true;
+            if let Some(choice) = memo.find(*hash, self, session.state()) {
+                self.selection.choice.clone_from(choice);
+                #[cfg(test)]
+                self.check_memo_choice(session);
+                return self.selection.choice.choose(&mut self.rng);
+            }
+        }
+        let order = self.score_position::<RECORD>(session, scope, scored, moves);
+        if let Some((hash, memo)) = memo {
+            memo.insert(hash, self, session.state());
+        }
+        order
+    }
+
+    /// Score the position of a choice that a memo answered, and check that
+    /// the decision selects and draws from the tie-break stream as the
+    /// choice does. Test builds check each choice that a memo answers.
+    #[cfg(test)]
+    fn check_memo_choice(&mut self, session: &Session) {
+        self.memo_checks += 1;
+        let remembered = std::mem::take(&mut self.selection.choice);
+        let rng = self.rng.clone();
+        let order = self.score_position::<false>(session, None, None, None);
+        assert_eq!(self.selection.choice, remembered, "the choice of the memo");
+        let mut replay = rng.clone();
+        assert_eq!(
+            remembered.choose(&mut replay),
+            order,
+            "the order of the memo"
+        );
+        assert_eq!(
+            replay.state(),
+            self.rng.state(),
+            "the tie draws of the memo"
+        );
+        self.rng = rng;
+    }
+
+    /// Score the legal orders of the position in `session` and select one,
+    /// for [`GreedyAgent::act_in_session_scoped`]. With the selection ready,
+    /// the selection keeps the choice.
+    fn score_position<const RECORD: bool>(
+        &mut self,
+        session: &Session,
+        scope: Option<LegalScope<'_>>,
+        scored: Option<&mut Vec<ScoredOrder>>,
+        moves: Option<&mut Vec<MoveCandidate>>,
+    ) -> Option<Order> {
         let state = session.state();
         let seat = state.players.seat(&state.turn.active_player)?;
         let mut capture_needed = RECORD;
@@ -2239,7 +2438,7 @@ impl GreedyAgent {
             std::mem::take(&mut visitor.unit_features),
         );
         if !RECORD && visitor.selection.ready {
-            visitor.selection.sacrifice = visitor.denial_sacrifice.map(|value| value.order);
+            visitor.selection.choice.sacrifice = visitor.denial_sacrifice.map(|value| value.order);
         }
 
         // Nothing scores above zero when every unit has acted and nothing is
@@ -2892,7 +3091,8 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     denial_sacrifice: Option<DenialSacrifice>,
     selection: &'a mut Selection,
     /// Whether the orders of each unit go through the move features: when
-    /// the move model is on or the move candidates are collected.
+    /// the first or the second move model is on, or when the move candidates
+    /// or the features of the second model are collected.
     features: bool,
     /// The move model and its strength, when the model chooses the order of
     /// each unit.
@@ -3074,14 +3274,23 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
         let unit = first.unit().and_then(|index| self.scorer.unit(index));
         let capturer = unit.is_some_and(|unit| ruleset::profile(unit.kind).can_capture);
         self.context.prepare(self.scorer.board, capturer);
+        // Without the first move model and the collection, only the second
+        // model reads the move features: of its candidate orders, whose
+        // greedy score features it sets again.
+        let all_orders = self.model.is_some() || self.moves.is_some();
         let mut features = std::mem::take(&mut self.unit_features);
         features.clear();
         features.extend(orders.iter().map(|entry| {
+            if !all_orders && !move_policy2::is_candidate(entry.order.kind()) {
+                return [0.0; move_policy::MOVE_FEATURE_COUNT];
+            }
             let mut features = basis
                 .as_ref()
                 .and_then(|basis| self.move_features(basis, entry))
                 .unwrap_or([0.0; move_policy::MOVE_FEATURE_COUNT]);
-            move_policy::set_greedy_features(best, entry.breakdown.total, &mut features);
+            if all_orders {
+                move_policy::set_greedy_features(best, entry.breakdown.total, &mut features);
+            }
             features
         }));
         if let Some(moves) = self.moves.as_deref_mut()
@@ -3392,13 +3601,14 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
                 self.tied = 1;
                 self.chosen = Some(order);
                 if self.selection.ready {
-                    self.selection.initial = Some(order);
-                    self.selection.final_start = self.selection.draws.len();
+                    let choice = &mut self.selection.choice;
+                    choice.initial = Some(order);
+                    choice.final_start = choice.draws.len();
                 }
             } else if score == self.best && self.chosen.is_some() {
                 self.tied += 1;
                 if self.selection.ready {
-                    self.selection.draws.push((self.tied, order));
+                    self.selection.choice.draws.push((self.tied, order));
                 }
                 if self.rng.below(self.tied) == 0 {
                     self.chosen = Some(order);
@@ -3433,12 +3643,12 @@ impl<const RECORD: bool> LegalVisitor for GreedyVisitor<'_, RECORD> {
         let Some(bound) = self.scorer.unit_score_bound(unit, self.best) else {
             return true;
         };
-        if bound >= self.best {
-            return true;
-        }
+        let visit = bound >= self.best;
         #[cfg(debug_assertions)]
-        self.scorer.check_unit_score_bound(unit, bound);
-        false
+        if !visit {
+            self.scorer.check_unit_score_bound(unit, bound);
+        }
+        visit
     }
 
     fn order(&mut self, order: Order) {
@@ -4604,8 +4814,9 @@ mod tests {
                     for _ in 0..3 {
                         let mut fresh = make(retained.tie_break_state());
                         assert_eq!(
-                            retained.act_in_session_scoped::<false>(&session, scope, None, None),
-                            fresh.act_in_session_scoped::<false>(&session, scope, None, None),
+                            retained
+                                .act_in_session_scoped::<false>(&session, scope, None, None, None),
+                            fresh.act_in_session_scoped::<false>(&session, scope, None, None, None),
                         );
                         assert_eq!(retained.tie_break_state(), fresh.tie_break_state());
                     }

@@ -158,6 +158,7 @@ fn the_replay_score_keeps_terminal_scores() {
         fog: None,
         march: MarchTurn::default(),
         rollout_stats: RolloutStats::default(),
+        decisions: DecisionMemo::default(),
     };
     assert_eq!(planner.leaf_value(&session), 0.0);
     let own_team = session.state().player(seat).team.clone();
@@ -221,6 +222,7 @@ fn the_replay_score_is_antisymmetric_and_fog_keeps_the_stock_score() {
         fog: None,
         march: MarchTurn::default(),
         rollout_stats: RolloutStats::default(),
+        decisions: DecisionMemo::default(),
     };
     assert_eq!(planner.leaf_value(&fog), expected);
 }
@@ -271,6 +273,7 @@ fn print_puzzle_candidates() {
             fog: None,
             march: MarchTurn::default(),
             rollout_stats: RolloutStats::default(),
+            decisions: DecisionMemo::default(),
         };
         println!("{}", puzzle.name);
         let mut work = Session::new(session.state().clone());
@@ -413,6 +416,7 @@ fn stored_line_positions_and_replies_match_command_replay() {
                 fog: None,
                 march: MarchTurn::default(),
                 rollout_stats: RolloutStats::default(),
+                decisions: DecisionMemo::default(),
             };
             let prefix = if explicit_boundary {
                 vec![Play::unitless(
@@ -505,6 +509,7 @@ fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
         fog: None,
         march: MarchTurn::default(),
         rollout_stats: RolloutStats::default(),
+        decisions: DecisionMemo::default(),
     };
     let holds: Vec<_> = session
         .state()
@@ -650,6 +655,7 @@ fn the_reply_estimate_lists_destroyed_units_as_exposed() {
         fog: None,
         march: MarchTurn::default(),
         rollout_stats: RolloutStats::default(),
+        decisions: DecisionMemo::default(),
     };
     let mut session = Session::new(state);
     let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
@@ -682,6 +688,7 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
             fog: None,
             march: MarchTurn::default(),
             rollout_stats: RolloutStats::default(),
+            decisions: DecisionMemo::default(),
         };
         let mut session = Session::new(state.clone());
         let before = session.state().clone();
@@ -728,6 +735,7 @@ fn a_power_plan_uses_the_power_first() {
         fog: None,
         march: MarchTurn::default(),
         rollout_stats: RolloutStats::default(),
+        decisions: DecisionMemo::default(),
     };
     let mut session = Session::new(state);
     let before = session.state().clone();
@@ -1559,6 +1567,7 @@ fn probe_planner<'a>(
         fog: None,
         march: MarchTurn::default(),
         rollout_stats: RolloutStats::default(),
+        decisions: DecisionMemo::default(),
     }
 }
 
@@ -2791,6 +2800,7 @@ fn only_the_own_lines_read_the_known_map_in_fog() {
         fog: None,
         march: MarchTurn::default(),
         rollout_stats: RolloutStats::default(),
+        decisions: DecisionMemo::default(),
     };
     let line = planner.line(&mut session, Generator::Seed, &[]).unwrap();
     let (known, plain) = planner.rollout.as_ref().unwrap().fog_feature_builds();
@@ -3827,4 +3837,58 @@ fn planner_v9_adds_only_its_parts() {
         }
     );
     assert_eq!(v9.rollout, Some(RolloutConfig::THREE_TURNS));
+}
+
+/// A decision of a planning call that repeats an earlier one takes the
+/// choice of the memo ([`DecisionMemo`]). Test builds score each such
+/// position again and check that the decision selects the order of the memo
+/// with the same tie draws. The planner-v9 games on the arena, with and
+/// without fog, repeat decisions in each planning call.
+#[test]
+fn a_repeated_decision_takes_the_choice_of_its_first_decision() {
+    for fog in [false, true] {
+        let state = arena(fog, 3);
+        let mut session = Session::new(state.clone());
+        let mut first = PlannerAgent::with_config(1, PlannerConfig::V9);
+        let mut second = PlannerAgent::with_config(2, PlannerConfig::V9);
+        let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+        let mut entropy = Rng::from_seed(5);
+        let limits = Limits {
+            days: 8,
+            nodes: NodeBudget::SIXTEEN,
+            ..Limits::DEFAULT
+        };
+        play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
+        for planner in [&first, &second] {
+            let checks = planner.rollout.as_ref().map_or(0, |hard| hard.memo_checks);
+            assert!(checks > 0, "fog {fog}");
+        }
+    }
+}
+
+/// The held powers are part of a decision of the memo ([`DecisionMemo`]): a
+/// rollout turn of the enemy holds the powers of its opening, and a reply
+/// check those of the plan, in the same position. A decision that holds the
+/// power the earlier one used is not answered by it.
+#[test]
+fn a_decision_with_another_power_hold_is_not_a_repeat() {
+    let (state, ours) = swing_board(45);
+    let session = Session::new(state);
+    let mut hard = PlannerConfig::V9.baseline.build_greedy(1);
+    hard.set_viewer(Some(ours));
+    let mut memo = DecisionMemo::default();
+    let used = hard
+        .order_in_session_with(&session, &mut memo)
+        .expect("an order");
+    assert!(matches!(used.kind(), OrderKind::Power(_)), "{used:?}");
+    hard.set_power_hold(Some(crate::power::PowerHold {
+        seat: ours,
+        cop: true,
+        scop: true,
+    }));
+    let held = hard
+        .order_in_session_with(&session, &mut memo)
+        .expect("an order");
+    assert!(!matches!(held.kind(), OrderKind::Power(_)), "{held:?}");
+    assert_eq!(hard.memo_checks, 0);
 }
