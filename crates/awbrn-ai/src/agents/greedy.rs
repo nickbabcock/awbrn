@@ -2892,7 +2892,8 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     denial_sacrifice: Option<DenialSacrifice>,
     selection: &'a mut Selection,
     /// Whether the orders of each unit go through the move features: when
-    /// the move model is on or the move candidates are collected.
+    /// the first or the second move model is on, or when the move candidates
+    /// or the features of the second model are collected.
     features: bool,
     /// The move model and its strength, when the model chooses the order of
     /// each unit.
@@ -3074,14 +3075,23 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
         let unit = first.unit().and_then(|index| self.scorer.unit(index));
         let capturer = unit.is_some_and(|unit| ruleset::profile(unit.kind).can_capture);
         self.context.prepare(self.scorer.board, capturer);
+        // Without the first move model and the collection, only the second
+        // model reads the move features: of its candidate orders, whose
+        // greedy score features it sets again.
+        let all_orders = self.model.is_some() || self.moves.is_some();
         let mut features = std::mem::take(&mut self.unit_features);
         features.clear();
         features.extend(orders.iter().map(|entry| {
+            if !all_orders && !move_policy2::is_candidate(entry.order.kind()) {
+                return [0.0; move_policy::MOVE_FEATURE_COUNT];
+            }
             let mut features = basis
                 .as_ref()
                 .and_then(|basis| self.move_features(basis, entry))
                 .unwrap_or([0.0; move_policy::MOVE_FEATURE_COUNT]);
-            move_policy::set_greedy_features(best, entry.breakdown.total, &mut features);
+            if all_orders {
+                move_policy::set_greedy_features(best, entry.breakdown.total, &mut features);
+            }
             features
         }));
         if let Some(moves) = self.moves.as_deref_mut()
