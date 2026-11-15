@@ -46,13 +46,16 @@ GROUP_COL = 68  # grp_foot
 
 # The label only seeds the hash that orders the maps. It keeps the name it had
 # when the shipped models were fitted, so that a fit picks the same inner maps.
+# At least one map is left to fit on.
 def inner_maps(maps, share=0.15, label="probe-a-inner"):
     order = sorted(set(maps.tolist()), key=lambda m: hashlib.sha256(f"{label}:{m}".encode()).hexdigest())
+    if len(order) < 2:
+        sys.exit(f"early stopping needs train decisions on two maps or more, not {len(order)}")
     counts = {m: int((maps == m).sum()) for m in order}
     total = sum(counts.values())
     out, held = set(), 0
     for m in order:
-        if held >= share * total:
+        if held >= share * total or len(out) == len(order) - 1:
             break
         out.add(m)
         held += counts[m]
