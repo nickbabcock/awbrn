@@ -1751,6 +1751,7 @@ impl TurnPlanner<'_> {
         if rollout.top > 0 {
             contenders.truncate(rollout.top);
         }
+        let work = self.work;
         let Some(seed_value) = self.rolled_value(session, &seed, rollout) else {
             let better = seed.score + self.config.seed_margin;
             return contenders
@@ -1758,21 +1759,50 @@ impl TurnPlanner<'_> {
                 .find(|line| line.score > better)
                 .unwrap_or(seed);
         };
-        let mut best = seed;
+        // The rollouts of one check share the policy, its seed, the fog
+        // estimate and the march plan, and a rollout reads only the end
+        // position of its line and whether the line ends with an explicit end
+        // of the turn. A line that ends as an earlier line of the check does
+        // takes the earlier result. It counts the work and the node of that
+        // rollout again, so the counters and the work threshold do not change.
+        // Each entry is the line (`None` for the seed), its value and its work.
+        let mut rolled: Vec<(Option<usize>, Option<f64>, u64)> =
+            vec![(None, Some(seed_value), self.work - work)];
+        let mut best = None;
         let mut best_value = seed_value;
-        for line in contenders {
+        for index in 0..contenders.len() {
             if self.work_left.is_some_and(|left| self.work >= left) {
                 break;
             }
-            let Some(value) = self.rolled_value(session, &line, rollout) else {
+            let line = &contenders[index];
+            let earlier = rolled.iter().find(|(other, _, _)| {
+                let other = other.map_or(&seed, |other| &contenders[other]);
+                other.end_state == line.end_state
+                    && ends_turn(&other.plays) == ends_turn(&line.plays)
+            });
+            let value = if let Some((_, value, work)) = earlier {
+                self.work += work;
+                self.nodes_left = self.nodes_left.saturating_sub(1);
+                self.rollout_stats.failed += u64::from(value.is_none());
+                *value
+            } else {
+                let work = self.work;
+                let value = self.rolled_value(session, line, rollout);
+                rolled.push((Some(index), value, self.work - work));
+                value
+            };
+            let Some(value) = value else {
                 continue;
             };
             if value - line.penalty > best_value {
                 best_value = value - line.penalty;
-                best = line;
+                best = Some(index);
             }
         }
-        best
+        match best {
+            Some(index) => contenders.swap_remove(index),
+            None => seed,
+        }
     }
 
     /// Play [`RolloutConfig::turns`] whole turns from the end of `line`, and
@@ -2234,6 +2264,13 @@ impl TurnPlanner<'_> {
             penalty: 0.0,
         })
     }
+}
+
+/// Whether the last play of a line is an explicit end of the turn.
+fn ends_turn(plays: &[Play]) -> bool {
+    plays
+        .last()
+        .is_some_and(|play| play.kind() == OrderKind::EndTurn)
 }
 
 /// Whether the turn so far keeps an order of this kind
