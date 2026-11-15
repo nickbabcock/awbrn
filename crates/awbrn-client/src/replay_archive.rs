@@ -196,32 +196,20 @@ impl ReplayTimeline {
     /// in.
     ///
     /// The pass runs on a timeline of its own, so the position the viewer is
-    /// reading never moves. Days and seats come from the projections AWVM
-    /// produces rather than from reading the archived actions, because what
-    /// counts as a turn is a rule and the archive does not hold the rules.
+    /// reading never moves. Days and seats come from the state AWVM reaches
+    /// rather than from reading the archived actions, because what counts as
+    /// a turn is a rule and the archive does not hold the rules. The turn is
+    /// public, so the pass reads it off the state and projects nothing.
     ///
     /// The pass keeps the checkpoints it passes, so a seek anywhere in the
     /// archive replays at most one checkpoint interval.
     pub fn outline(&mut self, archive: &ReplayArchive) -> Result<Vec<ReplayBoundary>, String> {
         let mut scratch = self.rewound()?;
-        let opening = scratch
-            .initial_observations()?
-            .first()
-            .map(|observation| boundary(&observation.turn))
-            .unwrap_or(ReplayBoundary {
-                day: 1,
-                active_player: None,
-            });
-
         let mut boundaries = Vec::with_capacity(archive.len() + 1);
-        boundaries.push(opening);
+        boundaries.push(boundary(scratch.turn()));
         for index in 0..archive.len() {
-            let observed = scratch.advance(archive, index)?;
-            let boundary = observed
-                .first()
-                .map(|transition| boundary(&transition.post.turn))
-                .unwrap_or(opening);
-            boundaries.push(boundary);
+            scratch.apply(archive, index, false)?;
+            boundaries.push(boundary(scratch.turn()));
         }
         match (self, scratch) {
             (
@@ -239,6 +227,13 @@ impl ReplayTimeline {
             _ => unreachable!("a rewound timeline keeps its format"),
         }
         Ok(boundaries)
+    }
+
+    fn turn(&self) -> &awvm::semantic::Turn {
+        match self {
+            Self::Awbw { current, .. } => &current.state().turn,
+            Self::Awbrn { current, .. } => &current.state().turn,
+        }
     }
 
     /// A copy of this timeline standing before its first action.
@@ -551,7 +546,7 @@ mod tests {
         mut outlined: ReplayTimeline,
         mut stepped: ReplayTimeline,
     ) {
-        outlined.outline(archive).unwrap();
+        let outline = outlined.outline(archive).unwrap();
         let kept = match &outlined {
             ReplayTimeline::Awbw { checkpoints, .. } => checkpoints.len(),
             ReplayTimeline::Awbrn { checkpoints, .. } => checkpoints.len(),
@@ -560,7 +555,7 @@ mod tests {
         assert!(kept >= 2, "the archive has to cross two checkpoints");
 
         let mut expected = stepped.initial_observations().unwrap();
-        for target in 0..=archive.len() {
+        for (target, outlined_at) in outline.iter().enumerate() {
             if target > 0 {
                 expected = stepped
                     .advance(archive, target - 1)
@@ -569,6 +564,11 @@ mod tests {
                     .map(|transition| transition.post)
                     .collect();
             }
+            assert_eq!(
+                *outlined_at,
+                boundary(&expected[0].turn),
+                "the outline at {target} names the turn a projection does"
+            );
             if target > 3 * CHECKPOINT_INTERVAL && target < archive.len() {
                 continue;
             }

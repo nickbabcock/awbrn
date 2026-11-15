@@ -3,7 +3,7 @@ import { HStack, Stack } from "@astryxdesign/core/Stack";
 import { Icon } from "@astryxdesign/core/Icon";
 import { borderVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { matchLayout } from "#/matches/components/matchLayout.stylex.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
@@ -126,11 +126,7 @@ function Scrubber({
     <HStack as="span" align="center" xstyle={[styles.scrub, size === "phone" && styles.scrubPhone]}>
       <Text color="inherit" type="inherit" aria-hidden="true" xstyle={styles.track}>
         <i {...stylex.props(styles.played, styles.playedTo(percent))} />
-        {total === 0
-          ? null
-          : (review.dayStarts ?? []).map((start) => (
-              <s key={start} {...stylex.props(styles.tick, styles.tickAt((start / total) * 100))} />
-            ))}
+        {total === 0 ? null : <DayTicks starts={review.dayStarts} total={total} />}
       </Text>
       <input
         aria-label="Moment of the match"
@@ -153,7 +149,20 @@ function Scrubber({
   );
 }
 
-function StepKey({
+/** A tick where each day begins, kept while the thumb is dragged over them. */
+const DayTicks = memo(function DayTicks({
+  starts = [],
+  total,
+}: {
+  starts?: number[];
+  total: number;
+}) {
+  return starts.map((start) => (
+    <s key={start} {...stylex.props(styles.tick, styles.tickAt((start / total) * 100))} />
+  ));
+});
+
+const StepKey = memo(function StepKey({
   icon,
   isDisabled,
   label,
@@ -180,10 +189,20 @@ function StepKey({
       xstyle={[size === "foot" ? styles.footKey : styles.dockKey, isLit && styles.litKey]}
     />
   );
-}
+});
 
-/** Previous and next, by turn and by action. */
-function TurnAndActionKeys({ review, size }: { review: ReviewModel; size: "foot" | "dock" }) {
+/**
+ * Previous and next, by turn and by action. A drag redraws the bar for every
+ * moment the thumb crosses while the review itself stays the same, so the
+ * keys are kept until it changes.
+ */
+const TurnAndActionKeys = memo(function TurnAndActionKeys({
+  review,
+  size,
+}: {
+  review: ReviewModel;
+  size: "foot" | "dock";
+}) {
   const busy = review.isBusy;
   return (
     <>
@@ -218,7 +237,7 @@ function TurnAndActionKeys({ review, size }: { review: ReviewModel; size: "foot"
       />
     </>
   );
-}
+});
 
 /** An icon key for the phone review bar, filling its cell (log, calculator). */
 export function ReviewBarKey({

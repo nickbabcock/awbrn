@@ -105,11 +105,12 @@ export function ReplayPage() {
     }
 
     const activeUserIds = new Set(playerRoster.players.map((player) => player.userId));
-    setPlayerNames((previous) =>
-      Object.fromEntries(
-        Object.entries(previous).filter(([userId]) => activeUserIds.has(Number(userId))),
-      ),
-    );
+    // The roster is sent again for every moment a drag crosses. Names that
+    // all still stand keep their object, so the page is not drawn twice.
+    setPlayerNames((previous) => {
+      const kept = Object.entries(previous).filter(([userId]) => activeUserIds.has(Number(userId)));
+      return kept.length === Object.keys(previous).length ? previous : Object.fromEntries(kept);
+    });
     void Promise.all(
       playerRoster.players.map(async (player) => {
         const username = await resolveAwbwUsername(player.userId);
