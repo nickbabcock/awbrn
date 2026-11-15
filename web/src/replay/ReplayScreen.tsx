@@ -36,6 +36,7 @@ import {
   formatScale,
   Locator,
   useBoardView,
+  useOpeningView,
   useTableLayout,
   useWholeMap,
   ViewKey,
@@ -123,6 +124,7 @@ export function ReplayScreen({
   const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
   const isFullscreenEnabled = useFullscreenEnabled();
   const layout = useTableLayout(tableRef, map, isPhone);
+  useOpeningView(runner, layout, map ? `${map.width}x${map.height}` : null);
   const whole = useWholeMap(runner);
   const boardView = useBoardView();
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);

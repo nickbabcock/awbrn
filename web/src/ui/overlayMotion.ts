@@ -39,17 +39,20 @@ export const overlayMotion = stylex.create({
       opacity: "inherit",
     },
   },
-  // Pass `sheetLeaving` once the sheet is closed. A swipe still follows the finger.
+  // Pass `sheetLeaving` once the sheet is closed. A swipe still follows the
+  // finger. A sheet travels too far to step: it glides up and settles, and
+  // leaves faster than it came.
   sheet: {
-    transitionTimingFunction: awbrnVars.easeStep,
+    transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)",
     transitionDuration: {
-      default: "120ms",
+      default: "240ms",
       [pageLayout.reducedMotionMedia]: "0s",
     },
   },
   sheetLeaving: {
+    transitionTimingFunction: "cubic-bezier(0.4, 0, 1, 1)",
     transitionDuration: {
-      default: "90ms",
+      default: "160ms",
       [pageLayout.reducedMotionMedia]: "0s",
     },
   },

@@ -34,6 +34,8 @@ import {
 /** A tile is 16 map pixels; the camera opens at 2x, so 32 CSS px. */
 export const TILE_PX = 16;
 export const OPENING_SCALE = 2;
+/** The furthest a desktop board opens: the engine's own zoom limit. */
+const MAX_OPENING_SCALE = 4;
 /** Each zoom key steps by the same factor the wheel and pinch use. */
 const ZOOM_STEP = 1.25;
 
@@ -421,6 +423,8 @@ export type TableMode = "pending" | "dock" | "gather" | "none" | "phone";
 
 export interface TableLayout {
   mode: TableMode;
+  /** The scale the board opens at. */
+  scale: number;
   /** The canvas box, or null to fill the table. */
   box: { width: number; height: number } | null;
   /** The column width in gather mode. */
@@ -435,9 +439,29 @@ const COLUMN_MAX = 240;
 const TABLE_INSET = 12;
 
 /**
- * The canvas box is `min(table, map at 2x)` per axis, measured at load and on
- * resize, never on zoom. The spare width picks the table's mode: a column on
- * each side (dock), one column against the rail (gather), or none.
+ * The scale a desktop board opens at: 2x, or more while the whole map still
+ * fits the table, up to 4x. It rises in steps that draw each map pixel on a
+ * whole number of device pixels, so the art keeps its hard edges.
+ */
+export function openingScale(
+  table: { width: number; height: number },
+  map: { width: number; height: number },
+  pixelRatio: number,
+): number {
+  const fit = Math.min(
+    table.width / (map.width * TILE_PX),
+    // The overhang row above the first tile row is drawn, so it is boxed.
+    table.height / ((map.height + 1) * TILE_PX),
+  );
+  const stepped = Math.floor(fit * pixelRatio + 1e-6) / pixelRatio;
+  return Math.min(Math.max(stepped, OPENING_SCALE), MAX_OPENING_SCALE);
+}
+
+/**
+ * The canvas box is `min(table, map at the opening scale)` per axis, measured
+ * at load and on resize, never on zoom. The spare width picks the table's
+ * mode: a column on each side (dock), one column against the rail (gather), or
+ * none.
  */
 export function useTableLayout(
   tableRef: RefObject<HTMLElement | null>,
@@ -462,17 +486,18 @@ export function useTableLayout(
     return () => observer.disconnect();
   }, [tableRef]);
 
-  if (isPhone) return { mode: "phone", box: null, columnWidth: 0, columnTop: TABLE_INSET };
-  if (size === null || map === null) {
-    return { mode: "pending", box: null, columnWidth: 0, columnTop: TABLE_INSET };
-  }
+  const opening = { box: null, columnWidth: 0, columnTop: TABLE_INSET, scale: OPENING_SCALE };
+  if (isPhone) return { ...opening, mode: "phone" };
+  if (size === null || map === null) return { ...opening, mode: "pending" };
 
-  const tile = TILE_PX * OPENING_SCALE;
+  const scale = openingScale(size, map, window.devicePixelRatio || 1);
+  const tile = TILE_PX * scale;
   const mapWidth = map.width * tile;
   // The overhang row above the first tile row is drawn, so it is boxed.
   const mapHeight = (map.height + 1) * tile;
-  const width = Math.floor(Math.min(size.width, mapWidth));
-  const height = Math.floor(Math.min(size.height, mapHeight));
+  // A box a fraction of a pixel short of the map would crop it.
+  const width = Math.min(Math.floor(size.width), Math.ceil(mapWidth));
+  const height = Math.min(Math.floor(size.height), Math.ceil(mapHeight));
   const spare = size.width - width;
   const fitsHeight = mapHeight <= size.height;
   const columnTop = fitsHeight ? Math.round((size.height - height) / 2 + tile) : TABLE_INSET;
@@ -481,10 +506,33 @@ export function useTableLayout(
 
   return {
     mode,
+    scale,
     box: { width, height },
     columnWidth: Math.min(spare - 40, COLUMN_MAX),
     columnTop,
   };
+}
+
+/**
+ * Open each desktop board at the layout's scale, in the middle of the table.
+ * Returns the way back to that view, which the page takes when the viewer's
+ * turn ends. A phone keeps the engine's own opening and its touch floor.
+ */
+export function useOpeningView(runner: GameRunner, layout: TableLayout, board: unknown) {
+  const hasView = useGameStore((state) => state.boardView !== null);
+  const scale = layout.mode === "phone" || layout.mode === "pending" ? null : layout.scale;
+  const open = useCallback(() => {
+    if (scale === null) return;
+    void runner.openView(scale).catch((error: unknown) => {
+      console.error("Error opening the board view:", error);
+    });
+  }, [runner, scale]);
+
+  useEffect(() => {
+    if (hasView) open();
+  }, [board, hasView, open]);
+
+  return open;
 }
 
 const styles = stylex.create({

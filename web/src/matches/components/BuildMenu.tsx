@@ -17,6 +17,8 @@ import type { ProductionOption, ProductionSite, UnitKind } from "#/wasm/awbrn_wa
 interface BuildMenuProps {
   /** Where the board was pressed, in surface pixels. Null when no pointer opened it. */
   anchor: { x: number; y: number } | null;
+  /** How far the menu stays from the anchor, to leave its tile in view. */
+  anchorClearance?: number;
   /** Why the commands are inert, when they are. */
   disabledReason?: string;
   factionCode: string;
@@ -35,6 +37,7 @@ interface BuildMenuProps {
 
 export function BuildMenu({
   anchor,
+  anchorClearance,
   disabledReason,
   factionCode,
   funds,
@@ -50,6 +53,7 @@ export function BuildMenu({
   return (
     <BoardMenuShell
       anchor={anchor}
+      anchorClearance={anchorClearance}
       isOpen={isOpen}
       label={`Build at ${facilityLabel(site)}`}
       onDismiss={onDismiss}
@@ -129,11 +133,10 @@ function BuildMenuBody({
           </Text>
         </VStack>
       ) : (
-        <VStack gap={0} xstyle={isSheet ? undefined : boardMenuStyles.list}>
+        <VStack gap={0} xstyle={isSheet ? undefined : [boardMenuStyles.list, styles.listCap]}>
           {options.map((option) => (
             <BuildRow
               factionCode={factionCode}
-              funds={funds}
               isEnabled={isEnabled}
               key={option.unit}
               onBuild={onBuild}
@@ -197,7 +200,6 @@ function FundsLine({ funds, previewCost }: { funds: number | null; previewCost: 
  */
 function BuildRow({
   factionCode,
-  funds,
   isEnabled,
   onBuild,
   onPreview,
@@ -206,7 +208,6 @@ function BuildRow({
   title,
 }: {
   factionCode: string;
-  funds: number | null;
   isEnabled: boolean;
   onBuild: (unit: UnitKind) => void;
   onPreview: (cost: number | null) => void;
@@ -216,7 +217,6 @@ function BuildRow({
 }) {
   const spriteStyle = unitSpriteStyle(option.unit, factionCode, 2);
   const isOrderable = isEnabled && option.affordable;
-  const shortfall = funds === null ? 0 : Math.max(option.cost - funds, 0);
 
   return (
     <button
@@ -254,11 +254,6 @@ function BuildRow({
       <Stack as="span" xstyle={styles.rowCost}>
         <VisuallyHidden>costs</VisuallyHidden>
         {option.cost.toLocaleString("en-US")}
-        {shortfall > 0 ? (
-          <Text color="inherit" type="inherit" xstyle={styles.shortfall}>
-            <VisuallyHidden>, short by</VisuallyHidden>−{shortfall.toLocaleString("en-US")}
-          </Text>
-        ) : null}
       </Stack>
     </button>
   );
@@ -311,6 +306,11 @@ const styles = stylex.create({
     fontWeight: 600,
     fontVariantNumeric: "tabular-nums",
   },
+  // On the board, eight and a half rows: the menu covers less of the map, and
+  // the half row says the list goes on.
+  listCap: {
+    maxBlockSize: "408px",
+  },
   row: {
     display: "grid",
     gridTemplateColumns: "34px minmax(0, 1fr) auto",
@@ -334,10 +334,6 @@ const styles = stylex.create({
     fontWeight: 600,
     fontVariantNumeric: "tabular-nums",
     lineHeight: 1.05,
-  },
-  shortfall: {
-    color: awbrnVars.danger,
-    fontSize: awbrnVars.text12_5,
   },
   empty: {
     padding: spacingVars["--spacing-3"],

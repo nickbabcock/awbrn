@@ -95,6 +95,7 @@ export interface GameInstance {
   fitBoard: () => Promise<void>;
   zoomTo: (scale: number, tile?: BoardTile) => Promise<void>;
   restoreView: () => Promise<void>;
+  openView: (scale: number) => Promise<void>;
   centerOn: (tile: BoardTile, ease: boolean) => Promise<void>;
   setReducedMotion: (reduced: boolean) => Promise<void>;
   setClearColor: (color: BoardColor) => Promise<void>;
@@ -400,6 +401,12 @@ export const createGame = async (
     },
     restoreView: async () => {
       app.restore_view();
+    },
+    // Both commands land before the next frame, so the whole map never shows
+    // on the way.
+    openView: async (scale: number) => {
+      app.fit_board();
+      app.zoom_to(scale, undefined, undefined);
     },
     centerOn: async (tile: BoardTile, ease: boolean) => {
       app.center_on(tile.x, tile.y, ease);

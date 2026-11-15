@@ -32,6 +32,8 @@ import type { UnitActionOption, UnitBadge } from "#/wasm/awbrn_wasm.js";
 interface UnitActionMenuProps {
   /** Where the board was pressed, in surface pixels. Null when no pointer opened it. */
   anchor: { x: number; y: number } | null;
+  /** How far the menu stays from the anchor, to leave its tile in view. */
+  anchorClearance?: number;
   /** The unit being commanded, named at the head of a menu that forecasts. */
   attacker?: UnitBadge;
   /** Why the orders are inert, when they are. */
@@ -61,6 +63,7 @@ interface UnitActionMenuProps {
  */
 export function UnitActionMenu({
   anchor,
+  anchorClearance,
   attacker,
   disabledReason,
   isEnabled,
@@ -117,6 +120,7 @@ export function UnitActionMenu({
   return (
     <BoardMenuShell
       anchor={anchor}
+      anchorClearance={anchorClearance}
       // The sheet answers its own question at the bottom edge: the commit, then
       // the way back to the orders. The stock Cancel would dismiss the whole
       // menu and lose the move the player already planned. The header rule
@@ -400,7 +404,7 @@ function orderKey(option: UnitActionOption): string {
 }
 
 /**
- * The phone order dock: the orders replace the tile row and the dock, so the
+ * The phone order dock: the orders stand over the tile row and the dock, so the
  * board stays tappable for another target.
  */
 function OrderDock({
@@ -435,8 +439,16 @@ function OrderDock({
       }}
       {...stylex.props(styles.dock)}
     >
-      {/* Armed in place: the head names the order. */}
-      {pending ? <p {...stylex.props(styles.dockHead)}>{pending.name}</p> : null}
+      {/* Armed in place, the head names the order. A lone order leaves room
+          to name the unit, as the desktop menu's head does; more would push
+          the dock over the board's foot, where the destination may be. */}
+      {pending ? (
+        <p {...stylex.props(styles.dockHead)}>{pending.name}</p>
+      ) : attacker && options.length === 1 ? (
+        <VStack xstyle={styles.dockHead}>
+          <Attacker badge={attacker} spriteScale={1} />
+        </VStack>
+      ) : null}
       {!isEnabled && disabledReason ? (
         <p {...stylex.props(styles.dockNotice)}>{disabledReason}</p>
       ) : null}
@@ -533,6 +545,9 @@ const styles = stylex.create({
     animationTimingFunction: awbrnVars.easeStep,
     display: "flex",
     alignItems: "flex-end",
+    // It fills the tile row and the dock it stands over, its rows at the foot.
+    alignContent: "flex-end",
+    flexGrow: 1,
     flexWrap: "wrap",
     gap: spacingVars["--spacing-2"],
     paddingBlock: awbrnVars.spacing2_5,

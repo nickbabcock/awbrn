@@ -48,7 +48,6 @@ import {
   BattleCalculator,
 } from "#/matches/components/BattleCalculator.tsx";
 import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
-import { buildMenuMount } from "#/matches/components/board_menu_mount.ts";
 import { useLeaving } from "#/matches/components/useLeaving.ts";
 import { plateView as pickPlateView } from "#/matches/components/plate_view.ts";
 import { MatchMenu } from "#/matches/components/MatchMenu.tsx";
@@ -78,6 +77,9 @@ import {
   formatScale,
   useBoardView,
   FirstTouchHint,
+  OPENING_SCALE,
+  TILE_PX,
+  useOpeningView,
 } from "#/matches/components/BoardControls.tsx";
 import { BoardTable, WaitingLine } from "#/matches/components/BoardTable.tsx";
 import { TurnLog } from "#/matches/components/TurnLog.tsx";
@@ -1241,6 +1243,8 @@ function ActiveMatchScreen({
     ? { width: initialBoard.map.width, height: initialBoard.map.height }
     : null;
   const layout = useTableLayout(tableRef, mapDims, isPhone);
+  // Keyed on the map, not the message: a reconnect sends the board again.
+  const openView = useOpeningView(runner, layout, `${match.mapId}@${match.mapRevision}`);
   const whole = useWholeMap(runner);
   const boardView = useBoardView();
   const { data: catalogEntry } = useQuery(
@@ -1300,6 +1304,13 @@ function ActiveMatchScreen({
 
   const mapName = initialBoard?.map.metadata.name ?? catalogEntry?.name ?? null;
   const isViewerTurn = isPlayer && viewerSlotIndex === activePlayerSlot;
+  // The viewer's turn ends with the board back as it opened, wherever the turn
+  // left the view.
+  const wasViewerTurnRef = useRef(isViewerTurn);
+  useEffect(() => {
+    if (wasViewerTurnRef.current && !isViewerTurn) openView();
+    wasViewerTurnRef.current = isViewerTurn;
+  }, [isViewerTurn, openView]);
   const isOwed = isViewerTurn && !isReviewing && !isViewerOut;
   const isConnected = status === "connected";
   const mover = armies.find((army) => army.entry.playerId === activePlayerSlot) ?? null;
@@ -1415,12 +1426,15 @@ function ActiveMatchScreen({
     reviewError !== null;
   const columnNotices = hasNotice ? <VStack xstyle={styles.columnNotice}>{notices}</VStack> : null;
 
+  // A menu about a tile opens beside it, clear of the whole tile.
+  const tileClearance = (TILE_PX * (boardView.bv?.scale ?? OPENING_SCALE)) / 2 + 8;
   // A new selection is a new menu: it lands (90ms, stepped) and takes the
   // caret afresh.
   const ordersMenu = hasOrders ? (
     <UnitActionMenu
       key={unitActions.options.map((option) => option.name).join("|")}
-      anchor={null}
+      anchor={unitActions.anchor ?? null}
+      anchorClearance={tileClearance}
       attacker={unitActions.attacker ?? undefined}
       disabledReason={buildBlockedReason}
       isEnabled={buildBlockedReason === undefined}
@@ -1429,23 +1443,22 @@ function ActiveMatchScreen({
       onRestoreFocus={focus}
       options={unitActions.options}
       preselected={unitActions.preselected ?? undefined}
-      presentation={isPhone ? "dock" : "docked"}
+      presentation={isPhone ? "dock" : "board"}
     />
   ) : null;
-  // Mounted once per width: beside the board, in the rail, or as a phone sheet.
-  const buildMount = hasBuild ? buildMenuMount(layout.mode) : null;
   // The phone sheet keeps its last site while it leaves, so its exit plays.
-  const buildSheet = useLeaving(buildMount === "sheet" ? productionOptions : null);
+  const buildSheet = useLeaving(isPhone && hasBuild ? productionOptions : null);
   const renderBuildMenu = (
     production: NonNullable<typeof productionOptions>,
-    presentation: "sheet" | "docked",
+    presentation: "sheet" | "board",
     isOpen = true,
   ) => {
     const site = production.site!;
     return (
       <BuildMenu
         key={`${site.x},${site.y}`}
-        anchor={null}
+        anchor={production.anchor ?? null}
+        anchorClearance={tileClearance}
         disabledReason={buildBlockedReason}
         factionCode={factionCode}
         funds={viewerArmy?.entry.stats.funds ?? null}
@@ -1463,10 +1476,7 @@ function ActiveMatchScreen({
       />
     );
   };
-  const buildMenu =
-    hasBuild && (buildMount === "column" || buildMount === "rail")
-      ? renderBuildMenu(productionOptions, "docked")
-      : null;
+  const buildMenu = hasBuild && !isPhone ? renderBuildMenu(productionOptions, "board") : null;
   const locator =
     catalogEntry && mapName ? (
       <Locator mapName={mapName} runner={runner} src={catalogEntry.screenshot.small} />
@@ -1481,8 +1491,6 @@ function ActiveMatchScreen({
       <BoardKeys runner={runner} />
       {tileMessage ?? <TileWindow />}
       <DockedAttackPreview />
-      {isPhone ? null : ordersMenu}
-      {buildMount === "column" ? buildMenu : null}
     </>
   );
 
@@ -1515,10 +1523,8 @@ function ActiveMatchScreen({
   );
 
   // Rail: the armies, then the view block when the table has no column. The
-  // ledger scrolls inside the rail, so the view block (and the orders docked
-  // in it) never falls below the fold; while orders are open there, they take
-  // the log's place.
-  const isOrderingInRail = layout.mode === "none" && (hasOrders || hasBuild);
+  // ledger scrolls inside the rail, so the view block never falls below the
+  // fold.
   const rail = (
     <>
       {views.length <= 2 ? (
@@ -1540,11 +1546,9 @@ function ActiveMatchScreen({
           <BoardKeys runner={runner} />
           {locator}
           <DockedAttackPreview />
-          {ordersMenu}
-          {buildMount === "rail" ? buildMenu : null}
         </section>
       ) : null}
-      {log && review?.onSeek && !isOrderingInRail ? (
+      {log && review?.onSeek ? (
         <TurnLog
           armies={armies}
           boundaries={log.boundaries}
@@ -1629,7 +1633,7 @@ function ActiveMatchScreen({
     boardError === null && (initialBoard !== null || connection === "connected")
       ? "Loading the board"
       : null;
-  const tileRow = hasOrders ? null : (
+  const tileRow = (
     <HStack align="center" gap={2} xstyle={styles.tileRow}>
       {hasNotice ? (
         <VStack xstyle={styles.tileRowNotice}>{notices}</VStack>
@@ -1687,83 +1691,82 @@ function ActiveMatchScreen({
     </HStack>
   );
 
-  const dock = hasOrders ? (
-    ordersMenu
-  ) : isReviewing && review ? (
-    <PhoneReviewBar review={review} />
-  ) : (
-    <DockRow>
-      {viewerEntry && strongestPower ? (
-        <PowerKey
-          isArmed={armedPower !== null}
-          isLoading={activatingPower !== undefined}
-          label={`CO power: ${powerName(viewerEntry, strongestPower)}`}
-          level={strongestPower}
-          onPress={() => setArmedPower((armed) => (armed === null ? strongestPower : null))}
-          size="dock"
-        />
-      ) : null}
-      <DockKey
-        icon={IconCalculator}
-        isDisabled={isCalculatorOpen}
-        label="Calculator"
-        onPress={() => setIsCalculatorOpen(true)}
-      />
-      {isPlayer && !isViewerOut ? (
-        <DockKey icon={IconMore} label="Match" onPress={() => setIsMatchMenuOpen(true)} />
-      ) : null}
-      {connection === "signedOut" ? (
-        <SignInKey size="dock" />
-      ) : !isConnected ? (
-        <>
-          <WaitCell
-            line={connection === "reconnecting" ? "reconnecting" : "connecting"}
-            name={connection === "reconnecting" ? "Reconnecting" : "Connecting"}
-          />
-          {/* A dock key, so the word "Reconnecting" keeps its room at 390px. */}
-          {connection === "reconnecting" ? (
-            <DockKey icon={IconRefresh} label="Reconnect" onPress={reconnect} />
-          ) : null}
-        </>
-      ) : isPlayer && !isViewerOut && isViewerTurn ? (
-        isSelecting && !hasBuild ? (
-          <DockKey
-            icon={IconClose}
-            label="Deselect"
-            onPress={() => {
-              const canvas = runner.host.canvas;
-              if (canvas) pressBoardKey(canvas, "Escape");
-            }}
-          />
-        ) : (
-          <EndTurnKey
-            factionCode={factionCode}
-            isDisabled={isEndTurnDisabled}
-            isLoading={isEndingTurn}
-            isSpent={isTurnSpent}
-            onPress={onEndTurn}
-            readiness={turnReadiness}
+  const dock =
+    isReviewing && review ? (
+      <PhoneReviewBar review={review} />
+    ) : (
+      <DockRow>
+        {viewerEntry && strongestPower ? (
+          <PowerKey
+            isArmed={armedPower !== null}
+            isLoading={activatingPower !== undefined}
+            label={`CO power: ${powerName(viewerEntry, strongestPower)}`}
+            level={strongestPower}
+            onPress={() => setArmedPower((armed) => (armed === null ? strongestPower : null))}
             size="dock"
-            tooltip={endTurnTooltip}
           />
-        )
-      ) : mover ? (
-        <WaitCell
-          clock={
-            moverClock ? (
-              <StripClock
-                detail={moverClock.detail}
-                label={moverClock.label}
-                pressure={moverClock.pressure}
-                value={moverClock.value}
-              />
-            ) : undefined
-          }
-          name={mover.name}
+        ) : null}
+        <DockKey
+          icon={IconCalculator}
+          isDisabled={isCalculatorOpen}
+          label="Calculator"
+          onPress={() => setIsCalculatorOpen(true)}
         />
-      ) : null}
-    </DockRow>
-  );
+        {isPlayer && !isViewerOut ? (
+          <DockKey icon={IconMore} label="Match" onPress={() => setIsMatchMenuOpen(true)} />
+        ) : null}
+        {connection === "signedOut" ? (
+          <SignInKey size="dock" />
+        ) : !isConnected ? (
+          <>
+            <WaitCell
+              line={connection === "reconnecting" ? "reconnecting" : "connecting"}
+              name={connection === "reconnecting" ? "Reconnecting" : "Connecting"}
+            />
+            {/* A dock key, so the word "Reconnecting" keeps its room at 390px. */}
+            {connection === "reconnecting" ? (
+              <DockKey icon={IconRefresh} label="Reconnect" onPress={reconnect} />
+            ) : null}
+          </>
+        ) : isPlayer && !isViewerOut && isViewerTurn ? (
+          isSelecting && !hasBuild ? (
+            <DockKey
+              icon={IconClose}
+              label="Deselect"
+              onPress={() => {
+                const canvas = runner.host.canvas;
+                if (canvas) pressBoardKey(canvas, "Escape");
+              }}
+            />
+          ) : (
+            <EndTurnKey
+              factionCode={factionCode}
+              isDisabled={isEndTurnDisabled}
+              isLoading={isEndingTurn}
+              isSpent={isTurnSpent}
+              onPress={onEndTurn}
+              readiness={turnReadiness}
+              size="dock"
+              tooltip={endTurnTooltip}
+            />
+          )
+        ) : mover ? (
+          <WaitCell
+            clock={
+              moverClock ? (
+                <StripClock
+                  detail={moverClock.detail}
+                  label={moverClock.label}
+                  pressure={moverClock.pressure}
+                  value={moverClock.value}
+                />
+              ) : undefined
+            }
+            name={mover.name}
+          />
+        ) : null}
+      </DockRow>
+    );
 
   const sheetView = views.find((view) => view.army.entry.playerId === sheetArmyId) ?? null;
   const fullscreenKey = (
@@ -1774,6 +1777,7 @@ function ActiveMatchScreen({
     <>
       <MatchFrame
         dock={dock}
+        orders={isPhone ? ordersMenu : null}
         foot={review ? <ReviewFoot review={review} /> : undefined}
         fullscreenMode={fullscreenMode}
         label={match.name}
@@ -1814,6 +1818,8 @@ function ActiveMatchScreen({
             overlay={
               <>
                 <WholeMapOutline runner={runner} />
+                {isPhone ? null : ordersMenu}
+                {buildMenu}
                 {/* A phone has no column to dock the forecast in, so it stands
                     beside the target, as the planner's does. */}
                 {isPhone ? <AttackPreview surfaceRef={canvasContainerRef} /> : null}

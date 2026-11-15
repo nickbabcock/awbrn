@@ -64,6 +64,13 @@ export class GameRunner {
   };
 
   constructor() {
+    // The engine's remotes are kept out of anything that walks a runner's
+    // fields, such as a devtools preview of the `runner` prop. Printing a
+    // remote's property (`${game.name}`) sends the read to the worker, which
+    // throws "Cannot convert object to primitive value".
+    for (const key of ["createGamePromise", "game", "worker"]) {
+      Object.defineProperty(this, key, { enumerable: false, writable: true, value: undefined });
+    }
     this.motionQuery?.addEventListener?.("change", this.forwardMotionPreference);
   }
 
@@ -563,6 +570,12 @@ export class GameRunner {
   async zoomTo(scale: number, tile?: BoardTile): Promise<void> {
     const game = await this.requireGame();
     await game.zoomTo(scale, tile);
+  }
+
+  /** Show the map in the middle of the canvas at exactly `scale`, as a board opens. */
+  async openView(scale: number): Promise<void> {
+    const game = await this.requireGame();
+    await game.openView(scale);
   }
 
   /** Go back to the view the last {@link fitBoard} or {@link zoomTo} left. */

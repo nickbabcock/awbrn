@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
 /**
- * How long a closed sheet stays mounted: past its 90ms stepped exit, with room
- * for the frame the exit starts on. It is invisible by then, so a longer hold
+ * How long a closed sheet stays mounted: past its 160ms exit, with room for
+ * the frame the exit starts on. It is invisible by then, so a longer hold
  * costs nothing.
  */
-const LEAVING_HOLD_MS = 200;
+const LEAVING_HOLD_MS = 240;
 
 /**
  * Holds the last value a sheet showed while the sheet leaves.

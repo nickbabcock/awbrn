@@ -856,6 +856,9 @@ fn keep_scale_at_or_above_fit(
 fn accept_focus_requests(
     mut requests: MessageReader<FocusBoardOn>,
     reduced_motion: Res<ReducedMotion>,
+    camera_scale: Res<CameraScale>,
+    game_map: Option<Res<GameMap>>,
+    windows: Query<&Window>,
     mut goal: ResMut<CameraGoal>,
     mut query: Query<&mut Transform, With<Camera>>,
 ) {
@@ -865,7 +868,25 @@ fn accept_focus_requests(
     let Ok(mut transform) = query.single_mut() else {
         return;
     };
-    head_for(request.world, !reduced_motion.0, &mut goal, &mut transform);
+    let target = match (game_map, windows.single()) {
+        (Some(game_map), Ok(window)) => {
+            focus_within_map(request.world, &game_map, window, camera_scale.scale())
+        }
+        _ => request.world,
+    };
+    head_for(target, !reduced_motion.0, &mut goal, &mut transform);
+}
+
+/// Where the camera may center to show `world` without looking past the map.
+///
+/// On an axis the whole map fits, the map stays in the middle: framing a
+/// selection there would only slide the board off its own frame. On a cropped
+/// axis the view stops at the map's edge.
+fn focus_within_map(world: Vec2, game_map: &GameMap, window: &Window, scale: f32) -> Vec2 {
+    let map_half = map_world_size(game_map) * 0.5;
+    let view_half = Vec2::new(window.width(), window.height()) * 0.5 / scale.max(f32::EPSILON);
+    let reach = (map_half - view_half).max(Vec2::ZERO);
+    MAP_CENTER_WORLD + (world - MAP_CENTER_WORLD).clamp(-reach, reach)
 }
 
 /// Slide toward whatever was last asked for, frame by frame.
@@ -1449,11 +1470,28 @@ mod tests {
         assert_eq!(camera_pose(&mut app).center, framed);
 
         app.insert_resource(ReducedMotion(false));
-        app.world_mut()
-            .write_message(FocusBoardOn { world: tile_center });
+        let eased = Vec2::new(64.0, -32.0);
+        app.world_mut().write_message(FocusBoardOn { world: eased });
         app.update();
-        assert_eq!(app.world().resource::<CameraGoal>().0, Some(tile_center));
+        assert_eq!(app.world().resource::<CameraGoal>().0, Some(eased));
         assert_eq!(camera_pose(&mut app).center, framed);
+    }
+
+    #[test]
+    fn framing_a_selection_never_looks_past_the_map() {
+        // A 10x10 map is 160x176 world units with its overhang row; at 2x a
+        // 400x300 canvas shows 200x150, so it fits across and is cropped down.
+        let mut app = camera_command_app(test_window(400, 300), test_map(10, 10));
+        app.add_message::<FocusBoardOn>()
+            .add_systems(Update, accept_focus_requests.before(apply_camera_commands))
+            .insert_resource(ReducedMotion(true));
+
+        app.world_mut().write_message(FocusBoardOn {
+            world: Vec2::new(-64.0, 80.0),
+        });
+        app.update();
+        // Across, the map stays in the middle; down, the view stops at its top.
+        assert_eq!(camera_pose(&mut app).center, Vec2::new(0.0, 13.0));
     }
 
     #[test]

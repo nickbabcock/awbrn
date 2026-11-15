@@ -106,6 +106,8 @@ export const matchSettingsSchema = z.object({
 export const matchCreateSeatSchema = z.object({
   slotIndex: z.number().int().nonnegative(),
   profileId: aiProfileIdSchema,
+  /** The seat's army, when the host's own choice moved it off the map's. */
+  factionId: z.number().int().optional(),
 });
 
 export const matchCreateRequestSchema = z
@@ -123,7 +125,13 @@ export const matchCreateRequestSchema = z
   .refine(
     (input) => new Set(input.aiSeats.map((seat) => seat.slotIndex)).size === input.aiSeats.length,
     "a seat can only be filled once",
-  );
+  )
+  .refine((input) => {
+    const armies = input.aiSeats.flatMap((seat) =>
+      seat.factionId === undefined ? [] : [seat.factionId],
+    );
+    return new Set(armies).size === armies.length;
+  }, "two seats cannot share an army");
 
 export const matchBrowseRequestSchema = z.object({
   cursor: z.string().min(1).optional(),

@@ -211,7 +211,7 @@ export async function createMatch(
                 userId: null,
                 aiProfileId: seat.profileId,
                 slotIndex: seat.slotIndex,
-                factionId: seatFactions[seat.slotIndex] ?? 0,
+                factionId: seat.factionId ?? seatFactions[seat.slotIndex] ?? 0,
                 coId: chooseAiCo(input.settings.bannedCoIds, matchId, seat.slotIndex),
                 ready: true,
                 joinedAt: now,
