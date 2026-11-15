@@ -13,7 +13,7 @@ visual HP is defined by `semantics/combat.md`; the repair capability relation is
 
 `move-repair` moves a repair-capable unit and then services one named adjacent
 friendly unit: it always refills that unit's fuel and ammo for free, and — funds
-permitting — heals it one visual HP bar for a funds cost. In the AWBW profile
+permitting — heals it one bar of exact HP for a funds cost. In the AWBW profile
 only the **Black Boat** carries the manual `repair` capability
 (`unit-capabilities.json`).
 
@@ -114,22 +114,22 @@ order:
    `t.ammo = max-ammo(t)`. If either actually changes, emit
    `unit-resourced { unit: t, fuel_before, fuel_after, ammo_before, ammo_after,
    reason: "unit-repair" }`.
-3. **Heal (conditional, paid).** Let `vh = visual-hp(t.hp)`.
-   - If `vh = 10` the target is already at full visual HP: no heal, no cost, and
-     no `funds-changed`/`unit-repaired` event.
-   - Otherwise let `hp' = min(vh + 1, 10) * 10`. Healing rounds the target's HP
-     up to its current bar and then adds one bar, so a fractional-bar target may
-     gain more than ten exact HP; this is the documented AWBW heal rounding and
-     matches the visual-HP model of `semantics/combat.md`. If
-     `heal-cost(t) <= S.players[p].funds`, then set
-     `S.players[p].funds -= heal-cost(t)` and emit
-     `funds-changed { player: p, from, to, reason: "unit-repair" }`; set
-     `t.hp = hp'` and emit `unit-repaired { unit: t, from_hp, to_hp: hp',
-     reason: "unit-repair" }`.
-   - If `heal-cost(t) > S.players[p].funds`, the player cannot afford the heal:
-     `t.hp` is unchanged and no `funds-changed`/`unit-repaired` is emitted. The
-     free resupply of step 2 still stands. This "resupply without repair when
-     broke" behavior is an intentionally modeled AWBW quirk.
+3. **Heal (conditional, paid).**
+   - If `t.hp < 90`, the heal costs `heal-cost(t)`. If `t.hp` is 91 to 99, it
+     shows 10 bars already and gains none, so the heal is free, but it happens
+     only when step 2 actually changed the target's fuel or ammo. Otherwise
+     (`t.hp = 100`, or a fully supplied target at 91 to 99) there is no heal,
+     no cost, and no `funds-changed`/`unit-repaired` event.
+   - The heal sets `t.hp' = min(100, t.hp + 10)`, keeping the fraction: 74
+     becomes 84, and 97 becomes 100. If its cost is at most
+     `S.players[p].funds`, then, when the cost is not zero, set
+     `S.players[p].funds -= cost` and emit `funds-changed { player: p, from,
+     to, reason: "unit-repair" }`; set `t.hp = t.hp'` and emit `unit-repaired {
+     unit: t, from_hp, to_hp: t.hp', reason: "unit-repair" }`.
+   - If the cost exceeds `S.players[p].funds`, the player cannot afford the
+     heal: `t.hp` is unchanged and no `funds-changed`/`unit-repaired` is
+     emitted. The free resupply of step 2 still stands. This "resupply without
+     repair when broke" behavior is an intentionally modeled AWBW quirk.
 
 Only the acting Black Boat ends its turn; `t`'s action state is unchanged. The
 state remains in `unit-action`; repair introduces no victory checkpoint.
@@ -140,15 +140,23 @@ state remains in `unit-action`; repair introduces no victory checkpoint.
 | --- | --- | --- | --- |
 | 1 | `unit-moved` | `unit: u`, `from`, `to`, `path: A`, `fuel_spent` | always |
 | 2 | `unit-resourced` | `unit: t`, fuel/ammo before-after, `reason: "unit-repair"` | only when the target's fuel or ammo actually changes |
-| 3 | `funds-changed` | `player: p`, `from`, `to`, `reason: "unit-repair"` | only when a paid heal occurs |
-| 4 | `unit-repaired` | `unit: t`, `from_hp`, `to_hp`, `reason: "unit-repair"` | only when a paid heal occurs |
+| 3 | `funds-changed` | `player: p`, `from`, `to`, `reason: "unit-repair"` | only when a heal with a nonzero cost occurs |
+| 4 | `unit-repaired` | `unit: t`, `from_hp`, `to_hp`, `reason: "unit-repair"` | only when a heal occurs |
 
 Payment precedes the heal fact, mirroring production's `funds-changed` before
 `unit-created` (`semantics/production.md`). Resupply precedes heal because AWBW
-services fuel and ammo before restoring HP. Events 3 and 4 are emitted together
-or not at all.
+services fuel and ammo before restoring HP. Event 3 is emitted only with event 4;
+a free top-up from 91 to 99 HP emits event 4 alone.
 
 ## Evidence
+
+Confirmed by archived AWBW replays:
+
+- One heal takes an Infantry from 7.4 to 8.4, keeping the fraction.
+- A B-Copter at 9.7 that needed fuel is topped up to 10.0, while a fully
+  supplied Infantry at 9.8 stays at 9.8. Across the archived tournament games,
+  all 13 repaired units at 9.x that needed fuel or ammo reached 10.0, and both
+  that did not stayed put.
 
 Corroborated implementation:
 

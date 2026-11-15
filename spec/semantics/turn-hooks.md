@@ -233,20 +233,29 @@ Repair heals hit points for a funds cost; the fuel and ammo of every unit in
 earlier unit's repair can exhaust funds needed by a later one. For each unit `u`
 in `R(s)`, in ascending unit-ID order:
 
-1. Let `vh = visual-hp(u.hp)` and `missing = 10 - vh`. If `missing = 0`, `u` is
-   already at full visual HP: no heal, no cost, no event.
-2. Otherwise let `bars = min(2, missing, floor(S.players[s].funds /
-   heal-cost(u)))`. AWBW heals at most two visual bars per turn from a property.
-   - If `bars = 0`, `s` cannot afford even one bar: `u.hp` is unchanged and no
-     event is emitted. The free step-5 resupply still stands.
-   - Otherwise set `S.players[s].funds -= bars * heal-cost(u)`, set
-     `u.hp = min(vh + bars, 10) * 10`, and emit
-     `automatic-repair { unit: u, position: [x, y], hp_restored: u.hp - hp-before,
-     cost: bars * heal-cost(u) }`.
+1. If `u.hp = 100`, `u` is already at full HP: no heal, no cost, no event.
+2. Otherwise let `R = effective-repair-bars(context, s, 2)`: AWBW heals at most
+   two bars per turn from a property, three for Rachel. For a heal of `b` bars
+   let
 
-Healing rounds `u.hp` up to its current bar and then adds `bars` bars, so a
-fractional-bar unit may gain more than `bars * 10` exact HP; this is the same
-documented AWBW rounding used by `semantics/repair.md`. `automatic-repair`
+   ```text
+   to(b)   = min(100, u.hp + 10 * b)
+   cost(b) = (visual-hp(to(b)) - visual-hp(u.hp)) * heal-cost(u)
+   ```
+
+   and let `b` be the largest value in `1..=R` with
+   `cost(b) <= S.players[s].funds`.
+   - If there is none, `s` cannot afford even one bar: `u.hp` is unchanged and
+     no event is emitted. The free step-5 resupply still stands.
+   - Otherwise set `S.players[s].funds -= cost(b)`, set `u.hp = to(b)`, and
+     emit `automatic-repair { unit: u, position: [x, y], hp_restored: u.hp -
+     hp-before, cost: cost(b) }`.
+
+The heal keeps the fraction: 64 exact HP becomes 84. The price is the bars the
+unit gains on the board, so a unit at 94 is topped up to 100 for nothing, and
+one at 84 pays one bar to reach 100. Archived AWBW replays show both: an
+Infantry going from 6.4 to 8.4 for two bars and another from 9.4 to 10.0 for
+nothing in the same turn. `automatic-repair`
 carries the funds `cost` inline, so — unlike the Black Boat's generic
 `unit-repaired`, which has no cost field and therefore pairs with a
 `funds-changed` (`semantics/repair.md`) — property repair emits **no** separate

@@ -158,7 +158,7 @@
               "id": 0,
               "kind": "tank",
               "owner": "red",
-              "hp": 90,
+              "hp": 85,
               "fuel": 70,
               "ammo": 9,
               "action": "ready",
@@ -196,7 +196,7 @@
             "type": "automatic-repair",
             "unit": 0,
             "position": [0, 0],
-            "hp_restored": 35,
+            "hp_restored": 30,
             "cost": 2100
           },
           {

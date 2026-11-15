@@ -133,16 +133,17 @@ unit independently:
 
 ```text
 from = exact HP before this effect
-visual = ceiling(from / 10)
-to = min(10, visual + amount) * 10
+to = min(100, from + 10 * amount)
 ```
 
-If `to != from`, set the unit's exact HP to `to` and emit
-`unit-repaired { unit, from_hp: from, to_hp: to, reason:
+`amount` counts bars, but the heal keeps the fraction: it is not rounded up to
+the unit's current bar first. If `to != from`, set the unit's exact HP to `to`
+and emit `unit-repaired { unit, from_hp: from, to_hp: to, reason:
 "commander-power" }`. If `to = from`, make no mutation and emit no event.
-Consequently a unit at 55 exact HP reaches 80 under Andy's two-bar Hyper
+Consequently a unit at 55 exact HP reaches 75 under Andy's two-bar Hyper
 Repair, a unit at 91 reaches 100, and a unit already at 100 emits no repair
-fact. The operator never changes fuel, ammo, funds, action state, or location.
+fact. Archived AWBW replays show Hyper Repair taking an Infantry from 2.3 to
+4.3. The operator never changes fuel, ammo, funds, action state, or location.
 
 ## `heal-exact-hp`
 

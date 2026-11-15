@@ -43,7 +43,8 @@ e1dc35bf4c97b898  obs=4 ev=8  commander/adder-cop-combat.json
 f054c35fa0137705  obs=4 ev=2  commander/adder-scop-movement.json
 307260372b954c22  obs=4 ev=2  commander/adder-scop.json
 50969ed4198a4d4e  obs=4 ev=8  commander/andy-cop-combat.json
-4328672bade44488  obs=4 ev=6  commander/andy-cop.json
+919a788ecde2386f  obs=4 ev=4  commander/andy-cop-keeps-fraction.json
+c15af834b4336048  obs=4 ev=6  commander/andy-cop.json
 e3987317a5ef4588  obs=4 ev=10  commander/andy-day-to-day-combat.json
 0268b058afef5113  obs=4 ev=8  commander/andy-scop-combat.json
 f7bd403b5ecf099f  obs=4 ev=2  commander/andy-scop-movement.json
@@ -183,7 +184,7 @@ abad8458435b9ff6  obs=4 ev=8  commander/olaf-scop.json
 65f5859dc74c9bcf  obs=4 ev=8  commander/rachel-cop-combat.json
 148cf79e726bf974  obs=4 ev=2  commander/rachel-cop.json
 ea26bfaaad47a44a  obs=4 ev=10  commander/rachel-day-to-day-combat.json
-4c4efdfd0539bd70  obs=4 ev=17  commander/rachel-property-repair.json
+81142ca58673ae24  obs=4 ev=17  commander/rachel-property-repair.json
 8d40e02a4b7c1cc9  obs=4 ev=8  commander/rachel-scop-combat.json
 379af553af3fff47  obs=4 ev=14  commander/rachel-scop-overlap.json
 bf87b527390942db  obs=4 ev=30  commander/rachel-scop.json
@@ -296,7 +297,8 @@ a667b0972784b891  obs=2 ev=2  production/lab-unit-owned-lab.json
 cfcb3acc62abb3d9  obs=2 ev=0  production/produce-wrong-domain.json
 d5db25691c977b55  obs=2 ev=0  production/unit-limit-counts-cargo.json
 ab592403b54dd65b  obs=15 ev=13  production/unit-limit-owner-scope.json
-1338c4f1a4fb6914  obs=2 ev=4  repair/black-boat-repairs-black-boat.json
+098b0bafc6ac24da  obs=8 ev=13  repair/black-boat-repair-keeps-fraction.json
+ceb31668a4eed572  obs=2 ev=4  repair/black-boat-repairs-black-boat.json
 b126dd2b2592acd3  obs=2 ev=2  repair/repair-full-hp-resupply-only.json
 f7e64ddcbee4466b  obs=2 ev=0  repair/repair-non-black-boat-rejected.json
 3a226c0e214a97f5  obs=2 ev=2  repair/repair-unaffordable-resupply-only.json
@@ -325,7 +327,8 @@ a0d00c0b7e4dfc39  obs=3 ev=4  turn/opening-income-funds-bases.json
 f9c2f57cf148b238  obs=4 ev=13  turn/round-boundary-day-advance.json
 327251b81d03c8b2  obs=4 ev=20  turn-hooks/apc-auto-supply.json
 245b83e3739301d7  obs=4 ev=18  turn-hooks/fuel-upkeep-and-crash.json
-f838d802b4d97ed5  obs=4 ev=23  turn-hooks/property-repair.json
+95bb26baed82eb11  obs=4 ev=17  turn-hooks/property-repair-keeps-fraction.json
+aa9396cbec374c29  obs=4 ev=23  turn-hooks/property-repair.json
 7ed465bc0470e612  obs=10 ev=42  turn-hooks/random-weather-outcomes.json
 bdcec65ac4e352fa  obs=4 ev=10  turn-hooks/random-weather-override-expiry.json
 c80dc8022a2ad82a  obs=4 ev=14  turn-hooks/weather-expiry.json

@@ -817,7 +817,10 @@ fn crash_out_of_fuel(next: &mut State, incoming: &Incoming, events: &mut Vec<Eve
 }
 
 /// Turn-start step 8: a unit resting on its owner's repairing property heals
-/// whole HP bars, paid for out of that player's funds.
+/// up to two bars of exact HP, paid for out of that player's funds.
+///
+/// The heal keeps the fraction (7.4 becomes 9.4) and the price is the bars the
+/// board gains, so a 9.x unit is topped up to 10 for free.
 fn repair_on_properties(
     next: &mut State,
     incoming: &Incoming,
@@ -830,38 +833,33 @@ fn repair_on_properties(
         .map(|(position, unit_id)| (*unit_id, *position))
         .collect();
     survivors.sort_by_key(|left| left.0);
+    let repair_bars = commander::effective_repair_bars(next, incoming.seat);
     for (unit_id, position) in survivors {
         let index = next
             .units
             .index_of(unit_id)
             .expect("repair unit remains present");
         let hp_before = next.units[index].hp;
-        let visual_hp = u64::from(hp_before).div_ceil(10);
-        let missing_bars = 10 - visual_hp;
-        if missing_bars == 0 {
+        if hp_before >= 100 {
             continue;
         }
         let heal_cost = ruleset::profile(next.units[index].kind)
             .cost
             .checked_div(10)
             .ok_or(ExecuteError::UnsupportedRuleset)?;
-        let affordable_bars = next
-            .player(incoming.seat)
-            .funds
-            .checked_div(heal_cost)
-            .unwrap_or(missing_bars);
-        let bars = commander::effective_repair_bars(next, incoming.seat)
-            .min(missing_bars)
-            .min(affordable_bars);
-        if bars == 0 {
+        let funds = next.player(incoming.seat).funds;
+        // A player who cannot pay for the full heal gets the most whole bars
+        // they can afford.
+        let heal = (1..=repair_bars).rev().find_map(|bars| {
+            let hp_after = (u64::from(hp_before) + bars * 10).min(100);
+            let paid_bars = hp_after.div_ceil(10) - u64::from(hp_before).div_ceil(10);
+            let cost = paid_bars.checked_mul(heal_cost)?;
+            (cost <= funds).then_some((hp_after as u8, cost))
+        });
+        let Some((hp_after, cost)) = heal else {
             continue;
-        }
-        let cost = bars
-            .checked_mul(heal_cost)
-            .ok_or_else(|| ExecuteError::InvalidState("property repair cost overflow".into()))?;
+        };
         next.player_mut(incoming.seat).funds -= cost;
-        let hp_after = u8::try_from((visual_hp + bars).min(10) * 10)
-            .map_err(|_| ExecuteError::InvalidState("property repair HP overflow".into()))?;
         next.units[index].hp = hp_after;
         events.push(Event::AutomaticRepair {
             unit: unit_id,
