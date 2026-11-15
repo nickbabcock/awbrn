@@ -288,8 +288,8 @@ profile (`ai-hard-v5`) seats it.
 The plans `planner-v9-vs-v8-move-fixed280.json` and
 `planner-v9-vs-v8-move-fog-fixed280.json` compare it with `planner-v8-move`
 on the 14 development maps, day limit 35, node budget 256. The Sami runs
-set `"commanders": ["sami", "sami"]` and the run seeds 2026111418002 and
-2026111418004. Mean pair differential with the descriptive 95% half width;
+set `"commanders": ["sami", "sami"]` and the run seed 2026111418002 without
+fog and 2026111418004 in fog. Mean pair differential with the descriptive 95% half width;
 no command was invalid:
 
 | Games | Commander | Pairs | Score |

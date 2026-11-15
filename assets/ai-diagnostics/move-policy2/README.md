@@ -11,8 +11,8 @@ seats `planner-v9`.
 | `unit2-nofog.awt`, `unit2-fog.awt` | Next unit: boosted trees with a softmax over the units that can act, 199 features | 394 / 400, depth 6 | 521,849 / 572,283 |
 
 The move model files also hold 12 extra values from their fit, which play
-does not read (a fit with `policy2/fit.py` writes none). `fixtures/*.rows` are 50 held-out rows of each model with the
-raw scores of LightGBM; the test
+does not read (a fit with `policy2/fit.py` writes none). `fixtures/*.rows`
+are 50 held-out rows of each model with the raw scores of LightGBM; the test
 `move_policy2::tests::the_trees_score_as_lightgbm` checks that the Rust
 trees give the same scores.
 
