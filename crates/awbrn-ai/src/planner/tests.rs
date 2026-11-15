@@ -3103,12 +3103,11 @@ fn a_blocker_that_a_non_capturer_and_one_capturer_destroy_leaves_a_capturer_free
 }
 
 /// Our blocker of six health, an enemy tank of seven health that does a
-/// little less damage to it than an enemy infantry, and two enemy infantry.
-/// Once one infantry has attacked, the tank and the other infantry each
-/// destroy the blocker, a tie of focused fire; the enemy keeps an infantry
-/// to capture in every order of its units.
+/// little less damage to it than an enemy infantry, and two enemy infantry,
+/// none of which destroys it alone. The tank and either infantry destroy
+/// it, so the other infantry captures, in every order of the enemy units.
 #[test]
-fn a_tie_of_focused_fire_on_a_blocker_does_not_spend_both_capturers() {
+fn a_tank_and_one_infantry_destroy_a_blocker_for_the_other_infantry() {
     use awvm::ruleset::UnitKind::{Infantry, Tank};
     use awvm::semantic::Pos;
     let tank = (Tank, Pos::new(3, 2));
@@ -3127,6 +3126,63 @@ fn a_tie_of_focused_fire_on_a_blocker_does_not_spend_both_capturers() {
             .unwrap();
         state.units.get_mut(tank_id).unwrap().hp = 70;
         assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// Our blocker of one health, an enemy mech next to the headquarters, and an
+/// enemy infantry that can attack the blocker but cannot reach the
+/// headquarters. The infantry destroys the blocker and the mech, which does
+/// more damage, captures, in either order of the units.
+///
+/// Spending the capturer that does the most damage fails both orders.
+#[test]
+fn a_weaker_capturer_that_cannot_reach_the_property_destroys_the_blocker() {
+    use awvm::ruleset::UnitKind::{Infantry, Mech};
+    use awvm::semantic::Pos;
+    let mech = (Mech, Pos::new(2, 3));
+    let infantry = (Infantry, Pos::new(6, 2));
+    for enemies in [[mech, infantry], [infantry, mech]] {
+        let (state, ours) = blocked_headquarters(10, &enemies);
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// Our blocker of one health, an enemy infantry next to the headquarters,
+/// and an enemy mech that can attack the blocker but cannot reach the
+/// headquarters. The mech destroys the blocker and the infantry captures, in
+/// either order of the units.
+///
+/// Spending the capturers in the order of the units fails the order with
+/// the infantry first.
+#[test]
+fn a_later_capturer_that_cannot_reach_the_property_destroys_the_blocker() {
+    use awvm::ruleset::UnitKind::{Infantry, Mech};
+    use awvm::semantic::Pos;
+    let infantry = (Infantry, Pos::new(2, 3));
+    let mech = (Mech, Pos::new(5, 2));
+    for enemies in [[infantry, mech], [mech, infantry]] {
+        let (state, ours) = blocked_headquarters(10, &enemies);
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// Our blocker of five health, an enemy mech next to the headquarters that
+/// destroys it, and an enemy infantry that can attack it but does not
+/// destroy it and cannot reach the headquarters. The only unit that can
+/// destroy the blocker is the only one that can capture, so the blocker
+/// holds in either order of the units.
+///
+/// Letting every enemy capturer capture behind a destroyed blocker fails
+/// this test.
+#[test]
+fn a_blocker_that_only_the_capturer_destroys_holds() {
+    use awvm::ruleset::UnitKind::{Infantry, Mech};
+    use awvm::semantic::Pos;
+    let mech = (Mech, Pos::new(2, 3));
+    let infantry = (Infantry, Pos::new(6, 2));
+    for enemies in [[mech, infantry], [infantry, mech]] {
+        let (state, ours) = blocked_headquarters(50, &enemies);
+        assert!(!blocked_headquarters_lost(state, ours), "{enemies:?}");
     }
 }
 
@@ -3168,6 +3224,42 @@ fn the_march_guard_spends_the_attackers_of_a_blocker() {
         assert_eq!(estimate.destroyed, vec![blocker]);
         assert!(!estimate.headquarters_lost, "far {far}");
     }
+}
+
+/// With the march guard and no contest switch, an enemy tank destroys our
+/// blocker on the headquarters, so the enemy Sami infantry next to it takes
+/// the headquarters with Victory March. Focused fire gives the blocker to
+/// the infantry, the first of the tied attackers in the order of the units,
+/// so spending the attackers that focused fire chose fails this test.
+#[test]
+fn the_march_guard_frees_a_capturer_when_a_tank_destroys_the_blocker() {
+    use awvm::commander::PowerLevel;
+    use awvm::ruleset::{CommanderKind, UnitKind};
+    use awvm::semantic::Pos;
+    let guard = reply::ReplyOptions {
+        commander_effects: true,
+        march: true,
+        contest: false,
+        march_guard: true,
+    };
+    let (mut state, ours, theirs) = march_board(CommanderKind::Andy, CommanderKind::Sami);
+    let blocker = add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(0, 0));
+    state.units.get_mut(blocker).unwrap().hp = 10;
+    add_unit(&mut state, UnitKind::Infantry, theirs, Pos::new(1, 0));
+    add_unit(&mut state, UnitKind::Tank, theirs, Pos::new(0, 3));
+    charge_power(&mut state, theirs, PowerLevel::Scop);
+    state.turn.active_player = state.player(theirs).id().clone();
+    let session = Session::new(state);
+    let values = PropertyValues::STANDARD;
+    let estimate = reply::estimate(&session, ours, values, guard);
+    assert_eq!(estimate.destroyed, vec![blocker]);
+    assert!(estimate.headquarters_lost);
+    let unguarded = reply::ReplyOptions {
+        march_guard: false,
+        ..guard
+    };
+    let estimate = reply::estimate(&session, ours, values, unguarded);
+    assert!(!estimate.headquarters_lost);
 }
 
 /// At the start of our turn, an enemy capturer that completes the capture of

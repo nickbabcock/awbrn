@@ -162,11 +162,11 @@ pub struct ReplyOptions {
     ///   [`super::contest::TWO_TURN_SHARE`] of the headquarters value.
     /// - A unit of ours on a decisive property that focused fire destroys
     ///   does not block it: the estimate counts the enemy captures of the
-    ///   property without that unit. Every enemy unit that cannot capture
-    ///   attacks it first; if that falls short, the enemy capturers that do
-    ///   the most damage to it attack it until it is destroyed, and have
-    ///   ended their action. The other capturers capture. The damage is the
-    ///   forecast without an enemy power.
+    ///   property without that unit. A unit that attacks has ended its
+    ///   action, so a capture there by an enemy unit counts only when the
+    ///   attacks of the other enemy units on the blocker, each unit once,
+    ///   add up to its health. The damage is the forecast without an enemy
+    ///   power.
     pub contest: bool,
     /// When true, with [`ReplyOptions::march`]
     /// ([`super::PlannerConfig::march_guard`]): the enemy meter can pay for
@@ -174,8 +174,7 @@ pub struct ReplyOptions {
     /// [`super::march::METER_MARGIN`] of its cost, because attacks before
     /// the power charge the meter. And a unit of ours on our decisive
     /// property that focused fire destroys does not block it from the
-    /// powered captures of the capturers left as for
-    /// [`ReplyOptions::contest`].
+    /// powered captures, by the rule of [`ReplyOptions::contest`].
     pub march_guard: bool,
 }
 
@@ -236,11 +235,28 @@ pub fn estimate(
         .collect();
     let mut attacks = collector.attacks;
     let opens_blockers = contest || (march && march_guard);
-    // Every enemy attack, for the attackers of an opened blocker.
-    let all_attacks = if opens_blockers {
-        attacks.clone()
+    let decisive = if opens_blockers {
+        super::contest::decisive_tiles(state, ours)
     } else {
         Vec::new()
+    };
+    // The attacks on our units that block a decisive property, for the
+    // captures behind a destroyed blocker ([`ReplyOptions::contest`]).
+    let on_blockers: Vec<Attack> = if decisive.is_empty() {
+        Vec::new()
+    } else {
+        attacks
+            .iter()
+            .filter(|attack| {
+                state.units.at(attack.target_index).is_some_and(|unit| {
+                    let awvm::semantic::Location::Board { position } = unit.location else {
+                        return false;
+                    };
+                    super::contest::share_at(&decisive, position).is_some_and(|share| share >= 1.0)
+                })
+            })
+            .cloned()
+            .collect()
     };
     let mut destroyed_units: Vec<(f64, UnitId)> = Vec::new();
     let mut exposed_units: Vec<(f64, UnitId)> = Vec::new();
@@ -286,62 +302,32 @@ pub fn estimate(
     // Captures: the best capture for each of our or neutral properties.
     let dimensions = state.board.dimensions();
     let mut taken: Vec<(CellIdx, f64)> = Vec::new();
-    let decisive = if contest {
-        super::contest::decisive_tiles(state, ours)
-    } else {
-        Vec::new()
-    };
     // A decisive property of ours whose blocker focused fire destroys is
     // open without it ([`ReplyOptions::contest`]).
     let captures = collector.captures;
     let mut opened: Vec<awvm::semantic::State> = Vec::new();
-    if opens_blockers {
-        for (_, id) in &destroyed_units {
-            let Some(unit) = state.units.get(*id) else {
+    if !on_blockers.is_empty() {
+        for &(_, id) in &destroyed_units {
+            let on_blocker = || on_blockers.iter().filter(move |attack| attack.target == id);
+            if on_blocker().next().is_none() {
                 continue;
-            };
-            let awvm::semantic::Location::Board { position } = unit.location else {
-                continue;
-            };
-            let blocks = if contest {
-                super::contest::share_at(&decisive, position).is_some_and(|share| share >= 1.0)
-            } else {
-                super::contest::decisive_tiles(state, ours)
-                    .iter()
-                    .any(|(at, share)| *at == position && *share >= 1.0)
-            };
-            if blocks && let Some(mut open) = super::contest::without_unit(state, *id) {
-                // The non-capturers attack first, then the capturers that do
-                // the most damage, until the blocker is destroyed.
-                let mut needed = f64::from(unit.hp);
-                let mut capturers: Vec<(f64, usize, UnitId)> = Vec::new();
-                for attack in all_attacks.iter().filter(|attack| attack.target == *id) {
-                    let Some(index) = state.units.index_of(attack.attacker) else {
-                        continue;
-                    };
-                    let can_capture = state
-                        .units
-                        .at(index)
-                        .is_some_and(|attacker| ruleset::profile(attacker.kind).can_capture);
-                    if can_capture {
-                        capturers.push((attack.damage, index, attack.attacker));
-                    } else {
-                        needed -= attack.damage;
-                    }
-                }
-                capturers
-                    .sort_by(|left, right| right.0.total_cmp(&left.0).then(left.1.cmp(&right.1)));
-                for (damage, _, attacker) in capturers {
-                    if needed <= 0.0 {
-                        break;
-                    }
-                    needed -= damage;
-                    if let Some(spent) = open.units.get_mut(attacker) {
-                        spent.action = awvm::semantic::UnitAction::Spent;
-                    }
-                }
-                opened.push(open);
             }
+            let (Some(unit), Some(mut open)) =
+                (state.units.get(id), super::contest::without_unit(state, id))
+            else {
+                continue;
+            };
+            // An attacker that the others cannot destroy the blocker without
+            // has ended its action, so it does not capture.
+            let total: f64 = on_blocker().map(|attack| attack.damage).sum();
+            for attack in on_blocker() {
+                if total - attack.damage < f64::from(unit.hp)
+                    && let Some(spent) = open.units.get_mut(attack.attacker)
+                {
+                    spent.action = awvm::semantic::UnitAction::Spent;
+                }
+            }
+            opened.push(open);
         }
     }
     let mut open_captures: Vec<(usize, Order)> = Vec::new();
