@@ -3477,7 +3477,7 @@ pub(super) struct Scorer<'a> {
 
 impl Scorer<'_> {
     fn bound_weights_valid(weights: &Weights) -> bool {
-        if ![
+        [
             weights.funds,
             weights.unit_count,
             weights.threat,
@@ -3496,13 +3496,9 @@ impl Scorer<'_> {
         ]
         .iter()
         .all(|value| value.is_finite() && *value >= 0.0)
-            || !(0.0..=1.0).contains(&weights.deny_decay)
-            || !(0.0..=1.0).contains(&weights.scout_focus)
-            || !(0.0..=1.0).contains(&weights.scout_decay)
-        {
-            return false;
-        }
-        true
+            && (0.0..=1.0).contains(&weights.deny_decay)
+            && (0.0..=1.0).contains(&weights.scout_focus)
+            && (0.0..=1.0).contains(&weights.scout_decay)
     }
 
     /// Bound every scored action of one unit without a movement search.

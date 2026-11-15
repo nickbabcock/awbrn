@@ -434,9 +434,7 @@ impl TryFrom<&'_ AwbwMapData> for AwbwMap {
         // Transpose from column-major to row-major
         let mut terrain = Vec::with_capacity(dimensions.len());
         for row_idx in 0..row_count {
-            for col_idx in 0..column_count {
-                terrain.push(value.terrain_map[col_idx][row_idx]);
-            }
+            terrain.extend(value.terrain_map.iter().map(|column| column[row_idx]));
         }
 
         let mut deployments = Deployments::new(dimensions);
