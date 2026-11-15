@@ -5,17 +5,13 @@ import type { ReactNode, RefObject } from "react";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { matchLayout, matchType } from "#/matches/components/matchLayout.stylex.ts";
-import {
-  OPENING_SCALE,
-  TILE_PX,
-  useBoardView,
-  type TableLayout,
-} from "#/matches/components/BoardControls.tsx";
+import { TILE_PX, useBoardView, type TableLayout } from "#/matches/components/BoardControls.tsx";
 
 /**
  * The ink table the board sits on, and the canvas box on it.
  *
- * The DOM sizes the box (`useTableLayout`): `min(table, map at 2x)` per axis.
+ * The DOM sizes the box (`useTableLayout`): `min(table, map at the opening
+ * scale)` per axis.
  * The engine fills the box and centers the map in it. On an axis the map fits,
  * a frame sits on the map edge from the first tile row; on a cropped axis the
  * box fades into the table while more map lies that way.
@@ -98,10 +94,10 @@ export function BoardTable({
       >
         <Stack xstyle={styles.box}>
           <Stack ref={canvasContainerRef} xstyle={styles.canvasHost} />
-          <BoardFades box={box} map={map} />
+          <BoardFades box={box} map={map} scale={layout.scale} />
           {overlay}
         </Stack>
-        <BoardRing box={box} map={map} />
+        <BoardRing box={box} map={map} scale={layout.scale} />
       </Stack>
       {mode === "dock" ? (
         <aside
@@ -150,6 +146,7 @@ function Waiting({ label, xstyle }: { label: string; xstyle: stylex.StyleXStyles
 function useMapRect(
   measured: { width: number; height: number } | null,
   map: { width: number; height: number } | null,
+  scale: number,
 ) {
   const { bv } = useBoardView();
   if (bv !== null) {
@@ -166,9 +163,9 @@ function useMapRect(
   }
   if (measured === null || map === null) return null;
   const box = measured;
-  // Before the engine reports, the map is where it opens: 2x, centered with
-  // its overhang row.
-  const tile = TILE_PX * OPENING_SCALE;
+  // Before the engine reports, the map is where it opens: centered with its
+  // overhang row.
+  const tile = TILE_PX * scale;
   const width = map.width * tile;
   const height = map.height * tile;
   const left = (box.width - width) / 2;
@@ -187,11 +184,13 @@ function useMapRect(
 function BoardRing({
   box: measured,
   map,
+  scale,
 }: {
   box: { width: number; height: number } | null;
   map: { width: number; height: number } | null;
+  scale: number;
 }) {
-  const rect = useMapRect(measured, map);
+  const rect = useMapRect(measured, map, scale);
   if (rect === null) return null;
   const { box } = rect;
   const fitsX = rect.left >= -0.5 && rect.left + rect.width <= box.width + 0.5;
@@ -219,11 +218,13 @@ function BoardRing({
 function BoardFades({
   box,
   map,
+  scale,
 }: {
   box: { width: number; height: number } | null;
   map: { width: number; height: number } | null;
+  scale: number;
 }) {
-  const rect = useMapRect(box, map);
+  const rect = useMapRect(box, map, scale);
   if (rect === null) return null;
   const { view } = rect;
   const more = {

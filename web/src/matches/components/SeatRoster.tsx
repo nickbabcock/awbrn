@@ -1,33 +1,41 @@
 /*
- * The seats of a new match in turn order: yours first, and every other seat
- * left open or handed to the computer.
+ * The seats of a new match in turn order: yours, wherever you sit, and every
+ * other seat left open or handed to the computer.
  */
 
+import { Icon } from "@astryxdesign/core/Icon";
 import { Selector } from "@astryxdesign/core/Selector";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { colorVars, textSizeVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
+import { FactionCrest } from "#/components/FactionCrest.tsx";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
+import { getFactionById } from "#/factions.ts";
 import { SeatStamp } from "#/play/Opponents.tsx";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { Button } from "#/ui/Button.tsx";
 import { figureStyles } from "#/ui/Figure.tsx";
+import { IconArrowDown, IconArrowUp } from "#/ui/icons.tsx";
 import { aiProfileDisplays, DEFAULT_AI_PROFILE_ID } from "../ai_profiles.ts";
 import type { AiProfileId } from "../schemas.ts";
 
 /** The value a row carries when nobody has been put in the seat. */
 const OPEN = "open";
 
-/** The seat the host takes in the lobby: the first in turn order. */
-const HOST_SLOT = 0;
-
-export interface SeatRosterProps {
-  /** Each seat's army, in turn order; its length is the number of seats. */
-  factionCodes: readonly string[];
+export interface RosterSeats {
+  /** The seat the host takes in the lobby. */
+  hostSlot: number;
   /** The opponent in each seat, by slot index. A slot with no entry is open. */
   aiSeats: ReadonlyMap<number, AiProfileId>;
-  onChange: (aiSeats: ReadonlyMap<number, AiProfileId>) => void;
-  /** The host's name, on the first seat. */
+}
+
+export interface SeatRosterProps extends RosterSeats {
+  /** Each seat's army, in turn order; its length is the number of seats. */
+  factionIds: readonly number[];
+  onChange: (seats: RosterSeats) => void;
+  onHostArmyChange: (factionId: number) => void;
+  /** The host's name, on their seat. */
   viewerName: string | null;
 }
 
@@ -39,7 +47,14 @@ const seatOptions = [
   })),
 ];
 
-export function SeatRoster({ aiSeats, factionCodes, onChange, viewerName }: SeatRosterProps) {
+export function SeatRoster({
+  aiSeats,
+  factionIds,
+  hostSlot,
+  onChange,
+  onHostArmyChange,
+  viewerName,
+}: SeatRosterProps) {
   function setSeat(slotIndex: number, value: string): void {
     const next = new Map(aiSeats);
     if (value === OPEN) {
@@ -47,46 +62,87 @@ export function SeatRoster({ aiSeats, factionCodes, onChange, viewerName }: Seat
     } else {
       next.set(slotIndex, value as AiProfileId);
     }
-    onChange(next);
+    onChange({ hostSlot, aiSeats: next });
+  }
+
+  // The host and whoever held the seat trade places; armies stay with seats.
+  function moveHost(slotIndex: number): void {
+    const next = new Map(aiSeats);
+    const occupant = aiSeats.get(slotIndex);
+    next.delete(slotIndex);
+    if (occupant) next.set(hostSlot, occupant);
+    onChange({ hostSlot: slotIndex, aiSeats: next });
   }
 
   return (
     <VStack aria-label="Seats, in turn order" role="group" xstyle={styles.list}>
-      {factionCodes.map((factionCode, slotIndex) => (
-        <VStack key={slotIndex} xstyle={styles.row}>
-          <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.number]}>
-            {slotIndex + 1}
-          </Text>
-          <FactionLogo factionCode={factionCode} isLabelHidden size={28} />
-          {slotIndex === HOST_SLOT ? (
-            <HStack as="span" xstyle={styles.who}>
-              <SeatStamp
-                coId={null}
-                factionCode={factionCode}
-                isYours
-                label="Your commander is picked in the lobby"
-              />
-              <b>{viewerName ?? "You"}</b>
-              {/* Signed out, the seat's name is already "You". */}
-              {viewerName !== null ? (
-                <HStack as="span" xstyle={styles.you}>
-                  YOU
-                </HStack>
-              ) : null}
+      {factionIds.map((factionId, slotIndex) => {
+        const factionCode = getFactionById(factionId)?.code ?? "os";
+        return (
+          <VStack key={slotIndex} xstyle={styles.row}>
+            <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.number]}>
+              {slotIndex + 1}
+            </Text>
+            <HStack as="span" xstyle={styles.crest}>
+              {slotIndex === hostSlot ? (
+                <FactionCrest factionCode={factionCode} onChange={onHostArmyChange} size={28} />
+              ) : (
+                <FactionLogo factionCode={factionCode} isLabelHidden size={28} />
+              )}
             </HStack>
-          ) : (
-            <Selector
-              isLabelHidden
-              label={`Who holds seat ${slotIndex + 1}`}
-              onChange={(value) => setSeat(slotIndex, value)}
-              options={seatOptions}
-              presentation="adaptive"
-              value={aiSeats.get(slotIndex) ?? OPEN}
-              width="100%"
-            />
-          )}
-        </VStack>
-      ))}
+            {slotIndex === hostSlot ? (
+              <HStack as="span" xstyle={styles.who}>
+                <SeatStamp
+                  coId={null}
+                  factionCode={factionCode}
+                  isYours
+                  label="Your commander is picked in the lobby"
+                />
+                <b>{viewerName ?? "You"}</b>
+                {/* Signed out, the seat's name is already "You". */}
+                {viewerName !== null ? (
+                  <HStack as="span" xstyle={styles.you}>
+                    YOU
+                  </HStack>
+                ) : null}
+                {/* Turn order is the seat: these move the host through it. */}
+                <HStack as="span" xstyle={styles.move}>
+                  <Button
+                    icon={<Icon icon={IconArrowUp} />}
+                    isDisabled={slotIndex === 0}
+                    isIconOnly
+                    label={`Move to seat ${slotIndex}`}
+                    onClick={() => moveHost(slotIndex - 1)}
+                    size="sm"
+                    tooltip="Move earlier"
+                    variant="ghost"
+                  />
+                  <Button
+                    icon={<Icon icon={IconArrowDown} />}
+                    isDisabled={slotIndex === factionIds.length - 1}
+                    isIconOnly
+                    label={`Move to seat ${slotIndex + 2}`}
+                    onClick={() => moveHost(slotIndex + 1)}
+                    size="sm"
+                    tooltip="Move later"
+                    variant="ghost"
+                  />
+                </HStack>
+              </HStack>
+            ) : (
+              <Selector
+                isLabelHidden
+                label={`Who holds seat ${slotIndex + 1}`}
+                onChange={(value) => setSeat(slotIndex, value)}
+                options={seatOptions}
+                presentation="adaptive"
+                value={aiSeats.get(slotIndex) ?? OPEN}
+                width="100%"
+              />
+            )}
+          </VStack>
+        );
+      })}
     </VStack>
   );
 }
@@ -109,9 +165,22 @@ const styles = stylex.create({
     gap: "12px",
     minBlockSize: "44px",
   },
+  // One column for every row: a plain crest sits where the host's crest key
+  // draws its own, inside the key's border and padding.
+  crest: {
+    inlineSize: "60px",
+    paddingInlineStart: {
+      default: "7px",
+      ":has(button)": 0,
+    },
+  },
   number: {
     color: awbrnVars.textTertiary,
     fontSize: textSizeVars["--font-size-sm"],
+  },
+  move: {
+    display: "inline-flex",
+    marginInlineStart: "auto",
   },
   who: {
     display: "inline-flex",

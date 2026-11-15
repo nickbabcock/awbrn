@@ -40,12 +40,17 @@ const INSET_BOTTOM = "env(safe-area-inset-bottom, 0px)";
  *
  * `surfaceRef` is the element full screen takes, so the rail and the dock come
  * with the board.
+ *
+ * `orders` (phone) stand over the tile row and the dock, rising over the
+ * board's foot when they need more room, so the board never resizes under the
+ * unit being ordered.
  */
 export function MatchFrame({
   dock,
   foot,
   fullscreenMode,
   label,
+  orders,
   phoneArmies,
   rail,
   railFoot,
@@ -59,6 +64,7 @@ export function MatchFrame({
   foot?: ReactNode;
   fullscreenMode: GameFullscreenMode;
   label: string;
+  orders?: ReactNode;
   phoneArmies?: ReactNode;
   rail: ReactNode;
   railFoot?: ReactNode;
@@ -76,6 +82,7 @@ export function MatchFrame({
   const width = useScreenWidth();
   const showsDesktop = width !== "phone";
   const showsPhone = width !== "desktop";
+  const hasOrders = orders !== undefined && orders !== null;
   return (
     <section
       aria-label={label}
@@ -107,14 +114,23 @@ export function MatchFrame({
         {table}
       </section>
       {showsPhone ? (
-        <section aria-label="Tile" {...stylex.props(styles.tileRow)}>
+        <section aria-label="Tile" inert={hasOrders} {...stylex.props(styles.tileRow)}>
           {tileRow}
         </section>
       ) : null}
       {foot !== undefined && showsDesktop ? (
         <footer {...stylex.props(styles.foot)}>{foot}</footer>
       ) : null}
-      {showsPhone ? <footer {...stylex.props(styles.dock)}>{dock}</footer> : null}
+      {showsPhone ? (
+        <footer inert={hasOrders} {...stylex.props(styles.dock)}>
+          {dock}
+        </footer>
+      ) : null}
+      {showsPhone && hasOrders ? (
+        <section aria-label="Orders" {...stylex.props(styles.ordersArea)}>
+          <VStack xstyle={styles.orders}>{orders}</VStack>
+        </section>
+      ) : null}
       {showsDesktop ? (
         <aside aria-label="Armies" {...stylex.props(styles.rail)}>
           <VStack xstyle={styles.railScroll}>{rail}</VStack>
@@ -672,6 +688,29 @@ const styles = stylex.create({
     borderInlineEndColor: awbrnVars.ink800,
     borderInlineEndStyle: "solid",
     borderInlineEndWidth: borderVars["--border-width"],
+  },
+  // Spans the tile row and the dock without sizing them.
+  ordersArea: {
+    gridRow: "tilerow-start / dock-end",
+    gridColumn: "1 / -1",
+    display: {
+      default: "none",
+      [pageLayout.phoneMedia]: "block",
+    },
+    position: "relative",
+    zIndex: 3,
+    contain: "size",
+  },
+  orders: {
+    position: "absolute",
+    insetInline: 0,
+    insetBlockEnd: 0,
+    minBlockSize: "100%",
+    // A transport's unload rows can outgrow a phone held sideways; they scroll
+    // rather than rise off the screen.
+    maxBlockSize: "70dvh",
+    overflowY: "auto",
+    overscrollBehavior: "contain",
   },
   dock: {
     gridArea: "dock",

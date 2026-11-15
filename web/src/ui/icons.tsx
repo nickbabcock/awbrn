@@ -280,6 +280,17 @@ export const IconChevronUp = drawn("IconChevronUp", <path d="m6 15 6-6 6 6" />, 
   strokeLinejoin: "round",
 });
 
+/** Earlier and later in turn order. */
+export const IconArrowUp = drawn("IconArrowUp", <path d="M12 19V5m-6 6 6-6 6 6" />, {
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+});
+
+export const IconArrowDown = drawn("IconArrowDown", <path d="M12 5v14m-6-6 6 6 6-6" />, {
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+});
+
 /** A busy key turns it a spoke at a time (`steps(8)`). */
 export const IconSpinner = drawn(
   "IconSpinner",

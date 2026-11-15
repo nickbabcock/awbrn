@@ -16,7 +16,8 @@ import { useAppSession } from "#/auth/useAppSession.ts";
 import { coTierListFor } from "#/co_tiers.ts";
 import { FactionCrest } from "#/components/FactionCrest.tsx";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
-import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
+import { defaultFactionIdForSlot, factions, getFactionById } from "#/factions.ts";
+import { seatArmies } from "#/matches/seat_armies.ts";
 import { mapCatalogEntryQueryOptions, mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
 import {
   lobbyPollInterval,
@@ -169,6 +170,18 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
       currentUserId !== null && participantsBySlot.get(slotIndex)?.userId === currentUserId,
   );
   const openSlots = slots.filter((slotIndex) => !participantsBySlot.has(slotIndex));
+  // An open seat whose map army another seat took has the side that seat left.
+  const armies = useMemo(
+    () =>
+      slotFactionIds === null
+        ? null
+        : seatArmies(
+            slotFactionIds,
+            new Map(match.participants.map((seat) => [seat.slotIndex, seat.factionId])),
+            factions.map((faction) => faction.id),
+          ),
+    [match, slotFactionIds],
+  );
   const hasOwnedSeat = ownedSlots.length > 0;
   const canClaim =
     session !== null && (match.settings.hotseatEnabled || !hasOwnedSeat) && slotFactionIds !== null;
@@ -229,18 +242,15 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
   }
 
   function claim(slotIndex: number): void {
-    const slotFactionId = slotFactionIds?.[slotIndex] ?? null;
-    if (slotFactionId === null) return;
-    void submitAction(
-      { action: "join", slotIndex, factionId: slotFactionId, joinSlug },
-      `join-${slotIndex}`,
-    );
+    const factionId = armies?.[slotIndex] ?? null;
+    if (factionId === null) return;
+    void submitAction({ action: "join", slotIndex, factionId, joinSlug }, `join-${slotIndex}`);
   }
 
   function factionCodeFor(slotIndex: number): string {
     const participant = participantsBySlot.get(slotIndex) ?? null;
     const factionId =
-      participant?.factionId ?? slotFactionIds?.[slotIndex] ?? defaultFactionIdForSlot(slotIndex);
+      participant?.factionId ?? armies?.[slotIndex] ?? defaultFactionIdForSlot(slotIndex);
     return getFactionById(factionId)?.code ?? "os";
   }
 
@@ -701,11 +711,13 @@ function SeatLine({
       <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.number]}>
         {slotIndex + 1}
       </Text>
-      {onFactionChange ? (
-        <FactionCrest factionCode={factionCode} onChange={onFactionChange} size={14} />
-      ) : (
-        <FactionLogo factionCode={factionCode} size={14} />
-      )}
+      <HStack as="span" xstyle={styles.crest}>
+        {onFactionChange ? (
+          <FactionCrest factionCode={factionCode} onChange={onFactionChange} size={14} />
+        ) : (
+          <FactionLogo factionCode={factionCode} size={14} />
+        )}
+      </HStack>
       {onChoose ? (
         <button
           aria-pressed={isActive}
@@ -756,6 +768,14 @@ function CopyLinkKey({ url }: { url: string }) {
 }
 
 const styles = stylex.create({
+  // One column for every seat: a plain crest sits where a crest key draws its
+  // own, inside the key's border and padding.
+  crest: {
+    paddingInlineStart: {
+      default: "7px",
+      ":has(button)": 0,
+    },
+  },
   output: {
     display: "grid",
     gap: "12px",
@@ -767,7 +787,7 @@ const styles = stylex.create({
   },
   seat: {
     display: "grid",
-    gridTemplateColumns: "16px auto minmax(0, 1fr) auto",
+    gridTemplateColumns: "16px 44px minmax(0, 1fr) auto",
     alignItems: "center",
     gap: "12px",
     minBlockSize: "56px",

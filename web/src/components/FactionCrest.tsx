@@ -1,12 +1,14 @@
 import { Button } from "#/ui/Button.tsx";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Popover } from "@astryxdesign/core/Popover";
 import { VStack } from "@astryxdesign/core/Stack";
 import { ToggleButton, ToggleButtonGroup } from "@astryxdesign/core/ToggleButton";
-import { textSizeVars, typographyVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { spacingVars, textSizeVars, typographyVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
 import { factions, getFactionByCode } from "#/factions.ts";
+import { IconChevronDown } from "#/ui/icons.tsx";
 import { ModalSheet } from "#/ui/ModalSheet.tsx";
 import { useCompactTouch } from "#/ui/useCompactTouch.ts";
 
@@ -73,16 +75,19 @@ export function FactionCrest({
       ))}
     </ToggleButtonGroup>
   );
+  // The chevron says the crest opens a list, as the seat selects beside it do.
   const crest = (
     <Button
-      icon={<FactionLogo factionCode={factionCode} isLabelHidden size={size} />}
+      endContent={<Icon icon={IconChevronDown} size="xsm" />}
       isDisabled={isDisabled}
-      isIconOnly
       label={`${activeName}. Choose a different army.`}
       onClick={isCompactTouch ? () => setIsOpen(true) : undefined}
       size="sm"
       variant="secondary"
-    />
+      xstyle={styles.key}
+    >
+      <FactionLogo factionCode={factionCode} isLabelHidden size={size} />
+    </Button>
   );
 
   // A phone gets a titled sheet that hugs the roll; Popover's own sheet is
@@ -116,6 +121,10 @@ export function FactionCrest({
 }
 
 const styles = stylex.create({
+  key: {
+    gap: spacingVars["--spacing-1"],
+    paddingInline: spacingVars["--spacing-1-5"],
+  },
   // A two-column roll: the crest teaches the mark, the name identifies it.
   grid: {
     display: "grid",

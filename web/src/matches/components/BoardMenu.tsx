@@ -40,7 +40,7 @@ export { menuRowMarker };
  * cannot read, and because a sheet is the shape a phone already uses for a
  * choice.
  */
-export type BoardMenuPresentation = "board" | "sheet" | "docked";
+export type BoardMenuPresentation = "board" | "sheet";
 
 /** The gap between the menu and the point it was opened from, and the frame. */
 const BOARD_MENU_INSET = Number.parseFloat(spacingDefaults["--spacing-2"]);
@@ -49,6 +49,11 @@ const BOARD_MENU_CURSOR_OFFSET = Number.parseFloat(spacingDefaults["--spacing-3"
 export interface BoardMenuShellProps {
   /** Where the board was pressed, in surface pixels. Null when no pointer opened it. */
   anchor: { x: number; y: number } | null;
+  /**
+   * How far the menu stays from the anchor on the side it opens, so a menu
+   * about a tile leaves the whole tile in view. Defaults to a cursor's width.
+   */
+  anchorClearance?: number;
   /**
    * The sheet only: false while it leaves, so its exit plays. The parent keeps
    * it mounted that long (`useLeaving`). The other shapes cut and ignore it.
@@ -92,27 +97,10 @@ export interface BoardMenuShellProps {
  * so they are one component here, differing only in what they list.
  */
 export function BoardMenuShell(props: BoardMenuShellProps) {
-  if (props.presentation === "docked") return <DockedMenu {...props} />;
   return props.presentation === "sheet" ? (
     <MenuSheet {...props} />
   ) : (
     <BoardAnchoredMenu {...props} />
-  );
-}
-
-/**
- * The menu docked in the table's column beside the board. It never stands
- * over a tile, so the board stays tappable for another target. The page keys
- * it by the selection so each new one lands.
- */
-function DockedMenu({ children, footer, label, onDismiss, onRestoreFocus }: BoardMenuShellProps) {
-  return (
-    <VStack aria-label={label} gap={0} role="dialog" xstyle={styles.dockedMenu}>
-      <MenuKeyboardScope onDismiss={onDismiss} onRestoreFocus={onRestoreFocus} takesCursor>
-        {children({ isSheet: false, spriteScale: 1, takesCursor: true })}
-      </MenuKeyboardScope>
-      {footer}
-    </VStack>
   );
 }
 
@@ -124,6 +112,7 @@ function DockedMenu({ children, footer, label, onDismiss, onRestoreFocus }: Boar
  */
 function BoardAnchoredMenu({
   anchor,
+  anchorClearance,
   children,
   inlineSize,
   label,
@@ -148,10 +137,12 @@ function BoardAnchoredMenu({
   return (
     <BoardAnchoredPanel
       anchor={anchor}
+      anchorClearance={anchorClearance}
       inlineSize={inlineSize}
       label={label}
       ref={menuRef}
       role="dialog"
+      xstyle={styles.anchoredMenu}
     >
       <MenuKeyboardScope onDismiss={onDismiss} onRestoreFocus={onRestoreFocus} takesCursor>
         {children({ isSheet: false, spriteScale: 1, takesCursor: true })}
@@ -163,6 +154,8 @@ function BoardAnchoredMenu({
 export interface BoardAnchoredPanelProps {
   /** Where on the board the panel belongs, in surface pixels. */
   anchor: { x: number; y: number } | null;
+  /** How far the panel stays from the anchor on the side it opens. */
+  anchorClearance?: number;
   children: ReactNode;
   inlineSize?: string;
   /** Names the panel for assistive technology. */
@@ -188,6 +181,7 @@ export interface BoardAnchoredPanelProps {
  */
 export function BoardAnchoredPanel({
   anchor,
+  anchorClearance = BOARD_MENU_CURSOR_OFFSET,
   children,
   inlineSize,
   label,
@@ -213,7 +207,7 @@ export function BoardAnchoredPanel({
     const place = () => {
       const bounds = surface.getBoundingClientRect();
       const panelBounds = panel.getBoundingClientRect();
-      const next = placeOnBoard(anchor, bounds, panelBounds);
+      const next = placeOnBoard(anchor, bounds, panelBounds, anchorClearance);
       // The observer watches the panel, and the frame decides the panel's size,
       // so a placement that lands where the last one did must return the same
       // object or the two feed each other a re-render per tick.
@@ -233,7 +227,7 @@ export function BoardAnchoredPanel({
     observer.observe(panel);
 
     return () => observer.disconnect();
-  }, [anchor, panelRef]);
+  }, [anchor, anchorClearance, panelRef]);
 
   return (
     <VStack
@@ -425,6 +419,7 @@ function placeOnBoard(
   anchor: { x: number; y: number } | null,
   surface: DOMRect,
   menu: DOMRect,
+  clearance: number,
 ): { left: number; maxHeight: number; top: number } {
   const maxHeight = Math.max(surface.height - BOARD_MENU_INSET * 2, 0);
   const height = Math.min(menu.height, maxHeight);
@@ -441,10 +436,10 @@ function placeOnBoard(
 
   // The menu opens away from the press, and folds back across it only when the
   // board runs out on that side, so the tile stays visible either way.
-  const preferredLeft = anchor.x + BOARD_MENU_CURSOR_OFFSET;
+  const preferredLeft = anchor.x + clearance;
   const left =
     preferredLeft > limitLeft
-      ? Math.max(anchor.x - BOARD_MENU_CURSOR_OFFSET - menu.width, BOARD_MENU_INSET)
+      ? Math.max(anchor.x - clearance - menu.width, BOARD_MENU_INSET)
       : Math.max(preferredLeft, BOARD_MENU_INSET);
   const preferredTop = anchor.y - height / 2;
 
@@ -626,22 +621,18 @@ const styles = stylex.create({
     zIndex: 2,
     overflow: "hidden",
   },
-  dockedMenu: {
+  // On the board it wears the docked menu's sheet, beside the tile it is about.
+  anchoredMenu: {
     animationName: {
       default: land,
       [pageLayout.reducedMotionMedia]: "none",
     },
     animationDuration: "90ms",
     animationTimingFunction: awbrnVars.easeStep,
-    flexShrink: 1,
-    minBlockSize: "120px",
-    inlineSize: "100%",
-    maxInlineSize: "296px",
-    overflow: "hidden",
-    borderRadius: radiusVars["--radius-container"],
+    inlineSize: boardMenuLayout.anchoredInlineSize,
+    borderStyle: "none",
     backgroundColor: awbrnVars.sheet,
     boxShadow: awbrnVars.shadowSheet,
-    color: colorVars["--color-text-primary"],
   },
   sheetClose: {
     position: "absolute",

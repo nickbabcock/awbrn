@@ -39,6 +39,7 @@ import {
   encodeMatchBrowseCursor,
 } from "./match_browse";
 import type { AwbrnMapDocument } from "#/maps/map_document.ts";
+import { getFactionById } from "#/factions.ts";
 import { findCatalogEntry, loadMapRevision, mapSlotFactionIds } from "#/maps/maps.server.ts";
 import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
@@ -180,6 +181,16 @@ export async function createMatch(
     }
 
     const seatFactions = mapSlotFactionIds(mapDocument);
+    // A CPU seat plays the army the host's roster gave it, or else the map's.
+    const aiArmies = aiSeats.map((seat) => seat.factionId ?? seatFactions[seat.slotIndex] ?? 0);
+    if (aiArmies.some((factionId) => getFactionById(factionId) === null)) {
+      return err("participantInvalid", "a seat's army is not one of the game's armies", 400);
+    }
+    // Holdings are handed out by army at setup, so a shared army would give
+    // one seat everything and the other nothing.
+    if (new Set(aiArmies).size !== aiArmies.length) {
+      return err("participantInvalid", "two seats cannot share an army", 400);
+    }
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const matchId = generateMatchId();
@@ -206,12 +217,12 @@ export async function createMatch(
       const seatInsert =
         aiSeats.length > 0
           ? db.insert(matchParticipants).values(
-              aiSeats.map((seat) => ({
+              aiSeats.map((seat, index) => ({
                 matchId,
                 userId: null,
                 aiProfileId: seat.profileId,
                 slotIndex: seat.slotIndex,
-                factionId: seatFactions[seat.slotIndex] ?? 0,
+                factionId: aiArmies[index]!,
                 coId: chooseAiCo(input.settings.bannedCoIds, matchId, seat.slotIndex),
                 ready: true,
                 joinedAt: now,

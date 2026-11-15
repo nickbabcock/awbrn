@@ -15,7 +15,8 @@ import { coRoster, getCoById } from "#/co_roster.ts";
 import { coTierListFor } from "#/co_tiers.ts";
 import { CoStamp } from "#/components/CoStamp.tsx";
 import { UiSprite } from "#/components/UiSprite.tsx";
-import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
+import { defaultFactionIdForSlot, factions } from "#/factions.ts";
+import { seatArmies } from "#/matches/seat_armies.ts";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
 import {
   MapCardGrid,
@@ -114,6 +115,10 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const [bannedCoIds, setBannedCoIds] = useState<ReadonlySet<number>>(EMPTY_CO_BANS);
   // The opponent in each seat, by slot index. A seat with no entry is open.
   const [aiSeats, setAiSeats] = useState<ReadonlyMap<number, AiProfileId>>(NO_AI_SEATS);
+  const [hostSlot, setHostSlot] = useState(0);
+  // Each seat's army once the host has picked one; null while every seat
+  // keeps the map's.
+  const [pickedArmies, setPickedArmies] = useState<readonly number[] | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -147,6 +152,8 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
     // The roster is about one map's seats. Another map has its own, and
     // carrying a seat over would put an opponent in a slot nobody chose.
     setAiSeats(NO_AI_SEATS);
+    setHostSlot(0);
+    setPickedArmies(null);
     // A name the player cleared follows the map again.
     if (!ownName?.trim()) setOwnName(null);
   }
@@ -168,6 +175,38 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const matchName = ownName ?? selectedMap?.name ?? "";
 
   const createMatchMutation = useMutation({ mutationFn: createMatchFn });
+  const { data: revision } = useQuery({
+    ...mapRevisionQueryOptions(selectedMap?.mapId ?? "", selectedMap?.revision ?? 0),
+    enabled: selectedMap !== null,
+  });
+  const mapArmies =
+    revision?.slotFactionIds ??
+    Array.from({ length: selectedMap?.playerCount ?? 0 }, (_, slotIndex) =>
+      defaultFactionIdForSlot(slotIndex),
+    );
+  // The host and the CPU seats hold their armies; an open seat shows the army
+  // the lobby will give whoever claims it.
+  const armiesFor = (mapArmies: readonly number[]) =>
+    seatArmies(
+      mapArmies,
+      new Map(
+        [hostSlot, ...aiSeats.keys()].map((slotIndex) => [
+          slotIndex,
+          (pickedArmies ?? mapArmies)[slotIndex]!,
+        ]),
+      ),
+      factions.map((faction) => faction.id),
+    );
+  const shownArmies = armiesFor(mapArmies);
+  // Taking an army another seat holds trades: that seat gets the army the
+  // host had.
+  function pickArmy(factionId: number): void {
+    const next = [...shownArmies];
+    const holder = next.indexOf(factionId);
+    if (holder !== -1) next[holder] = next[hostSlot]!;
+    next[hostSlot] = factionId;
+    setPickedArmies(next);
+  }
 
   async function handleImported(map: MapCatalogEntry): Promise<void> {
     await queryClient.invalidateQueries({ queryKey: mapKeys.all });
@@ -209,6 +248,13 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
 
     setCreateError(null);
     try {
+      const armies = armiesFor(
+        (
+          await queryClient.fetchQuery(
+            mapRevisionQueryOptions(selectedMap.mapId, selectedMap.revision),
+          )
+        ).slotFactionIds,
+      );
       const match = await createMatchMutation.mutateAsync({
         data: {
           name: matchName.trim(),
@@ -221,27 +267,26 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             bannedCoIds: [...bannedCoIds],
             clock,
           },
-          aiSeats: [...aiSeats].map(([slotIndex, profileId]) => ({ slotIndex, profileId })),
+          aiSeats: [...aiSeats].map(([slotIndex, profileId]) => ({
+            slotIndex,
+            profileId,
+            factionId: armies[slotIndex],
+          })),
         },
       });
-      // The roster put the host in seat 1. Should taking it fail, the lobby
-      // still offers the seat, so the match is opened either way.
-      await queryClient
-        .fetchQuery(mapRevisionQueryOptions(selectedMap.mapId, selectedMap.revision))
-        .then(({ slotFactionIds }) =>
-          mutateMatchFn({
-            data: {
-              matchId: match.matchId,
-              action: {
-                action: "join",
-                slotIndex: 0,
-                factionId: slotFactionIds[0],
-                joinSlug: match.joinSlug,
-              },
-            },
-          }),
-        )
-        .catch(() => undefined);
+      // The host takes the seat the roster gave them. Should taking it fail,
+      // the lobby still offers the seat, so the match is opened either way.
+      await mutateMatchFn({
+        data: {
+          matchId: match.matchId,
+          action: {
+            action: "join",
+            slotIndex: hostSlot,
+            factionId: armies[hostSlot]!,
+            joinSlug: match.joinSlug,
+          },
+        },
+      }).catch(() => undefined);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: matchKeys.browse() }),
         queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
@@ -381,13 +426,19 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
                 />
               </VStack>
               {selectedMap ? (
-                <Seats
+                <SeatRoster
                   aiSeats={aiSeats}
-                  map={selectedMap}
+                  factionIds={shownArmies}
+                  hostSlot={hostSlot}
                   onChange={(seats) => {
                     setCreateError(null);
-                    setAiSeats(seats);
+                    // Every seat keeps the army it shows now: a seat that
+                    // takes a CPU, or the host, takes that army with it.
+                    setPickedArmies(shownArmies);
+                    setAiSeats(seats.aiSeats);
+                    setHostSlot(seats.hostSlot);
                   }}
+                  onHostArmyChange={pickArmy}
                   viewerName={session?.user.name ?? null}
                 />
               ) : null}
@@ -607,33 +658,6 @@ function MapKeyBody({ map }: { map: MapCatalogEntry }) {
       </VStack>
       {map.rank ? <MapRankMedal rank={map.rank} size="sm" /> : null}
     </>
-  );
-}
-
-/** The seats of the chosen map, each with its army from the map. */
-function Seats({
-  aiSeats,
-  map,
-  onChange,
-  viewerName,
-}: {
-  aiSeats: ReadonlyMap<number, AiProfileId>;
-  map: MapCatalogEntry;
-  onChange: (aiSeats: ReadonlyMap<number, AiProfileId>) => void;
-  viewerName: string | null;
-}) {
-  const { data: revision } = useQuery(mapRevisionQueryOptions(map.mapId, map.revision));
-  const factionCodes = Array.from({ length: map.playerCount }, (_, slotIndex) => {
-    const factionId = revision?.slotFactionIds?.[slotIndex] ?? defaultFactionIdForSlot(slotIndex);
-    return getFactionById(factionId)?.code ?? "os";
-  });
-  return (
-    <SeatRoster
-      aiSeats={aiSeats}
-      factionCodes={factionCodes}
-      onChange={onChange}
-      viewerName={viewerName}
-    />
   );
 }
 

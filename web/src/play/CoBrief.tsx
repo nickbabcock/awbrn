@@ -11,13 +11,15 @@ import {
 } from "@astryxdesign/core/theme/tokens.stylex";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import * as stylex from "@stylexjs/stylex";
-import { getCoAbilities, type CoPowerText } from "#/co_abilities.ts";
-import { DEFAULT_CO_PORTRAIT_KEY, getCoById } from "#/co_roster.ts";
+import { getCoAbilities, type CoAbilities, type CoPowerText } from "#/co_abilities.ts";
+import { coRoster, DEFAULT_CO_PORTRAIT_KEY, getCoById } from "#/co_roster.ts";
 import { CoStamp } from "#/components/CoStamp.tsx";
 import { UiSprite } from "#/components/UiSprite.tsx";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { IconChevronDown, IconChevronUp } from "#/ui/icons.tsx";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+
+const everyBrief = coRoster.map((co) => ({ key: co.key, abilities: getCoAbilities(co.key) }));
 
 /**
  * The briefing for one commander. `coId` is the seat's own, or one the player
@@ -49,39 +51,76 @@ export function CoBrief({
           {co ? co.displayName : "No commander"}
         </Heading>
       </HStack>
-      {abilities?.dayToDay ? (
-        <dl {...stylex.props(styles.abilities)}>
-          <VStack>
+      {/* Each part is as tall as the longest commander's, so pointing from one
+          stamp to the next never moves the keys below the brief. */}
+      <dl {...stylex.props(styles.abilities)}>
+        <VStack>
+          {abilities?.dayToDay ? (
             <dt>
               <VisuallyHidden>Day to day</VisuallyHidden>
             </dt>
-            <dd {...stylex.props(styles.text)}>{abilities.dayToDay}</dd>
-          </VStack>
-        </dl>
-      ) : null}
-      {abilities ? (
-        <details
-          onToggle={(event) => setIsPowersOpen(event.currentTarget.open)}
-          open={isPowersOpen}
-          {...stylex.props(styles.more)}
-        >
-          <summary {...stylex.props(styles.summary)}>
-            <Text color="inherit" type="inherit">
-              {[abilities.power?.name, abilities.superPower.name].filter(Boolean).join(" · ")}
-            </Text>
-            <Icon
-              icon={isPowersOpen ? IconChevronUp : IconChevronDown}
-              size="sm"
-              xstyle={styles.chevron}
+          ) : null}
+          <dd {...stylex.props(styles.text)}>
+            <EveryCo current={co?.key} render={(brief) => brief.dayToDay} />
+          </dd>
+        </VStack>
+      </dl>
+      {/* Held, unseen, while no commander is chosen, for the same reason. */}
+      <details
+        onToggle={(event) => setIsPowersOpen(event.currentTarget.open)}
+        open={isPowersOpen}
+        {...stylex.props(styles.more, co === null && styles.unseen)}
+      >
+        <summary {...stylex.props(styles.summary)}>
+          <Text color="inherit" type="inherit">
+            <EveryCo
+              current={co?.key}
+              render={(brief) =>
+                [brief.power?.name, brief.superPower.name].filter(Boolean).join(" · ")
+              }
             />
-          </summary>
+          </Text>
+          <Icon
+            icon={isPowersOpen ? IconChevronUp : IconChevronDown}
+            size="sm"
+            xstyle={styles.chevron}
+          />
+        </summary>
+        {/* Only the closed brief is held still: a player who opened the
+            powers is reading, and the longest of them all would leave a
+            short one in a well of blank space. */}
+        {abilities ? (
           <dl {...stylex.props(styles.abilities, styles.powers)}>
             {abilities.power ? <Power label="Power" power={abilities.power} /> : null}
             <Power isSuper label="Super power" power={abilities.superPower} />
           </dl>
-        </details>
-      ) : null}
+        ) : null}
+      </details>
     </VStack>
+  );
+}
+
+/**
+ * One part of the brief drawn for every commander in the same cell, with only
+ * `current`'s seen, so the cell keeps the height of the longest.
+ */
+function EveryCo({
+  current,
+  render,
+}: {
+  current: string | undefined;
+  render: (abilities: CoAbilities) => ReactNode;
+}) {
+  return (
+    <HStack as="span" xstyle={styles.everyCo}>
+      {everyBrief.map(({ key, abilities }) =>
+        abilities ? (
+          <HStack as="span" key={key} xstyle={[styles.layer, key !== current && styles.unseen]}>
+            {render(abilities)}
+          </HStack>
+        ) : null,
+      )}
+    </HStack>
   );
 }
 
@@ -140,6 +179,16 @@ const styles = stylex.create({
     fontStretch: "100%",
     letterSpacing: "normal",
     wordSpacing: "normal",
+  },
+  everyCo: {
+    display: "grid",
+  },
+  layer: {
+    display: "block",
+    gridArea: "1 / 1",
+  },
+  unseen: {
+    visibility: "hidden",
   },
   abilities: {
     display: "grid",
