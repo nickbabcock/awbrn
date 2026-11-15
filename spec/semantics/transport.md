@@ -151,8 +151,9 @@ DESTINATION_OCCUPIED (destination holds a unit)
   below. Cargo leaves from the transport's tile, so a Lander or Black Boat on
   Sea, or a T-Copter over Sea or Reef, cannot put foot soldiers or vehicles
   down, while a Cruiser launches its copters anywhere. Archived AWBW games
-  agree: transports of foot soldiers and vehicles unloaded on water only from
-  Shoal or a Port, and Cruisers launched copters from Sea and Reef.
+  are consistent with this but do not prove it: transports of foot soldiers
+  and vehicles never unloaded while on Sea or Reef, and Cruisers launched
+  copters from both.
 - `TERRAIN_IMPASSABLE` (`position: destination`) when the destination terrain's
   base cost for the cargo kind's movement class is `null` under the current
   weather, or when it carries the `teleporter` trait. Teleporters are

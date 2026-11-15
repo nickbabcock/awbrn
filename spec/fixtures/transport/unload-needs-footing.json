@@ -5,7 +5,7 @@
   "feature": "transport-v1.unload",
   "evidence": {
     "confidence": "hypothesis",
-    "note": "In archived AWBW tournament games, APCs, Black Boats, Landers and T-Copters unloaded 271 times from water and never from Sea or Reef, only from Shoal or a Port, while Cruisers launched copters from both. Absence is not a refusal on record, so this stays a hypothesis: cargo must be able to stand on the transport's own tile."
+    "note": "In archived AWBW tournament games, APCs, Black Boats, Landers and T-Copters unloaded 271 times while standing on water tiles, always on Shoal or a Port and never on Sea or Reef, while Cruisers launched copters from both. Absence is not a refusal on record, so this stays a hypothesis: cargo must be able to stand on the transport's own tile."
   },
   "initial_state": {
     "ruleset": { "id": "awbw", "revision": "2026-07-10" },
