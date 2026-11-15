@@ -546,6 +546,12 @@ mod tests {
         ("kill-the-tank", [true, true, true]),
         ("three-attacker-kill", [true, true, true]),
         ("focus-fire", [true, true, true]),
+        // planner-v9 captures the neutral city and leaves the headquarters
+        // open to the enemy infantry. In its rollouts the enemy, on the tree
+        // move model, attacks the capturer instead of the open headquarters.
+        // In the rollout of the blocking line, our own simulated turn moves
+        // the blocker off the headquarters again. So the rollout check ranks
+        // the capture above the block and the attack from (1, 3).
         ("hq-block", [false, true, false]),
         ("capture-denial", [true, true, true]),
         ("hq-capture-denial", [true, true, true]),
