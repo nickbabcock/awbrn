@@ -58,6 +58,7 @@ use awvm::transition::Command;
 
 use crate::agent::{Agent, NodeBudget, Play};
 use crate::agents::GreedyAgent;
+use crate::agents::greedy::DecisionMemo;
 use crate::agents::move_policy2::{LogEntry, TurnLog};
 use crate::baseline::BaselineConfig;
 use crate::eval::{EvalWeights, Evaluator};
@@ -948,6 +949,7 @@ impl PlannerAgent {
                 ..MarchTurn::default()
             },
             rollout_stats: RolloutStats::default(),
+            decisions: DecisionMemo::default(),
         };
         let line = planner.plan(planning);
         self.hold = planner.march.hold;
@@ -1152,6 +1154,9 @@ struct TurnPlanner<'a> {
     march: MarchTurn,
     /// The rollout counters of this call.
     rollout_stats: RolloutStats,
+    /// The simulated greedy decisions of this call, for the decisions that
+    /// repeat one of them.
+    decisions: DecisionMemo,
 }
 
 /// The rollout counters of one planning call.
@@ -1909,7 +1914,7 @@ impl TurnPlanner<'_> {
                     && matches!(session.state().match_state, Match::Active { .. })
                 {
                     self.work += 1;
-                    let order = match hard.order_in_session(session) {
+                    let order = match hard.order_in_session_with(session, &mut self.decisions) {
                         Some(order) => order,
                         None => session
                             .resolve(&Command::EndTurn {
@@ -2097,7 +2102,7 @@ impl TurnPlanner<'_> {
                 && matches!(session.state().match_state, Match::Active { .. })
             {
                 self.work += 1;
-                let order = match hard.order_in_session(session) {
+                let order = match hard.order_in_session_with(session, &mut self.decisions) {
                     Some(order) => order,
                     None => session
                         .resolve(&Command::EndTurn {
@@ -2200,7 +2205,7 @@ impl TurnPlanner<'_> {
                 let from_prefix = next.is_some();
                 let (play, order) = match next {
                     Some(next) => next,
-                    None => match hard.order_in_session(session) {
+                    None => match hard.order_in_session_with(session, &mut self.decisions) {
                         Some(order) => (Play::from_order(session, order)?, order),
                         None => {
                             let order = session

@@ -601,6 +601,13 @@ impl Session {
         self.commandable
     }
 
+    /// Whether this session's holder knows the exact health of every unit.
+    ///
+    /// Always true for an authoritative session.
+    pub const fn knows_all_health(&self) -> bool {
+        self.uncertain.is_empty()
+    }
+
     /// How deep the undo stack is, which is how many applied orders a rewind
     /// to the opening position would undo.
     pub fn depth(&self) -> usize {
