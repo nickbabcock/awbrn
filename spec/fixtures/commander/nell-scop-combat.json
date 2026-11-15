@@ -166,7 +166,7 @@
               "id": 1,
               "kind": "mega-tank",
               "owner": "blue",
-              "hp": 49,
+              "hp": 48,
               "fuel": 50,
               "ammo": 3,
               "action": "ready",
@@ -196,7 +196,7 @@
             "type": "unit-damaged",
             "unit": 1,
             "from_hp": 100,
-            "to_hp": 49,
+            "to_hp": 48,
             "reason": "combat"
           },
           {

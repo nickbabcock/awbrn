@@ -170,7 +170,7 @@
               "id": 1,
               "kind": "infantry",
               "owner": "blue",
-              "hp": 37,
+              "hp": 36,
               "fuel": 99,
               "ammo": 0,
               "action": "ready",
@@ -187,7 +187,7 @@
             "weapon": "unlimited",
             "target": { "type": "unit", "unit": 1 }
           },
-          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 37, "reason": "combat" },
+          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 36, "reason": "combat" },
           {
             "type": "power-charge-changed",
             "player": "red",

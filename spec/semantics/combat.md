@@ -30,20 +30,23 @@ that the unlimited weapon is conventionally a unit's secondary weapon.
 ## Damage
 
 Let `visual-hp(hp) = ceiling(hp / 10)`. Given selected base damage `B`, attack
-percent `A`, defense percent `D`, defender terrain stars `T`, good luck `G`,
-bad luck `L`, and the attacker's visual HP in points
-`HA = 10 * visual-hp(attacker.hp)`:
+percent `A`, defense percent `D`, defender terrain stars `T`, good luck `G`, and
+bad luck `L`:
 
 ```text
-attack-factor = max(0, floor(B * A / 100) + G - L)
-hp-factor     = attack-factor * HA
-defense-term  = max(0, 200 - D - T * visual-hp(defender.hp))
-damage        = floor(floor(hp-factor * defense-term / 100) / 100)
+strike       = max(0, B * A + 100 * (G - L))
+defense-term = max(0, 200 - D - T * visual-hp(defender.hp))
+product      = strike * visual-hp(attacker.hp) * defense-term
+damage       = floor((product + 5000) / 100000)
 ```
 
-Damage is clamped to the defender's exact HP. All values are integers and the
-two displayed floors are distinct rounding points. Exact HP inside a bar does
-not change the damage that a unit deals: an attacker at 61 points and one at 70
+`product / 100000` is the exact damage in points. Nothing is rounded before
+that quotient: AWBW rounds the exact damage to one decimal, half up, and then
+drops the fraction, which is the single rounding above. So 8.96 deals 9 and
+40.95 deals 41, while 40.94 deals 40.
+
+Damage is clamped to the defender's exact HP. Exact HP inside a bar does not
+change the damage that a unit deals: an attacker at 61 points and one at 70
 points both strike as 7 bars.
 
 Zero HP is an event value, not a state value. A lethal strike emits

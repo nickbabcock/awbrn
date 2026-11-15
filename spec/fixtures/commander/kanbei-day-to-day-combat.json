@@ -181,7 +181,7 @@
               "id": 1,
               "kind": "tank",
               "owner": "blue",
-              "hp": 37,
+              "hp": 36,
               "fuel": 70,
               "ammo": 8,
               "action": "ready",
@@ -218,7 +218,7 @@
             "weapon": "ammo",
             "target": { "type": "unit", "unit": 1 }
           },
-          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 37, "reason": "combat" },
+          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 36, "reason": "combat" },
           {
             "type": "power-charge-changed",
             "player": "red",

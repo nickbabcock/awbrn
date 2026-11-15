@@ -135,15 +135,19 @@ pub fn select_weapon(attacker: UnitKind, defender: UnitKind, ammo: u64) -> Optio
 ///
 /// Both units count their HP in visible bars. An attacker at 61 points hits as
 /// hard as one at 70, because Advance Wars shows both as 7 bars.
+///
+/// The product is kept exact and rounded once: AWBW rounds the damage to one
+/// decimal and then drops the fraction, so 78.95 deals 79 and 78.94 deals 78.
 pub fn damage(attacker: Side, defender: Side, luck: i64) -> Option<Hit> {
     let weapon = select_weapon(attacker.kind, defender.kind, attacker.ammo)?;
-    let visual_defender = u64::from(defender.hp).div_ceil(10);
-    let visual_attacker = attacker.hp.div_ceil(HEALTH_STEP) * HEALTH_STEP;
-    let attack_factor = ((weapon.base_damage as i64 * attacker.attack) / 100 + luck).max(0);
-    let attack_hp_factor = attack_factor * i64::from(visual_attacker);
+    let visual_defender = i64::from(defender.hp.div_ceil(HEALTH_STEP));
+    let visual_attacker = i64::from(attacker.hp.div_ceil(HEALTH_STEP));
+    let strike = (weapon.base_damage as i64 * attacker.attack + 100 * luck).max(0);
     let defense_numerator =
-        200 - (defender.defense + i64::from(defender.terrain_stars) * visual_defender as i64);
-    let raw = (attack_hp_factor * defense_numerator / 100 / 100).max(0);
+        (200 - (defender.defense + i64::from(defender.terrain_stars) * visual_defender)).max(0);
+    // `product / 100_000` is the damage in points before rounding.
+    let product = strike * visual_attacker * defense_numerator;
+    let raw = (product + 5_000) / 100_000;
     let points = raw.min(i64::from(defender.hp));
     Some(Hit {
         damage: points as u8,
@@ -197,6 +201,20 @@ mod tests {
         assert_eq!(hit.damage, 49);
         assert_eq!(hit.weapon.weapon, Weapon::Unlimited);
         assert_eq!(hit.weapon.ammo_cost, 0)
+    }
+    #[test]
+    fn damage_is_rounded_once_to_one_decimal() {
+        // Exactly 8.96, which rounds to 9.0. Flooring it would deal 8.
+        let hit = damage(infantry(20, 0, 0), infantry(100, 0, 3), 9).unwrap();
+        assert_eq!(hit.damage, 9);
+        // 90% attack: 49.5 + 9 luck on a city is exactly 40.95, which AWBW
+        // rounds up. Flooring 49.5 to 49 first would give 40.6.
+        let weak = Side {
+            attack: 90,
+            ..infantry(100, 0, 0)
+        };
+        assert_eq!(damage(weak, infantry(100, 0, 3), 9).unwrap().damage, 41);
+        assert_eq!(damage(weak, infantry(100, 0, 3), 8).unwrap().damage, 40);
     }
     #[test]
     fn counter_uses_damaged_visible_hp() {
