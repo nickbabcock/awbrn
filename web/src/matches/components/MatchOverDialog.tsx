@@ -13,6 +13,8 @@ import { PaperDialog } from "#/matches/components/EndTurn.tsx";
 import type { MatchArmy } from "#/matches/match_armies.ts";
 import type { MatchResults, SeatResult } from "#/matches/match_protocol.ts";
 import { seatStatus } from "#/matches/match_results.ts";
+import { TeamTag } from "#/matches/components/Teams.tsx";
+import { teamFromId } from "#/matches/teams.ts";
 import { PlayerLink } from "#/players/components/PlayerLink.tsx";
 import { useRatingChange } from "#/players/rating_changes.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
@@ -66,6 +68,40 @@ export function MatchOverDialog({
     viewerSlotIndex === null
       ? null
       : (seats.find((seat) => seat.slotIndex === viewerSlotIndex) ?? null);
+  const viewerTeam = viewerSeat === null ? null : teamFromId(viewerSeat.teamId);
+
+  function seatRow(seat: SeatResult, isOnSide: boolean) {
+    const army = armies.find((candidate) => candidate.entry.playerId === seat.slotIndex);
+    const name = army?.name ?? `Seat ${seat.slotIndex + 1}`;
+    return (
+      <li key={seat.slotIndex} {...stylex.props(styles.seat)}>
+        <CoStamp
+          coKey={army?.entry.coKey}
+          factionCode={army?.entry.displayFactionCode}
+          size="sm"
+          state={seat.outcome === "loss" ? "canceled" : "default"}
+        />
+        <HStack as="span" xstyle={styles.seatName}>
+          {army?.userId ? (
+            <PlayerLink userId={army.userId}>
+              <b>{name}</b>
+            </PlayerLink>
+          ) : (
+            <b>{name}</b>
+          )}
+          {seat.slotIndex === viewerSlotIndex ? (
+            <HStack as="span" xstyle={styles.you}>
+              YOU
+            </HStack>
+          ) : null}
+          <Text color="inherit" type="inherit" xstyle={styles.reason}>
+            {reasonLabel(seat) || (isOnSide ? null : outcomeLabel(seat.outcome))}
+          </Text>
+        </HStack>
+      </li>
+    );
+  }
+
   const delta =
     ratingChange === null || ratingChange === undefined
       ? null
@@ -95,36 +131,37 @@ export function MatchOverDialog({
       title={headline(viewerSeat, seats)}
     >
       <ul {...stylex.props(styles.seats)}>
-        {seats.map((seat) => {
-          const army = armies.find((candidate) => candidate.entry.playerId === seat.slotIndex);
-          const name = army?.name ?? `Seat ${seat.slotIndex + 1}`;
-          return (
-            <li key={seat.slotIndex} {...stylex.props(styles.seat)}>
-              <CoStamp
-                coKey={army?.entry.coKey}
-                factionCode={army?.entry.displayFactionCode}
-                size="sm"
-                state={seat.outcome === "loss" ? "canceled" : "default"}
-              />
-              <HStack as="span" xstyle={styles.seatName}>
-                {army?.userId ? (
-                  <PlayerLink userId={army.userId}>
-                    <b>{name}</b>
-                  </PlayerLink>
-                ) : (
-                  <b>{name}</b>
-                )}
-                {seat.slotIndex === viewerSlotIndex ? (
-                  <HStack as="span" xstyle={styles.you}>
-                    YOU
-                  </HStack>
-                ) : null}
-                <Text color="inherit" type="inherit" xstyle={styles.reason}>
-                  {reasonLabel(seat) || outcomeLabel(seat.outcome)}
-                </Text>
-              </HStack>
-            </li>
-          );
+        {sides(seats).flatMap(({ team, members }) => {
+          const outcome = members[0]!.outcome;
+          // A side says its result once, on its head, and only to someone
+          // the title has not already told.
+          const sideResult =
+            team === null || team === viewerTeam
+              ? null
+              : outcome === "win"
+                ? "Won"
+                : viewerSeat === null && outcome === "loss"
+                  ? "Lost"
+                  : null;
+          return [
+            ...(team === null
+              ? []
+              : [
+                  <li key={`team-${team}`} {...stylex.props(styles.side)}>
+                    <TeamTag isMine={team === viewerTeam} team={team} />
+                    {sideResult ? (
+                      <Text
+                        color="inherit"
+                        type="inherit"
+                        xstyle={[styles.sideResult, outcome === "win" && styles.sideWon]}
+                      >
+                        {sideResult}
+                      </Text>
+                    ) : null}
+                  </li>,
+                ]),
+            ...members.map((seat) => seatRow(seat, team !== null)),
+          ];
         })}
       </ul>
       {viewerSeat && ratingChange && delta !== null ? (
@@ -155,6 +192,18 @@ export function MatchOverDialog({
       ) : null}
     </PaperDialog>
   );
+}
+
+/** Seats under their sides, best placed first; one group per seat outside a team match. */
+function sides(seats: SeatResult[]): { team: number | null; members: SeatResult[] }[] {
+  const groups: { team: number | null; members: SeatResult[] }[] = [];
+  for (const seat of seats) {
+    const team = teamFromId(seat.teamId);
+    const group = team === null ? undefined : groups.find((entry) => entry.team === team);
+    if (group) group.members.push(seat);
+    else groups.push({ team, members: [seat] });
+  }
+  return groups;
 }
 
 function headline(viewerSeat: SeatResult | null, seats: SeatResult[]): string {
@@ -235,6 +284,23 @@ const styles = stylex.create({
     borderBlockStartColor: awbrnVars.rule,
     borderBlockStartStyle: "solid",
     borderBlockStartWidth: borderVars["--border-width"],
+  },
+  side: {
+    display: "flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-2"],
+    paddingBlock: `${spacingVars["--spacing-3"]} ${spacingVars["--spacing-1"]}`,
+    borderBlockStartColor: awbrnVars.rule,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: borderVars["--border-width"],
+  },
+  sideResult: {
+    color: colorVars["--color-text-secondary"],
+    fontSize: awbrnVars.text13,
+    fontWeight: 650,
+  },
+  sideWon: {
+    color: awbrnVars.ok,
   },
   seatName: {
     display: "flex",

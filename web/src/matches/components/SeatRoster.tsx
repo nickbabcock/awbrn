@@ -17,8 +17,11 @@ import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
 import { figureStyles } from "#/ui/Figure.tsx";
 import { IconArrowDown, IconArrowUp } from "#/ui/icons.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { aiProfileDisplays, DEFAULT_AI_PROFILE_ID } from "../ai_profiles.ts";
 import type { AiProfileId } from "../schemas.ts";
+import { moveSeat } from "../teams.ts";
+import { TeamKey } from "./Teams.tsx";
 
 /** The value a row carries when nobody has been put in the seat. */
 const OPEN = "open";
@@ -35,6 +38,9 @@ export interface SeatRosterProps extends RosterSeats {
   factionIds: readonly number[];
   onChange: (seats: RosterSeats) => void;
   onHostArmyChange: (factionId: number) => void;
+  /** Each seat's side, by slot index; null in a free-for-all. */
+  teams: readonly number[] | null;
+  onTeamChange: (teams: number[]) => void;
   /** The host's name, on their seat. */
   viewerName: string | null;
 }
@@ -53,8 +59,11 @@ export function SeatRoster({
   hostSlot,
   onChange,
   onHostArmyChange,
+  onTeamChange,
+  teams,
   viewerName,
 }: SeatRosterProps) {
+  const factionCodes = factionIds.map((factionId) => getFactionById(factionId)?.code ?? "os");
   function setSeat(slotIndex: number, value: string): void {
     const next = new Map(aiSeats);
     if (value === OPEN) {
@@ -76,10 +85,10 @@ export function SeatRoster({
 
   return (
     <VStack aria-label="Seats, in turn order" role="group" xstyle={styles.list}>
-      {factionIds.map((factionId, slotIndex) => {
-        const factionCode = getFactionById(factionId)?.code ?? "os";
+      {factionIds.map((_, slotIndex) => {
+        const factionCode = factionCodes[slotIndex]!;
         return (
-          <VStack key={slotIndex} xstyle={styles.row}>
+          <VStack key={slotIndex} xstyle={[styles.row, teams && styles.rowTeams]}>
             <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.number]}>
               {slotIndex + 1}
             </Text>
@@ -92,12 +101,16 @@ export function SeatRoster({
             </HStack>
             {slotIndex === hostSlot ? (
               <HStack as="span" xstyle={styles.who}>
-                <SeatStamp
-                  coId={null}
-                  factionCode={factionCode}
-                  isYours
-                  label="Your commander is picked in the lobby"
-                />
+                {/* On a phone with team keys the crest key already shows the
+                    army, so the empty stamp gives its room to the move keys. */}
+                <HStack as="span" xstyle={teams && styles.phoneHidden}>
+                  <SeatStamp
+                    coId={null}
+                    factionCode={factionCode}
+                    isYours
+                    label="Your commander is picked in the lobby"
+                  />
+                </HStack>
                 <b>{viewerName ?? "You"}</b>
                 {/* Signed out, the seat's name is already "You". */}
                 {viewerName !== null ? (
@@ -140,6 +153,18 @@ export function SeatRoster({
                 width="100%"
               />
             )}
+            {teams ? (
+              <TeamKey
+                factionCodes={factionCodes}
+                onChange={(team) => {
+                  const next = moveSeat(teams, slotIndex, team);
+                  if (next) onTeamChange(next);
+                }}
+                slotIndex={slotIndex}
+                teams={teams}
+                viewerTeam={teams[hostSlot] ?? null}
+              />
+            ) : null}
           </VStack>
         );
       })}
@@ -164,6 +189,15 @@ const styles = stylex.create({
     alignItems: "center",
     gap: "12px",
     minBlockSize: "44px",
+  },
+  rowTeams: {
+    gridTemplateColumns: "16px auto minmax(0, 1fr) auto",
+  },
+  phoneHidden: {
+    display: {
+      default: "inline-flex",
+      [pageLayout.phoneMedia]: "none",
+    },
   },
   // One column for every row: a plain crest sits where the host's crest key
   // draws its own, inside the key's border and padding.

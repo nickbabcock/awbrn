@@ -213,8 +213,12 @@ export function MatchActivePage({
   // them from the first paint rather than waiting on the engine to report.
   const openingFunds = initialBoard?.gameState?.players;
   const armies = useMemo(
-    () => withOpeningFunds(buildArmies(match.participants, playerRoster), openingFunds),
-    [match.participants, openingFunds, playerRoster],
+    () =>
+      withOpeningFunds(
+        buildArmies(match.participants, playerRoster, match.settings.teams),
+        openingFunds,
+      ),
+    [match.participants, match.settings.teams, openingFunds, playerRoster],
   );
   const [matchError, setMatchError] = useState<string | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);

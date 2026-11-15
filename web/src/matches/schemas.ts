@@ -5,13 +5,14 @@ import { MAP_ID_LENGTH } from "#/maps/map_id.ts";
 import { mapRefSchema } from "#/maps/schemas.ts";
 import { moderationReasonSchema } from "#/moderation/schemas.ts";
 import { matchIdSchema } from "./match_id.ts";
+import { MAX_SIDES } from "./teams.ts";
 
 /**
- * The COs no seat in the match may take.
+ * The COs no seat in the match may take (All).
  *
  * The host sets the list once, when the lobby is opened, and it does not
  * change after that: a ban that could arrive after a player picked would take
- * a CO out from under them. Ids are written once each and in ascending order,
+ * a CO out from under them. Seats may add their own bans on top of it. Ids are written once each and in ascending order,
  * so two hosts who ban the same COs store the same setting.
  *
  * A ban list that names every CO would leave a lobby nobody can ready in, so
@@ -93,6 +94,11 @@ export const matchSettingsSchema = z.object({
   // Matches created before COs could be banned have no list, and read as a
   // match where nothing is banned.
   bannedCoIds: bannedCoIdsSchema.default([]),
+  // Each seat's own bans on top of All, by slot index. Absent while no seat
+  // adds any. `co_bans.ts` keeps them sorted and apart from All.
+  seatBannedCoIds: z.array(z.array(z.number().int().positive())).optional(),
+  // Each seat's side, by slot index (1 is A). Absent in a free-for-all.
+  teams: z.array(z.number().int().min(1).max(MAX_SIDES)).optional(),
   // Every match runs on a clock, so the settings always name one.
   clock: matchClockSchema,
 });
@@ -149,6 +155,18 @@ export const matchMutationRequestSchema = z.discriminatedUnion("action", [
     joinSlug: z.string().nullable().optional(),
   }),
   z.object({ action: z.literal("leave"), slotIndex: z.number().int().nonnegative() }),
+  // Host only, in the lobby: move a seat to another side.
+  z.object({
+    action: z.literal("setTeam"),
+    slotIndex: z.number().int().nonnegative(),
+    team: z.number().int().min(1).max(MAX_SIDES),
+  }),
+  // Host only, in the lobby: an open or CPU seat's own bans.
+  z.object({
+    action: z.literal("setSeatBans"),
+    slotIndex: z.number().int().nonnegative(),
+    coIds: z.array(z.number().int().positive()),
+  }),
   z.object({
     action: z.literal("updateParticipant"),
     slotIndex: z.number().int().nonnegative(),
@@ -385,7 +403,8 @@ export const matchSetupPlayerSchema = z.object({
   userId: z.string().nullable().default(null),
   aiProfileId: aiProfileIdSchema.nullable().default(null),
   factionId: z.number().int(),
-  team: z.null(),
+  /** The seat's side (1 is A), or null in a free-for-all. */
+  team: z.number().int().min(1).max(MAX_SIDES).nullable(),
   startingFunds: z.number().int().nonnegative(),
   coId: z.number().int(),
 });

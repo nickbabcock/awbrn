@@ -43,6 +43,8 @@ export function lobbyPollInterval(quietForMs: number): number {
 export function lobbySignature(match: MatchSnapshot): string {
   return JSON.stringify([
     match.phase,
+    match.settings.teams,
+    match.settings.seatBannedCoIds,
     match.participants.map((participant) => [
       participant.slotIndex,
       participant.userId,

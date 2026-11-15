@@ -44,6 +44,8 @@ import { findCatalogEntry, loadMapRevision, mapSlotFactionIds } from "#/maps/map
 import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
+import { banDraft, canonicalBans, leavesACo, ownBans, seatBans, seatListsFor } from "./co_bans";
+import { moveSeat, teamsProblem } from "./teams";
 import { drizzle } from "drizzle-orm/d1";
 import {
   and,
@@ -125,13 +127,12 @@ type MatchHistoryRow = Awaited<ReturnType<typeof queryMatchHistoryRows>>[number]
  * random, so the same lobby always seats the same commanders and two
  * opponents in one match rarely share one.
  *
- * A ban list the host set is a ban on every seat, this one included.
+ * The seat's bans (All and its own) hold for it as for any seat.
  */
-function chooseAiCo(bannedCoIds: readonly number[], matchId: string, slotIndex: number): number {
-  const banned = new Set(bannedCoIds);
+function chooseAiCo(banned: ReadonlySet<number>, matchId: string, slotIndex: number): number {
   const allowed = coRoster.filter((co) => !banned.has(co.awbwId));
-  // The ban list always leaves one CO standing, which the settings schema
-  // enforces, so this is never an empty roster.
+  // Every seat's bans leave one CO standing, which creating the match and
+  // every later ban edit enforce, so this is never an empty roster.
   const pool = allowed.length > 0 ? allowed : coRoster;
   let hash = 2166136261;
   for (const character of `${matchId}:${slotIndex}`) {
@@ -180,6 +181,27 @@ export async function createMatch(
       return err("invalidSlot", "leave a seat for yourself", 400);
     }
 
+    const teams = input.settings.teams ?? [];
+    const teamsError = teamsProblem(teams, maxPlayers);
+    if (teamsError) {
+      return err("participantInvalid", teamsError, 400);
+    }
+    if ((input.settings.seatBannedCoIds?.length ?? 0) > maxPlayers) {
+      return err("invalidSlot", "a seat's bans are outside the map's player count", 400);
+    }
+    const bans = canonicalBans(input.settings, maxPlayers);
+    const settings: MatchSettings = {
+      ...input.settings,
+      bannedCoIds: bans.bannedCoIds,
+      seatBannedCoIds: bans.seatBannedCoIds,
+      teams: teams.length > 0 ? teams : undefined,
+    };
+    for (let slotIndex = 0; slotIndex < maxPlayers; slotIndex += 1) {
+      if (!leavesACo(seatBans(settings, slotIndex))) {
+        return err("participantInvalid", "every seat has to keep a CO to choose", 400);
+      }
+    }
+
     const seatFactions = mapSlotFactionIds(mapDocument);
     // A CPU seat plays the army the host's roster gave it, or else the map's.
     const aiArmies = aiSeats.map((seat) => seat.factionId ?? seatFactions[seat.slotIndex] ?? 0);
@@ -207,7 +229,7 @@ export async function createMatch(
         maxPlayers,
         isPrivate: input.isPrivate,
         joinSlug,
-        settings: input.settings,
+        settings,
         createdAt: now,
         updatedAt: now,
       });
@@ -223,7 +245,7 @@ export async function createMatch(
                 aiProfileId: seat.profileId,
                 slotIndex: seat.slotIndex,
                 factionId: aiArmies[index]!,
-                coId: chooseAiCo(input.settings.bannedCoIds, matchId, seat.slotIndex),
+                coId: chooseAiCo(seatBans(settings, seat.slotIndex), matchId, seat.slotIndex),
                 ready: true,
                 joinedAt: now,
                 updatedAt: now,
@@ -634,6 +656,20 @@ export async function mutateMatch(
       }
       break;
     }
+    case "setTeam": {
+      const teamResult = await setSeatTeam(matchId, viewer.id, action.slotIndex, action.team);
+      if (!teamResult.ok) {
+        return teamResult;
+      }
+      break;
+    }
+    case "setSeatBans": {
+      const bansResult = await setSeatBans(matchId, viewer.id, action.slotIndex, action.coIds);
+      if (!bansResult.ok) {
+        return bansResult;
+      }
+      break;
+    }
   }
 
   const startResult = await tryStartMatch(matchId);
@@ -779,7 +815,7 @@ async function updateParticipant(
     return err("participantInvalid", "another seat already has that army", 409);
   }
 
-  if (nextCoId !== null && match.settings.bannedCoIds.includes(nextCoId)) {
+  if (nextCoId !== null && seatBans(match.settings, slotIndex).has(nextCoId)) {
     return err("participantInvalid", `${coDisplayName(nextCoId)} is banned in this match`, 409);
   }
 
@@ -800,12 +836,7 @@ async function updateParticipant(
         eq(matchParticipants.matchId, matchId),
         eq(matchParticipants.userId, userId),
         eq(matchParticipants.slotIndex, slotIndex),
-        exists(
-          db
-            .select({ _: sql`1` })
-            .from(matches)
-            .where(and(eq(matches.id, matchId), eq(matches.phase, PUBLIC_MATCH_PHASE))),
-        ),
+        whileLobby(matchId),
       ),
     )
     .run();
@@ -815,6 +846,164 @@ async function updateParticipant(
   }
 
   return err("notParticipant", "you are not currently in this match lobby", 409);
+}
+
+/** The lobby, for a change only its host may make. */
+async function loadHostLobby(matchId: string, userId: string): Promise<MatchResult<MatchSnapshot>> {
+  const snapshot = await loadMatchSnapshot(matchId);
+  if (!snapshot.ok) {
+    return snapshot;
+  }
+  if (snapshot.value.phase !== PUBLIC_MATCH_PHASE) {
+    return err("matchNotLobby", "match is no longer in lobby", 409);
+  }
+  if (snapshot.value.creatorUserId !== userId) {
+    return err("notHost", "only the match's host can change this", 403);
+  }
+  return snapshot;
+}
+
+/** Matches the lobby while it is still one, so a write never lands on a started match. */
+function whileLobby(matchId: string) {
+  return exists(
+    db
+      .select({ _: sql`1` })
+      .from(matches)
+      .where(and(eq(matches.id, matchId), eq(matches.phase, PUBLIC_MATCH_PHASE))),
+  );
+}
+
+/**
+ * Move a seat to another side.
+ *
+ * Every player readied for the sides they saw, so each of them readies again.
+ * A CPU has nothing to reconsider and stays ready. Bans and picks stay with
+ * the seat.
+ */
+async function setSeatTeam(
+  matchId: string,
+  userId: string,
+  slotIndex: number,
+  team: number,
+): Promise<MatchResult<void>> {
+  const lobby = await loadHostLobby(matchId, userId);
+  if (!lobby.ok) {
+    return lobby;
+  }
+  const match = lobby.value;
+  const teams = match.settings.teams ?? [];
+  if (teams.length === 0) {
+    return err("participantInvalid", "a free-for-all has no teams", 409);
+  }
+  const nextTeams = moveSeat(teams, slotIndex, team);
+  if (nextTeams === null) {
+    return err("participantInvalid", "that seat cannot join that team", 409);
+  }
+  if (nextTeams.every((entry, index) => entry === teams[index])) {
+    return ok(undefined);
+  }
+
+  const now = new Date();
+  const [settingsWrite] = await db.batch([
+    db
+      .update(matches)
+      .set({ settings: { ...match.settings, teams: nextTeams }, updatedAt: now })
+      .where(and(eq(matches.id, matchId), eq(matches.phase, PUBLIC_MATCH_PHASE))),
+    db
+      .update(matchParticipants)
+      .set({ ready: false, updatedAt: now })
+      .where(
+        and(
+          eq(matchParticipants.matchId, matchId),
+          isNotNull(matchParticipants.userId),
+          whileLobby(matchId),
+        ),
+      ),
+  ]);
+  if (settingsWrite.meta.changes === 0) {
+    return err("matchNotLobby", "match is no longer in lobby", 409);
+  }
+  return ok(undefined);
+}
+
+/**
+ * Set an open or CPU seat's own bans.
+ *
+ * A seat a person holds keeps the bans they joined under, and All is fixed
+ * once the lobby opens, so no player's list ever changes under them. A CPU
+ * whose CO is now banned picks again and stays ready.
+ */
+async function setSeatBans(
+  matchId: string,
+  userId: string,
+  slotIndex: number,
+  coIds: readonly number[],
+): Promise<MatchResult<void>> {
+  const lobby = await loadHostLobby(matchId, userId);
+  if (!lobby.ok) {
+    return lobby;
+  }
+  const match = lobby.value;
+  if (slotIndex >= match.maxPlayers) {
+    return err("invalidSlot", "selected slot is outside the map's player count", 409);
+  }
+  const seat = match.participants.find((entry) => entry.slotIndex === slotIndex) ?? null;
+  if (seat?.userId) {
+    return err("participantInvalid", "a player's bans cannot change once they hold the seat", 409);
+  }
+
+  const { seats } = banDraft(match.settings, match.maxPlayers);
+  seats[slotIndex] = ownBans(coIds, match.settings.bannedCoIds);
+  const settings: MatchSettings = {
+    ...match.settings,
+    seatBannedCoIds: seatListsFor(seats, match.maxPlayers),
+  };
+  const banned = seatBans(settings, slotIndex);
+  if (!leavesACo(banned)) {
+    return err("participantInvalid", "every seat has to keep a CO to choose", 409);
+  }
+
+  const now = new Date();
+  const settingsWrite = db
+    .update(matches)
+    .set({ settings, updatedAt: now })
+    .where(
+      and(
+        eq(matches.id, matchId),
+        eq(matches.phase, PUBLIC_MATCH_PHASE),
+        // A person may have taken the seat since it was read; their bans
+        // are the ones they joined under.
+        sql`NOT EXISTS (
+          SELECT 1 FROM match_participants held
+          WHERE held.matchId = ${matchId}
+            AND held.slotIndex = ${slotIndex}
+            AND held.userId IS NOT NULL
+        )`,
+      ),
+    );
+  let written;
+  if (seat?.aiProfileId && seat.coId !== null && banned.has(seat.coId)) {
+    [written] = await db.batch([
+      settingsWrite,
+      db
+        .update(matchParticipants)
+        .set({ coId: chooseAiCo(banned, matchId, slotIndex), updatedAt: now })
+        .where(
+          and(
+            eq(matchParticipants.matchId, matchId),
+            eq(matchParticipants.slotIndex, slotIndex),
+            isNull(matchParticipants.userId),
+            whileLobby(matchId),
+          ),
+        ),
+    ]);
+  } else {
+    written = await settingsWrite.run();
+  }
+  if (written.meta.changes === 0) {
+    return err("participantInvalid", "that seat's bans can no longer change", 409);
+  }
+  return ok(undefined);
 }
 
 async function diagnoseJoinFailure(
@@ -988,7 +1177,7 @@ async function buildMatchSetup(row: NonNullable<MatchRow>): Promise<MatchResult<
       userId: participant.userId,
       aiProfileId: participant.aiProfileId,
       factionId: participant.factionId,
-      team: null,
+      team: settings.value.teams?.[participant.slotIndex] ?? null,
       startingFunds: settings.value.startingFunds,
       coId: participant.coId!,
     })),
@@ -1448,6 +1637,8 @@ function mutationJoinSlug(action: MatchMutationRequest): string | null {
     case "updateParticipant":
       return action.joinSlug ?? null;
     case "leave":
+    case "setTeam":
+    case "setSeatBans":
       return null;
   }
 }

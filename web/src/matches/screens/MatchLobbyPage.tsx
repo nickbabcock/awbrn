@@ -11,7 +11,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { colorVars, textSizeVars } from "@astryxdesign/core/theme/tokens.stylex";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { coTierListFor } from "#/co_tiers.ts";
 import { FactionCrest } from "#/components/FactionCrest.tsx";
@@ -25,6 +25,9 @@ import {
   STARTING_POLL_INTERVAL_MS,
 } from "#/matches/lobby_poll.ts";
 import { ordinal } from "#/matches/match_history.ts";
+import { banDraft, seatBans, seatsAlike, type BanDraft } from "#/matches/co_bans.ts";
+import { BanEditor, BanLines } from "#/matches/components/SeatBans.tsx";
+import { TeamKey, TeamShape, TeamTag } from "#/matches/components/Teams.tsx";
 import { mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
@@ -129,7 +132,9 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
   // The map decides which army each seat holds, so a seat cannot be claimed
   // before the map arrives.
   const slotFactionIds = mapData?.slotFactionIds ?? null;
-  const bannedCoIds = useMemo(() => new Set(match.settings.bannedCoIds), [match.settings]);
+  const teams = match.settings.teams ?? [];
+  const isTeamMatch = teams.length > 0;
+  const isHost = currentUserId !== null && currentUserId === match.creatorUserId;
   const tierList = coTierListFor({
     fogEnabled: match.settings.fogEnabled,
     playerCount: match.maxPlayers,
@@ -142,6 +147,9 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
     setActionError(null);
     setPendingAction(null);
     setLeavingSlot(null);
+    // An open ban editor drafted another match's lists; closing it must not
+    // save them here.
+    setBanEdit(null);
     setLastChangeAt(Date.now());
   }, [matchId, joinSlug]);
 
@@ -190,6 +198,26 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
   const seatSlot =
     activeSlot !== null && ownedSlots.includes(activeSlot) ? activeSlot : (ownedSlots[0] ?? null);
   const seat = seatSlot === null ? null : (participantsBySlot.get(seatSlot) ?? null);
+  // The picker hides this seat's bans: All and its own.
+  const bannedCoIds = useMemo(
+    () =>
+      seatSlot === null ? new Set(match.settings.bannedCoIds) : seatBans(match.settings, seatSlot),
+    [match.settings, seatSlot],
+  );
+  const viewerTeam = seatSlot === null ? null : (teams[seatSlot] ?? null);
+  // The host edits the bans of the seats no person holds, so no player's list
+  // changes under them.
+  const lockedBanSlots = new Set(
+    match.participants.filter((entry) => entry.userId !== null).map((entry) => entry.slotIndex),
+  );
+  const areBansAlike = seatsAlike(match.settings, match.maxPlayers);
+  // A 1v1 always waits on an open seat, so there the host's Edit shows only
+  // once the lists differ: an ordinary 1v1 lobby stays as it was.
+  const canEditBans =
+    isHost && lockedBanSlots.size < match.maxPlayers && (match.maxPlayers > 2 || !areBansAlike);
+  // The lists as the editor opened, so a close saves only what this editor
+  // changed, never an older copy of a seat edited elsewhere meanwhile.
+  const [banEdit, setBanEdit] = useState<{ opened: BanDraft; draft: BanDraft } | null>(null);
 
   // A seat opens on a commander (the player's last, else Andy), so the
   // briefing leads with a stamp and Ready is the red key from the first look,
@@ -245,6 +273,38 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
     const factionId = armies?.[slotIndex] ?? null;
     if (factionId === null) return;
     void submitAction({ action: "join", slotIndex, factionId, joinSlug }, `join-${slotIndex}`);
+  }
+
+  /**
+   * Save the host's ban edits as the editor closes: one write per changed
+   * seat, so a CPU picks again at most once and nobody watches a list change
+   * stamp by stamp.
+   */
+  async function saveSeatBans(opened: BanDraft, draft: BanDraft): Promise<void> {
+    if (pendingAction !== null || !isLobby) return;
+    const changed = draft.seats.flatMap((coIds, slotIndex) =>
+      !lockedBanSlots.has(slotIndex) && coIds.join() !== opened.seats[slotIndex]!.join()
+        ? [{ slotIndex, coIds }]
+        : [],
+    );
+    if (changed.length === 0) return;
+    setPendingAction("bans");
+    setActionError(null);
+    try {
+      // A poll already in flight would land the old lists over the saved ones.
+      await queryClient.cancelQueries({ queryKey: detailQueryOptions.queryKey });
+      for (const { slotIndex, coIds } of changed) {
+        const response = await mutateMatchFn({
+          data: { matchId, action: { action: "setSeatBans", slotIndex, coIds } },
+        });
+        queryClient.setQueryData(detailQueryOptions.queryKey, response.match);
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Lobby update failed.");
+      await queryClient.invalidateQueries({ queryKey: detailQueryOptions.queryKey });
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   function factionCodeFor(slotIndex: number): string {
@@ -448,6 +508,9 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
                       <Fact isStrong>
                         <FactionLogo factionCode={faction.code} isLabelHidden size={14} />
                         {faction.displayName}
+                        {viewerTeam !== null ? (
+                          <TeamTag isMine size={18} team={viewerTeam} />
+                        ) : null}
                       </Fact>
                     ) : null}
                     {seat ? (
@@ -497,12 +560,17 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
             </Sheet>
           </VStack>
 
-          <VStack xstyle={setupStyles.after}>
+          {/* In a team match a phone shows allies and every seat's bans
+              before the pick, and the host's team keys within reach. */}
+          <VStack xstyle={[setupStyles.after, isTeamMatch && styles.seatsFirst]}>
             <Sheet aria-labelledby={seatsId}>
               <SheetHead>
-                <Heading id={seatsId} level={2} xstyle={headingLooks.title}>
-                  Seats
-                </Heading>
+                <HStack xstyle={styles.seatsTitle}>
+                  <Heading id={seatsId} level={2} xstyle={headingLooks.title}>
+                    Seats
+                  </Heading>
+                  {isTeamMatch ? <TeamShape teams={teams} xstyle={styles.shape} /> : null}
+                </HStack>
                 <Text
                   color="inherit"
                   type="inherit"
@@ -546,11 +614,60 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
                             : participant
                         }
                         slotIndex={slotIndex}
+                        team={
+                          !isTeamMatch ? null : isHost ? (
+                            <TeamKey
+                              factionCodes={slots.map(factionCodeFor)}
+                              isDisabled={isLocked}
+                              onChange={(team) =>
+                                void submitAction({ action: "setTeam", slotIndex, team }, "team")
+                              }
+                              slotIndex={slotIndex}
+                              teams={teams}
+                              viewerTeam={viewerTeam}
+                            />
+                          ) : (
+                            <TeamTag
+                              isMine={teams[slotIndex] === viewerTeam}
+                              team={teams[slotIndex]!}
+                            />
+                          )
+                        }
                       />
                     </SheetRow>
                   );
                 })}
               </SheetRows>
+              {canEditBans || !areBansAlike ? (
+                <VStack aria-label="Banned" role="group" xstyle={styles.bans}>
+                  <HStack xstyle={styles.bansHead}>
+                    <Text color="inherit" type="inherit" xstyle={styles.bansLabel}>
+                      Banned
+                    </Text>
+                    {canEditBans ? (
+                      <Button
+                        isDisabled={isLocked}
+                        isLoading={pendingAction === "bans"}
+                        label="Edit"
+                        onClick={() => {
+                          const opened = banDraft(match.settings, match.maxPlayers);
+                          setBanEdit({ opened, draft: opened });
+                        }}
+                        size="sm"
+                        xstyle={styles.bansEdit}
+                      />
+                    ) : null}
+                  </HStack>
+                  <BanLines
+                    factionCodes={slots.map(factionCodeFor)}
+                    lists={match.settings}
+                    teams={teams}
+                    tierList={tierList}
+                    viewerSlots={ownedSlots}
+                    viewerTeam={viewerTeam}
+                  />
+                </VStack>
+              ) : null}
               {shareUrl ? (
                 <SheetFoot>
                   <HStack as="span" xstyle={styles.share}>
@@ -617,13 +734,42 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
           line={
             <>
               <SeatStamp coId={shownCoId} factionCode={faction?.code ?? null} />
-              {faction ? <b>{faction.displayName}</b> : null}
+              {faction ? (
+                <HStack as="span" xstyle={styles.dockArmy}>
+                  <b>{faction.displayName}</b>
+                  {viewerTeam !== null ? <TeamTag isMine size={18} team={viewerTeam} /> : null}
+                </HStack>
+              ) : null}
             </>
           }
         />
       ) : !seat && isLobby && claimKey(true) ? (
         <TaskDock keys={claimKey(true)} label="Take a seat" line={<b>{mapName}</b>} />
       ) : null}
+
+      <ModalSheet
+        isOpen={banEdit !== null}
+        onOpenChange={(isOpen) => {
+          if (isOpen || banEdit === null) return;
+          setBanEdit(null);
+          void saveSeatBans(banEdit.opened, banEdit.draft);
+        }}
+        title="Banned"
+        width={760}
+      >
+        {banEdit ? (
+          <BanEditor
+            draft={banEdit.draft}
+            factionCodes={slots.map(factionCodeFor)}
+            isAllLocked
+            lockedSlots={lockedBanSlots}
+            names={slots.map((slotIndex) => participantsBySlot.get(slotIndex)?.userName ?? null)}
+            onChange={(draft) => setBanEdit({ ...banEdit, draft })}
+            teams={teams}
+            tierList={tierList}
+          />
+        ) : null}
+      </ModalSheet>
 
       <ModalSheet
         footer={
@@ -667,6 +813,7 @@ function SeatLine({
   onFactionChange,
   participant,
   slotIndex,
+  team,
 }: {
   canClaim: boolean;
   factionCode: string;
@@ -678,6 +825,8 @@ function SeatLine({
   onFactionChange?: (factionId: number) => void | Promise<void>;
   participant: MatchParticipantSnapshot | null;
   slotIndex: number;
+  /** The seat's side: the host's key, or its tag. Null in a free-for-all. */
+  team: ReactNode;
 }) {
   const who = participant ? (
     <HStack as="span" xstyle={styles.who}>
@@ -707,7 +856,9 @@ function SeatLine({
   );
 
   return (
-    <VStack xstyle={[styles.seat, isActive && styles.seatActive]}>
+    <VStack
+      xstyle={[styles.seat, team !== null && styles.seatTeams, isActive && styles.seatActive]}
+    >
       <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.number]}>
         {slotIndex + 1}
       </Text>
@@ -738,12 +889,19 @@ function SeatLine({
             </Button>
           ) : null
         ) : participant.ready ? (
-          <HStack as="span" xstyle={styles.ready}>
+          // Beside a team key the check alone says it; its name stays Ready.
+          <HStack
+            aria-label={team !== null ? "Ready" : undefined}
+            as="span"
+            role={team !== null ? "img" : undefined}
+            xstyle={styles.ready}
+          >
             <Icon icon={IconCheck} size="sm" />
-            Ready
+            {team !== null ? null : "Ready"}
           </HStack>
         ) : null}
       </HStack>
+      {team}
     </VStack>
   );
 }
@@ -796,6 +954,57 @@ const styles = stylex.create({
       default: "20px",
       [pageLayout.phoneMedia]: "16px",
     },
+  },
+  seatTeams: {
+    gridTemplateColumns: "16px 44px minmax(0, 1fr) auto auto",
+  },
+  seatsFirst: {
+    order: {
+      default: null,
+      [pageLayout.phoneMedia]: 1,
+    },
+  },
+  seatsTitle: {
+    alignItems: "baseline",
+    gap: "10px",
+  },
+  shape: {
+    color: colorVars["--color-text-primary"],
+    fontSize: awbrnVars.text14,
+    fontWeight: 700,
+  },
+  bans: {
+    display: "grid",
+    gap: "10px",
+    paddingBlock: "14px",
+    paddingInline: {
+      default: "20px",
+      [pageLayout.phoneMedia]: "16px",
+    },
+    borderBlockStartColor: awbrnVars.rule,
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: "1px",
+  },
+  bansHead: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    minBlockSize: "32px",
+  },
+  bansLabel: {
+    fontSize: awbrnVars.text14,
+    fontWeight: 650,
+  },
+  bansEdit: {
+    minBlockSize: {
+      default: null,
+      [pageLayout.phoneMedia]: "44px",
+    },
+  },
+  dockArmy: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    whiteSpace: "nowrap",
   },
   seatActive: {
     backgroundColor: awbrnVars.ink100,
