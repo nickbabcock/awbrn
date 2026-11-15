@@ -16,7 +16,8 @@ use crate::view::{VisibleTerrain, VisibleUnit};
 use crate::{CaptureEvent, PlayerUpdate, PlayerView, SpectatorView};
 use crate::{GameServer, GameSetup, PlayerSetup, StoredActionEvent};
 use awbrn_ai::{AiProfile, AiTier};
-use awbrn_types::{AwbwCoId, Co, CoExt};
+use awbrn_types::{Co, CoExt};
+use awbw_types::AwbwCoId;
 use awvm::semantic::ObservedTransition;
 
 #[derive(Debug, Clone, Copy, Tsify, Serialize, Deserialize, PartialEq, Eq)]

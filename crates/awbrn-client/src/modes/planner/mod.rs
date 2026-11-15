@@ -28,8 +28,9 @@ mod fixture;
 use awbrn_bevy::replay::{AwbwUnitId, ReplayViewpoint};
 use awbrn_bevy::world::GameMap;
 use awbrn_map::Pos;
-use awbrn_types::{AwbwGamePlayerId, ExactHp, GraphicalHp, UnitExt};
+use awbrn_types::{ExactHp, GraphicalHp, UnitExt};
 use awbw_replay::AwbwReplay;
+use awbw_types::AwbwGamePlayerId;
 use awvm::commander::{AreaStrikePolicy, PowerLevel};
 use awvm::event::Event;
 use awvm::query::{AreaStrike, area_strikes};
@@ -975,7 +976,8 @@ mod tests {
     use awbrn_bevy::world::{CarriedBy, UnitActive};
     use awbrn_game::{GameCommand, PostMoveAction, ServerUnitId};
     use awbrn_map::{AwbrnMap, AwbwMap};
-    use awbrn_types::{AwbwCoId, PlayerFaction};
+    use awbrn_types::PlayerFaction;
+    use awbw_types::AwbwCoId;
     use bevy::state::app::StatesPlugin;
     use std::sync::{Arc, Mutex};
 

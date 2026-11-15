@@ -153,7 +153,7 @@ pub(crate) fn handle_replay_controls(
 /// key was pressed on the board.
 pub fn set_replay_viewpoint(
     world: &mut World,
-    player_id: Option<awbrn_types::AwbwGamePlayerId>,
+    player_id: Option<awbw_types::AwbwGamePlayerId>,
     follows_active_player: bool,
 ) {
     let next = match (player_id, follows_active_player) {
@@ -206,10 +206,10 @@ mod tests {
     use awbrn_bevy::replay::AwbwUnitId;
     use awbrn_bevy::world::{GameMap, StrongIdMap};
     use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
-    use awbrn_types::AwbwGamePlayerId;
     use awbw_replay::AwbwReplay;
     use awbw_replay::ReplayParser;
     use awbw_replay::turn_models::{Action, PowerAction};
+    use awbw_types::AwbwGamePlayerId;
     use awvm_awbw::RecordedAdapter;
     use bevy::input::keyboard::{Key, NativeKey};
     use std::path::Path;
@@ -605,10 +605,10 @@ mod tests {
             unit: [(
                 TargetedPlayer::Global,
                 Hidden::Visible(UnitProperty {
-                    units_id: awbrn_types::AwbwUnitId::new(1),
+                    units_id: awbw_types::AwbwUnitId::new(1),
                     units_games_id: Some(1),
                     units_players_id: AwbwGamePlayerId::new(1),
-                    units_name: awbrn_types::AwbwUnitKind::Infantry,
+                    units_name: awbw_types::AwbwUnitKind::Infantry,
                     units_movement_points: Some(3),
                     units_vision: Some(2),
                     units_fuel: Some(99),

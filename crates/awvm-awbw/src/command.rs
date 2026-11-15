@@ -445,7 +445,7 @@ fn pos(x: u32, y: u32, context: &'static str) -> Result<Pos, CommandAdapterError
     ))
 }
 
-fn unit_id(id: awbrn_types::AwbwUnitId) -> UnitId {
+fn unit_id(id: awbw_types::AwbwUnitId) -> UnitId {
     UnitId::new(id.as_u32())
 }
 

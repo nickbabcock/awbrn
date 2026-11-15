@@ -623,18 +623,18 @@ fn movement_for_current_view<'a>(
 
 fn transition_for_player(
     transitions: &[ObservedTransition],
-    player: awbrn_types::AwbwGamePlayerId,
+    player: awbw_types::AwbwGamePlayerId,
 ) -> Option<&ObservedTransition> {
     transitions
         .iter()
         .find(|transition| parse_player_id(&transition.post.recipient) == Some(player))
 }
 
-fn parse_player_id(id: &PlayerId) -> Option<awbrn_types::AwbwGamePlayerId> {
+fn parse_player_id(id: &PlayerId) -> Option<awbw_types::AwbwGamePlayerId> {
     id.as_str()
         .parse()
         .ok()
-        .map(awbrn_types::AwbwGamePlayerId::new)
+        .map(awbw_types::AwbwGamePlayerId::new)
 }
 
 fn entity_for_observed_unit(
@@ -644,7 +644,7 @@ fn entity_for_observed_unit(
 ) -> Option<Entity> {
     match unit {
         ObservedUnitRef::Friendly { unit } => {
-            let id = awbrn_types::AwbwUnitId::new(unit.get());
+            let id = awbw_types::AwbwUnitId::new(unit.get());
             world
                 .resource::<StrongIdMap<AwbwUnitId>>()
                 .get(&AwbwUnitId(id))

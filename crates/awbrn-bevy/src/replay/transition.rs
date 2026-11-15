@@ -9,7 +9,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use awbrn_map::Pos;
-use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, Faction as MapFaction};
+use awbrn_types::Faction as MapFaction;
+use awbw_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId};
 use awvm::semantic::{
     Location, Observation, ObservedEvent, ObservedTileOwner, ObservedTransition, ObservedUnit,
     ObservedUnitRef, PlayerId, UnitAction,

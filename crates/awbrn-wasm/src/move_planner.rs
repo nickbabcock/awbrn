@@ -5,9 +5,10 @@
 //! player's CO, funds and power. [`crate::BevyApp::load_move_planner`] then
 //! opens the board.
 
-use awbrn_types::{AwbwCoId, AwbwGamePlayerId, AwbwMapId, Co, CoExt};
+use awbrn_types::{Co, CoExt};
 use awbw_replay::game_models::CoPower;
 use awbw_replay::move_planner::{MovePlanner, PlannerSeat, PlannerSetup};
+use awbw_types::{AwbwCoId, AwbwGamePlayerId, AwbwMapId};
 use serde::{Deserialize, Serialize};
 use tsify::{Ts, Tsify};
 use wasm_bindgen::prelude::*;

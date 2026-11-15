@@ -12,7 +12,8 @@ use awbrn_client::{
 };
 use awbrn_map::Pos;
 use awbrn_map::ValidatedMapDocument;
-use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
+use awbrn_types::PlayerFaction;
+use awbw_types::AwbwGamePlayerId;
 use bevy::{
     app::PluginsState,
     input::{
@@ -847,7 +848,7 @@ impl BevyApp {
     pub fn set_replay_viewpoint(&mut self, player_id: Option<u32>, follows_active_player: bool) {
         awbrn_client::modes::replay::controls::set_replay_viewpoint(
             self.app.world_mut(),
-            player_id.map(awbrn_types::AwbwGamePlayerId::new),
+            player_id.map(awbw_types::AwbwGamePlayerId::new),
             follows_active_player,
         );
     }

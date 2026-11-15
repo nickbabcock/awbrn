@@ -349,7 +349,8 @@ mod tests {
     use awbrn_bevy::world::GameMap;
     use awbrn_map::AwbrnMap;
     use awbrn_map::Dimensions;
-    use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
+    use awbrn_types::PlayerFaction;
+    use awbw_types::AwbwGamePlayerId;
 
     /// A fogged property keeps the owner the viewer last saw on it.
     ///
@@ -425,8 +426,8 @@ mod tests {
         app.add_plugins(GameWorldPlugin);
         app.add_systems(Update, project_unit_render_state);
 
-        let seen = awbrn_types::AwbwUnitId::new(1);
-        let unseen = awbrn_types::AwbwUnitId::new(2);
+        let seen = awbw_types::AwbwUnitId::new(1);
+        let unseen = awbw_types::AwbwUnitId::new(2);
         for id in [seen, unseen] {
             app.world_mut().spawn((
                 AwbwUnitId(id),

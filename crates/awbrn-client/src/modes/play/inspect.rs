@@ -16,7 +16,8 @@ use std::collections::HashSet;
 use awbrn_bevy::MapPosition;
 use awbrn_bevy::world::{GameMap, Unit};
 use awbrn_map::Pos;
-use awbrn_types::{AwbwGamePlayerId, UnitExt};
+use awbrn_types::UnitExt;
+use awbw_types::AwbwGamePlayerId;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 

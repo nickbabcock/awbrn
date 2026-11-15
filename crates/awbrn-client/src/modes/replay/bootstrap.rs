@@ -132,7 +132,7 @@ fn initialize_awbrn_replay_world(world: &mut World) {
     for player in &players {
         if let Some(faction) = awbrn_types::PlayerFaction::from_id(player.faction_id) {
             registry.add_player(
-                awbrn_types::AwbwGamePlayerId::new(player.player_id),
+                awbw_types::AwbwGamePlayerId::new(player.player_id),
                 faction,
                 0,
             );

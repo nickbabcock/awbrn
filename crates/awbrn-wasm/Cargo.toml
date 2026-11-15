@@ -15,6 +15,7 @@ awbrn-content = { path = "../awbrn-content" }
 awbrn-game = { path = "../awbrn-game" }
 awbrn-map = { path = "../awbrn-map" }
 awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
+awbw-types = { path = "../awbw-types" }
 awbw-replay = { path = "../awbw-replay" }
 awvm = { path = "../awvm", features = ["typescript"] }
 bevy = { workspace = true, features = [

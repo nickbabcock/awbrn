@@ -11,7 +11,8 @@
 use std::collections::HashSet;
 
 use awbrn_map::{Dimensions, Grid, Pos};
-use awbrn_types::{AwbwGamePlayerId, AwbwUnitId, PlayerFaction};
+use awbrn_types::PlayerFaction;
+use awbw_types::{AwbwGamePlayerId, AwbwUnitId};
 use bevy::prelude::*;
 
 /// The set of factions the viewer commands.

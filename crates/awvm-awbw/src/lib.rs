@@ -9,12 +9,10 @@
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::{AwbwMap, AwbwMapData};
-use awbrn_types::{
-    AwbwGamePlayerId, AwbwTerrain, AwbwUnitKind, Co, CoExt, Faction, MissileSiloStatus,
-    PlayerFaction, Property,
-};
+use awbrn_types::{AwbwTerrain, Co, CoExt, Faction, MissileSiloStatus, PlayerFaction, Property};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::{AwbwGame, AwbwPlayer, AwbwUnit, CoPower, MatchType};
+use awbw_types::{AwbwGamePlayerId, AwbwUnitId, AwbwUnitKind};
 use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, UnitKind, WeatherKind};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
@@ -381,7 +379,7 @@ fn lower_units(
     game: &AwbwGame,
     player_seats: &HashMap<AwbwGamePlayerId, PlayerIdx>,
 ) -> Result<UnitStore, AdapterError> {
-    let mut cargo = HashMap::<awbrn_types::AwbwUnitId, (awbrn_types::AwbwUnitId, usize)>::new();
+    let mut cargo = HashMap::<AwbwUnitId, (AwbwUnitId, usize)>::new();
     for transport in &game.units {
         for (slot, cargo_id) in [transport.cargo1_units_id, transport.cargo2_units_id]
             .into_iter()
@@ -407,7 +405,7 @@ fn lower_units(
 fn lower_unit(
     unit: &AwbwUnit,
     player_seats: &HashMap<AwbwGamePlayerId, PlayerIdx>,
-    cargo: &HashMap<awbrn_types::AwbwUnitId, (awbrn_types::AwbwUnitId, usize)>,
+    cargo: &HashMap<AwbwUnitId, (AwbwUnitId, usize)>,
 ) -> Result<Unit, AdapterError> {
     let owner =
         player_seats

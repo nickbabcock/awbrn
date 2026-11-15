@@ -39,7 +39,7 @@ impl<T> bevy::reflect::CreateTypeData<T> for ReplaySemanticResourceType {
 pub struct GameSnapshot {
     pub next_action_index: u32,
     pub day: u32,
-    pub active_player_id: Option<awbrn_types::AwbwGamePlayerId>,
+    pub active_player_id: Option<awbw_types::AwbwGamePlayerId>,
     pub scene: DynamicWorld,
 }
 
@@ -57,7 +57,7 @@ impl std::fmt::Debug for GameSnapshot {
 pub struct CanonicalReplaySnapshot {
     pub next_action_index: u32,
     pub day: u32,
-    pub active_player_id: Option<awbrn_types::AwbwGamePlayerId>,
+    pub active_player_id: Option<awbw_types::AwbwGamePlayerId>,
     pub resources: Vec<CanonicalSceneEntry>,
     pub entities: Vec<CanonicalReplayEntity>,
 }
@@ -626,7 +626,8 @@ mod tests {
     use crate::GameWorldPlugin;
     use crate::world::GameMap;
     use awbrn_map::{AwbrnMap, Dimensions};
-    use awbrn_types::{AwbwGamePlayerId, GraphicalTerrain, PlayerFaction};
+    use awbrn_types::{GraphicalTerrain, PlayerFaction};
+    use awbw_types::AwbwGamePlayerId;
     use bevy::{ecs::entity::MapEntities, ecs::reflect::ReflectMapEntities};
 
     #[derive(Component, Reflect, MapEntities)]
@@ -652,7 +653,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
             UnitActive,
         ));
@@ -691,7 +692,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
             UnitActive,
             Fuel(60),
@@ -749,7 +750,7 @@ mod tests {
             .spawn((
                 MapPosition::new(0, 0),
                 Faction(PlayerFaction::OrangeStar),
-                AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+                AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
                 Unit(awbrn_types::Unit::Apc),
                 UnitActive,
             ))
@@ -759,7 +760,7 @@ mod tests {
             .spawn((
                 MapPosition::new(0, 0),
                 Faction(PlayerFaction::OrangeStar),
-                AwbwUnitId(awbrn_types::AwbwUnitId::new(2)),
+                AwbwUnitId(awbw_types::AwbwUnitId::new(2)),
                 Unit(awbrn_types::Unit::Infantry),
                 TestEntityRef(transport),
             ))
@@ -856,7 +857,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(7)),
+            AwbwUnitId(awbw_types::AwbwUnitId::new(7)),
             Unit(awbrn_types::Unit::Tank),
             Fuel(37),
             Ammo(5),
@@ -907,13 +908,13 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(0, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
         ));
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::BlueMoon),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
             Unit(awbrn_types::Unit::Mech),
         ));
 

@@ -12,7 +12,8 @@
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::{Dimensions, Pos, TerrainKnowledge};
-use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, PlayerFaction};
+use awbrn_types::PlayerFaction;
+use awbw_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId};
 use awvm::semantic::{
     Observation, ObservedPlayer, ObservedUnitHp, ObservedUnitRef, TileVisibility,
 };

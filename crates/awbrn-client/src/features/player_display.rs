@@ -1,7 +1,8 @@
 use crate::features::player_roster::{
     PlayerRosterConfig, emit_player_roster_updated, player_id_for_faction,
 };
-use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
+use awbrn_types::PlayerFaction;
+use awbw_types::AwbwGamePlayerId;
 use bevy::prelude::*;
 use std::collections::HashMap;
 

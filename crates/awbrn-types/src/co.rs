@@ -1,4 +1,4 @@
-use crate::AwbwCoId;
+use awbw_types::AwbwCoId;
 
 /// Canonical commander vocabulary generated from the AWBW ruleset.
 pub use awvm::ruleset::CommanderKind as Co;

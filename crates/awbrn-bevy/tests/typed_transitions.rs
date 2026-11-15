@@ -206,12 +206,12 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     let mut app = presentation_app(&replay, &map_data);
     let mut registry = ReplayPlayerRegistry::default();
     registry.add_player(
-        awbrn_types::AwbwGamePlayerId::new(1),
+        awbw_types::AwbwGamePlayerId::new(1),
         awbrn_types::PlayerFaction::OrangeStar,
         0,
     );
     registry.add_player(
-        awbrn_types::AwbwGamePlayerId::new(2),
+        awbw_types::AwbwGamePlayerId::new(2),
         awbrn_types::PlayerFaction::BlueMoon,
         0,
     );
@@ -221,7 +221,7 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     let unit = app
         .world()
         .resource::<awbrn_bevy::world::StrongIdMap<AwbwUnitId>>()
-        .get(&AwbwUnitId(awbrn_types::AwbwUnitId::new(0)))
+        .get(&AwbwUnitId(awbw_types::AwbwUnitId::new(0)))
         .unwrap();
     assert_eq!(
         app.world()
@@ -232,7 +232,7 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     );
 
     app.world_mut()
-        .insert_resource(ReplayViewpoint::Player(awbrn_types::AwbwGamePlayerId::new(
+        .insert_resource(ReplayViewpoint::Player(awbw_types::AwbwGamePlayerId::new(
             2,
         )));
     refresh_viewer_visibility(app.world_mut());
@@ -252,7 +252,7 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     );
 
     app.world_mut()
-        .insert_resource(ReplayViewpoint::Player(awbrn_types::AwbwGamePlayerId::new(
+        .insert_resource(ReplayViewpoint::Player(awbw_types::AwbwGamePlayerId::new(
             1,
         )));
     refresh_viewer_visibility(app.world_mut());
@@ -277,8 +277,8 @@ fn visible_units(world: &World) -> Vec<u32> {
     visible
 }
 
-fn awbw_player(id: &awvm::semantic::PlayerId) -> awbrn_types::AwbwGamePlayerId {
-    awbrn_types::AwbwGamePlayerId::new(id.as_str().parse().unwrap())
+fn awbw_player(id: &awvm::semantic::PlayerId) -> awbw_types::AwbwGamePlayerId {
+    awbw_types::AwbwGamePlayerId::new(id.as_str().parse().unwrap())
 }
 
 /// Terrain memory records what the selected viewpoint can currently see.

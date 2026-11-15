@@ -3,10 +3,11 @@
 use std::path::Path;
 
 use awbrn_map::AwbwMapData;
-use awbrn_types::{AwbwCoId, AwbwGamePlayerId, AwbwMapId, PlayerFaction};
+use awbrn_types::PlayerFaction;
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::CoPower;
 use awbw_replay::move_planner::{MovePlanner, PlannerPlayer, PlannerSeat, PlannerSetup};
+use awbw_types::{AwbwCoId, AwbwGamePlayerId, AwbwMapId};
 
 pub(super) const RACHEL: AwbwCoId = AwbwCoId::new(28);
 pub(super) const ADDER: AwbwCoId = AwbwCoId::new(11);

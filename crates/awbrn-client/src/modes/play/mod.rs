@@ -1941,7 +1941,7 @@ pub(crate) fn seed_live_presentation(
             continue;
         };
         registry.add_player(
-            awbrn_types::AwbwGamePlayerId::new(player.player_id),
+            awbw_types::AwbwGamePlayerId::new(player.player_id),
             faction,
             0,
         );
@@ -1951,7 +1951,7 @@ pub(crate) fn seed_live_presentation(
         .as_str()
         .parse::<u32>()
         .ok()
-        .map(awbrn_types::AwbwGamePlayerId::new);
+        .map(awbw_types::AwbwGamePlayerId::new);
     let knowledge = awbrn_bevy::replay::ReplayTerrainKnowledge::from_map_and_registry(
         world.resource::<GameMap>(),
         &registry,
@@ -2951,7 +2951,7 @@ mod tests {
         {
             app.world_mut()
                 .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                    awbrn_types::AwbwGamePlayerId::new(0),
+                    awbw_types::AwbwGamePlayerId::new(0),
                 ));
         }
     }
@@ -2994,7 +2994,7 @@ mod tests {
             MapPosition::from(position),
             Unit(unit),
             Faction(faction),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(id)),
+            AwbwUnitId(awbw_types::AwbwUnitId::new(id)),
         ));
         if active {
             entity.insert(UnitActive);
@@ -3479,7 +3479,7 @@ mod tests {
             .insert_resource(awbrn_bevy::replay::ReplayViewpoint::ActivePlayer);
         app.world_mut()
             .insert_resource(awbrn_bevy::replay::ReplayState {
-                active_player_id: Some(awbrn_types::AwbwGamePlayerId::new(0)),
+                active_player_id: Some(awbw_types::AwbwGamePlayerId::new(0)),
                 ..Default::default()
             });
         app.update();
@@ -3838,7 +3838,7 @@ mod tests {
         app.world_mut().insert_resource(observations);
         app.world_mut()
             .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
+                awbw_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
@@ -4004,7 +4004,7 @@ mod tests {
 
         // The recipient's own funds are private and only they observe them.
         let recipient_id =
-            awbrn_types::AwbwGamePlayerId::new(recipient.as_str().parse::<u32>().unwrap());
+            awbw_types::AwbwGamePlayerId::new(recipient.as_str().parse::<u32>().unwrap());
         assert_eq!(
             app.world().resource::<PlayerFunds>().get(recipient_id),
             replay.games[0]
@@ -4753,7 +4753,7 @@ mod tests {
         app.world_mut().insert_resource(observations);
         app.world_mut()
             .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
+                awbw_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
@@ -4793,7 +4793,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+            .insert(AwbwUnitId(awbw_types::AwbwUnitId::new(42)));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -4856,7 +4856,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(transport)
-            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+            .insert(AwbwUnitId(awbw_types::AwbwUnitId::new(42)));
 
         app.world_mut().resource_mut::<SelectedUnit>().0 = Some(SelectedUnitSelection {
             entity: transport,
@@ -4920,7 +4920,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+            .insert(AwbwUnitId(awbw_types::AwbwUnitId::new(42)));
 
         let menus = Arc::new(Mutex::new(Vec::new()));
         let menus_by_sink = std::sync::Arc::clone(&menus);
@@ -5006,7 +5006,7 @@ mod tests {
         app.world_mut().spawn((
             Unit(awbrn_types::Unit::Infantry),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
             CarriedBy(transport),
         ));
         let mut observations = awbrn_bevy::replay::RecipientObservations::default();
@@ -5014,7 +5014,7 @@ mod tests {
         app.world_mut().insert_resource(observations);
         app.world_mut()
             .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
+                awbw_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
@@ -5073,7 +5073,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+            .insert(AwbwUnitId(awbw_types::AwbwUnitId::new(42)));
         app.world_mut()
             .insert_resource(EventSink::<MoveCommandRequested>::new(|_| {}));
 
@@ -5723,7 +5723,7 @@ mod tests {
         let observation = app
             .world()
             .resource::<awbrn_bevy::replay::RecipientObservations>()
-            .for_player(awbrn_types::AwbwGamePlayerId::new(0))
+            .for_player(awbw_types::AwbwGamePlayerId::new(0))
             .unwrap()
             .clone();
         app.world_mut()
@@ -5977,7 +5977,7 @@ mod tests {
         app.world_mut().insert_resource(observations);
         app.world_mut()
             .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
+                awbw_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);

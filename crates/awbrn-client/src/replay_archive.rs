@@ -3,7 +3,8 @@ use std::num::NonZeroU8;
 
 use awbrn_game::{Authority, GameSetup, PlayerSetup, StoredActionEvent};
 use awbrn_map::{AwbrnMap, ValidatedMapDocument};
-use awbrn_types::{AwbwCoId, Co, CoExt, PlayerFaction};
+use awbrn_types::{Co, CoExt, PlayerFaction};
+use awbw_types::AwbwCoId;
 use awvm::semantic::{Observation, ObservedTransition};
 use serde::Deserialize;
 

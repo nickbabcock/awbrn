@@ -297,7 +297,7 @@ mod tests {
 
     /// The cowboy board on Blue Moon's turn, with Blue Moon as `co_id` and
     /// `stars` power stars.
-    fn fixture_as(co_id: awbrn_types::AwbwCoId, stars: u64) -> Fixture {
+    fn fixture_as(co_id: awbw_types::AwbwCoId, stars: u64) -> Fixture {
         let cowboy = cowboy(co_id, stars);
         let board = PlannerBoard::new(cowboy.state());
         Fixture {

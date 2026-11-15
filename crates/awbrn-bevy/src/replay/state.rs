@@ -1,4 +1,4 @@
-use awbrn_types::AwbwGamePlayerId;
+use awbw_types::AwbwGamePlayerId;
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
@@ -26,7 +26,7 @@ pub struct NewDay {
 #[component(immutable, on_add = on_awbw_unit_id_add, on_remove = on_awbw_unit_id_remove)]
 #[reflect(opaque)]
 #[reflect(Component, Serialize, Deserialize)]
-pub struct AwbwUnitId(pub awbrn_types::AwbwUnitId);
+pub struct AwbwUnitId(pub awbw_types::AwbwUnitId);
 
 fn on_awbw_unit_id_add(mut world: DeferredWorld, context: HookContext) {
     let unit_id = *world.get::<AwbwUnitId>(context.entity).unwrap();

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
-use awbrn_types::{AwbwUnitKind, PlayerFaction, Unit};
+use awbrn_types::{PlayerFaction, Unit};
+use awbw_types::AwbwUnitKind;
 use image::{ImageReader, RgbaImage};
 use indexmap::IndexMap;
 use oxipng::{InFile, Options, OutFile};
