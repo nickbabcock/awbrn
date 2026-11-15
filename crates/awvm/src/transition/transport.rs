@@ -291,7 +291,8 @@ pub(super) fn execute_prepared_repair(
     let ammo_before = target.ammo;
     target.fuel = max_fuel;
     target.ammo = max_ammo;
-    if fuel_before != max_fuel || ammo_before != max_ammo {
+    let resupplied = fuel_before != max_fuel || ammo_before != max_ammo;
+    if resupplied {
         outcome.events.push(Event::UnitResourced {
             unit: target_id,
             fuel_before,
@@ -301,22 +302,28 @@ pub(super) fn execute_prepared_repair(
             reason: KnownReason::UnitRepair.into(),
         });
     }
-    let visual_hp = target.hp.div_ceil(exact_hp);
-    if visual_hp < 10 {
+    // One heal of exact HP, keeping the fraction (7.4 becomes 8.4), priced by
+    // the bars the board gains. A unit already showing 10 bars gains none, so
+    // it is topped up for free, but only when the visit also refilled its fuel
+    // or ammo.
+    let hp_before = target.hp;
+    let hp_after = hp_before.saturating_add(exact_hp).min(100);
+    let cost = u64::from(hp_after.div_ceil(10) - hp_before.div_ceil(10)) * heal_cost;
+    if hp_after > hp_before && (cost > 0 || resupplied) {
         let player_index = outcome.state.player_index(player).ok_or_else(|| {
             ExecuteError::InvalidState(format!("unknown active player {player}").into())
         })?;
         let funds_before = outcome.state.player_mut(player_index).funds;
-        if heal_cost <= funds_before {
-            let hp_before = outcome.state.units[target_index].hp;
-            let hp_after = (visual_hp + 1).min(10) * exact_hp;
-            outcome.state.player_mut(player_index).funds -= heal_cost;
-            outcome.events.push(Event::FundsChanged {
-                player: player.clone(),
-                from: funds_before,
-                to: funds_before - heal_cost,
-                reason: KnownReason::UnitRepair.into(),
-            });
+        if cost <= funds_before {
+            if cost > 0 {
+                outcome.state.player_mut(player_index).funds -= cost;
+                outcome.events.push(Event::FundsChanged {
+                    player: player.clone(),
+                    from: funds_before,
+                    to: funds_before - cost,
+                    reason: KnownReason::UnitRepair.into(),
+                });
+            }
             outcome.state.units[target_index].hp = hp_after;
             outcome.events.push(Event::UnitRepaired {
                 unit: target_id,

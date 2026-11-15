@@ -133,16 +133,17 @@ unit independently:
 
 ```text
 from = exact HP before this effect
-visual = ceiling(from / 10)
-to = min(10, visual + amount) * 10
+to = min(100, from + 10 * amount)
 ```
 
-If `to != from`, set the unit's exact HP to `to` and emit
-`unit-repaired { unit, from_hp: from, to_hp: to, reason:
+`amount` counts bars, but the heal keeps the fraction: it is not rounded up to
+the unit's current bar first. If `to != from`, set the unit's exact HP to `to`
+and emit `unit-repaired { unit, from_hp: from, to_hp: to, reason:
 "commander-power" }`. If `to = from`, make no mutation and emit no event.
-Consequently a unit at 55 exact HP reaches 80 under Andy's two-bar Hyper
+Consequently a unit at 55 exact HP reaches 75 under Andy's two-bar Hyper
 Repair, a unit at 91 reaches 100, and a unit already at 100 emits no repair
-fact. The operator never changes fuel, ammo, funds, action state, or location.
+fact. Archived AWBW replays show Hyper Repair taking an Infantry from 2.3 to
+4.3. The operator never changes fuel, ammo, funds, action state, or location.
 
 ## `heal-exact-hp`
 
@@ -643,7 +644,8 @@ Corroborated implementation:
   Sidewinder, with movement-only hooks.
 - WarsWorld's Andy AW1/AW2/AWDS profiles assign three stars to Hyper Repair and
   heal every owned unit by two visual HP. Its shared unit `heal` operation
-  rounds current exact HP up to visual HP before adding the requested bars.
+  rounds current exact HP up to visual HP before adding the requested bars;
+  archived AWBW replays contradict that rounding (2.3 heals to 4.3).
 - AWBW Replay Player's Colin profile and WarsWorld's AW2 Colin implementation
   agree that Gold Rush costs two stars and multiplies the activating player's
   current funds by one and one half.
@@ -673,8 +675,7 @@ Corroborated implementation:
 - WarsWorld's Hawke AW2/AWDS profile and AWBW Replay Player's `COs.json` agree
   that Black Wave costs five stars, heals owned units by 10 exact HP, and
   damages enemy units by 10 exact HP without killing them; Black Storm costs
-  nine stars and uses 20 exact HP. WarsWorld additionally identifies these as
-  the exceptional heals that do not round up to visual HP.
+  nine stars and uses 20 exact HP.
 - AWBW Replay Player's `COs.json` and the AWBW Wiki CO kit data agree that
   Olaf's Blizzard costs three stars, Winter Fury costs seven total stars,
   both create snow for one day, and Winter Fury first damages enemy units by
