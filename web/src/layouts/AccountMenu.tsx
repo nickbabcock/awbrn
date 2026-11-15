@@ -5,20 +5,26 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { Popover } from "@astryxdesign/core/Popover";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { radiusVars } from "@astryxdesign/core/theme/tokens.stylex";
+import {
+  colorVars,
+  focusVars,
+  radiusVars,
+  spacingVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useRouter } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { authKeys } from "#/auth/auth.keys.ts";
 import { authClient } from "#/auth/client.ts";
 import type { Session } from "#/auth/session.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { rankedKeys } from "#/matchmaking/matchmaking.keys.ts";
+import { playerKeys } from "#/players/players.keys.ts";
 import { PushToggle } from "#/players/components/PushToggle.tsx";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
-import { IconChevronDown } from "#/ui/icons.tsx";
+import { IconChevronDown, IconPerson } from "#/ui/icons.tsx";
 import { overlayMotion } from "#/ui/overlayMotion.ts";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { useCompactTouch } from "#/ui/useCompactTouch.ts";
@@ -49,6 +55,7 @@ export function AccountMenu({ session }: { session: Session }) {
       queryClient.removeQueries({ queryKey: matchKeys.awaiting() });
       queryClient.removeQueries({ queryKey: rankedKeys.all });
       queryClient.removeQueries({ queryKey: matchKeys.completed() });
+      queryClient.removeQueries({ queryKey: playerKeys.all });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: authKeys.all }),
         queryClient.invalidateQueries({ queryKey: matchKeys.details() }),
@@ -70,6 +77,15 @@ export function AccountMenu({ session }: { session: Session }) {
       <Heading level={4} xstyle={styles.oneLine}>
         {name}
       </Heading>
+      <Link
+        onClick={() => setIsOpen(false)}
+        params={{ playerId: session.user.id }}
+        to="/players/$playerId"
+        {...stylex.props(styles.item)}
+      >
+        <Icon icon={IconPerson} size="sm" xstyle={styles.itemIcon} />
+        Profile
+      </Link>
       <PushToggle isSignedIn />
       <Divider />
       {signOutError ? (
@@ -200,6 +216,31 @@ const styles = stylex.create({
   },
   menu: {
     minInlineSize: 0,
+  },
+  // Laid out like the Turn alerts row beneath it.
+  item: {
+    display: "flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-2"],
+    minBlockSize: "44px",
+    marginInline: `calc(-1 * ${spacingVars["--spacing-2"]})`,
+    paddingInline: spacingVars["--spacing-2"],
+    borderRadius: radiusVars["--radius-element"],
+    backgroundColor: {
+      default: "transparent",
+      ":hover": { default: null, [pageLayout.hoverMedia]: awbrnVars.paper },
+      ":active": awbrnVars.paper,
+    },
+    color: colorVars["--color-text-primary"],
+    fontWeight: 650,
+    textDecoration: "none",
+    outlineColor: awbrnVars.blue,
+    outlineOffset: `calc(-1 * ${focusVars["--focus-outline-offset"]})`,
+    outlineStyle: { default: "none", ":focus-visible": "solid" },
+    outlineWidth: focusVars["--focus-outline-width"],
+  },
+  itemIcon: {
+    color: colorVars["--color-text-secondary"],
   },
   oneLine: {
     overflow: "hidden",

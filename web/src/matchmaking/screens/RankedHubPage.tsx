@@ -58,6 +58,9 @@ import { IconMinus, IconNext, IconPlus } from "#/ui/icons.tsx";
 import { AirmailBand } from "#/ui/AirmailBand.tsx";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { PlayerLink } from "#/players/components/PlayerLink.tsx";
+import { rowLinkStyles } from "#/ui/rowLink.ts";
+import { YouChip } from "#/ui/YouChip.tsx";
 import { Sheet, SheetFoot, SheetHead } from "#/ui/Sheet.tsx";
 import { TimeLeft } from "#/ui/TimeLeft.tsx";
 import { formatCompactDuration } from "#/utils/time.ts";
@@ -468,6 +471,7 @@ function Standings({ pool }: { pool: RankedPool }) {
               place={entry.rank}
               rating={entry.rating}
               ratedMatches={entry.ratedMatches}
+              userId={entry.userId}
             />
           ))}
           {/* Below the listed places, or with none yet, the viewer still sees theirs. */}
@@ -488,6 +492,7 @@ function Standings({ pool }: { pool: RankedPool }) {
               }
               rating={viewer.rating}
               ratedMatches={viewer.ratedMatches}
+              userId={session.user.id}
             />
           ) : null}
         </tbody>
@@ -496,6 +501,7 @@ function Standings({ pool }: { pool: RankedPool }) {
   );
 }
 
+/** The name's link stretches over the row, so the whole row opens the profile. */
 function StandingRow({
   isProvisional,
   isViewer,
@@ -503,6 +509,7 @@ function StandingRow({
   place,
   rating,
   ratedMatches,
+  userId,
 }: {
   isProvisional: boolean;
   isViewer: boolean;
@@ -510,18 +517,17 @@ function StandingRow({
   place: ReactNode;
   rating: number;
   ratedMatches: number;
+  userId: string;
 }) {
   return (
-    <tr {...stylex.props(isViewer && styles.youRow)}>
+    <tr {...stylex.props(rowLinkStyles.row, isViewer && styles.youRow)}>
       <td {...stylex.props(styles.td, styles.placeCell, figureStyles.figure)}>{place}</td>
       <td {...stylex.props(styles.td)}>
         <HStack as="span" xstyle={styles.player}>
-          <b>{name}</b>
-          {isViewer ? (
-            <HStack as="span" xstyle={styles.you}>
-              YOU
-            </HStack>
-          ) : null}
+          <PlayerLink reach="row" userId={userId} xstyle={styles.playerName}>
+            {name}
+          </PlayerLink>
+          {isViewer ? <YouChip /> : null}
         </HStack>
       </td>
       <td {...stylex.props(styles.td, styles.ratingCell, figureStyles.figure, styles.rating)}>
@@ -789,16 +795,11 @@ const styles = stylex.create({
     gap: "8px",
     minInlineSize: 0,
   },
-  you: {
-    display: "inline-flex",
-    alignItems: "center",
-    blockSize: "18px",
-    paddingInline: "6px",
-    borderRadius: "4px",
-    backgroundColor: awbrnVars.ink900,
-    color: awbrnVars.textOnInkStrong,
-    fontSize: awbrnVars.textMicro,
-    fontWeight: 750,
-    letterSpacing: "0.14em",
+  playerName: {
+    minInlineSize: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontWeight: 700,
   },
 });

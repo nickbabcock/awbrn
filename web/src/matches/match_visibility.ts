@@ -40,6 +40,19 @@ export function hidesOpponent(snapshot: MatchSnapshot): boolean {
   );
 }
 
+/**
+ * Whether anyone may read this match. A ranked match is stored private only so
+ * no one can join it; once both players have confirmed, anyone may watch it, as
+ * its players' profiles list it. A canceled pairing was never confirmed, and
+ * its seats show who declined.
+ */
+export function isOpenToWatch(snapshot: Pick<MatchSnapshot, "isPrivate" | "phase" | "pool">) {
+  return (
+    !snapshot.isPrivate ||
+    (snapshot.pool !== null && snapshot.phase !== "pending" && snapshot.phase !== "cancelled")
+  );
+}
+
 /** Whether this snapshot withholds the commanders of the seats a viewer does not hold. */
 export function sealsCommanders(snapshot: MatchSnapshot): boolean {
   return snapshot.phase === "draft" || snapshot.phase === "lobby";

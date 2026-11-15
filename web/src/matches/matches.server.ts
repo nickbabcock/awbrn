@@ -61,6 +61,7 @@ import {
   sql,
 } from "drizzle-orm";
 import {
+  maps,
   matches,
   matchParticipants,
   matchResults,
@@ -74,10 +75,11 @@ import {
 import type { Actor } from "#/auth/actor.ts";
 import { moderationEntry } from "#/moderation/moderation.server.ts";
 import { matchViewAnyGrant } from "./match_authz";
-import { applyViewerVisibility } from "./match_visibility.ts";
+import { applyViewerVisibility, isOpenToWatch } from "./match_visibility.ts";
 
 const db = drizzle(env.DB, {
   schema: {
+    maps,
     matches,
     matchParticipants,
     matchResults,
@@ -480,14 +482,25 @@ export async function countMatchesAwaitingViewer(
 }
 
 /**
- * The viewer's finished matches, newest first.
+ * Whether someone outside a match may find it listed. Only an invite-only
+ * match is private: a ranked match is stored private so that no one can take
+ * a seat in it, not to hide it.
+ */
+export function listedToVisitors() {
+  return or(eq(matches.isPrivate, false), isNotNull(matches.pool));
+}
+
+/**
+ * A player's finished matches, newest first.
  *
  * Two queries rather than one: the page is a count of matches, not of seats,
  * so the ids are picked first and every seat of those matches is read second.
+ * An invite-only match is listed only to its own players (`includePrivate`).
  */
-export async function listMyCompletedMatches(
-  viewerUserId: string,
+export async function listCompletedMatches(
+  playerUserId: string,
   input: MatchHistoryRequest,
+  { includePrivate }: { includePrivate: boolean },
 ): Promise<MatchResult<MatchHistoryResponse>> {
   const cursor = decodeMatchHistoryCursor(input.cursor);
   const cursorCompletedAt = cursor ? new Date(cursor.completedAt) : null;
@@ -503,12 +516,13 @@ export async function listMyCompletedMatches(
     .from(matches)
     .innerJoin(
       matchParticipants,
-      and(eq(matchParticipants.matchId, matches.id), eq(matchParticipants.userId, viewerUserId)),
+      and(eq(matchParticipants.matchId, matches.id), eq(matchParticipants.userId, playerUserId)),
     )
     .where(
       and(
         eq(matches.phase, COMPLETED_MATCH_PHASE),
         isNotNull(matches.completedAt),
+        includePrivate ? undefined : listedToVisitors(),
         cursorPredicate,
       ),
     )
@@ -552,7 +566,7 @@ export async function listMyCompletedMatches(
     }
 
     history.push(
-      toMatchHistoryEntry(matchRows, settings.value, viewerUserId, storedReplays.has(matchId)),
+      toMatchHistoryEntry(matchRows, settings.value, playerUserId, storedReplays.has(matchId)),
     );
   }
 
@@ -1210,6 +1224,7 @@ async function queryMatchHistoryRows(matchIds: string[]) {
       name: matches.name,
       mapId: matches.mapId,
       mapRevision: matches.mapRevision,
+      mapName: maps.name,
       awbwMapId: mapSources.sourceMapId,
       isPrivate: matches.isPrivate,
       settings: matches.settings,
@@ -1231,6 +1246,7 @@ async function queryMatchHistoryRows(matchIds: string[]) {
     .from(matches)
     .innerJoin(matchParticipants, eq(matchParticipants.matchId, matches.id))
     .leftJoin(user, eq(user.id, matchParticipants.userId))
+    .innerJoin(maps, eq(maps.id, matches.mapId))
     .leftJoin(mapSources, and(eq(mapSources.mapId, matches.mapId), eq(mapSources.source, "awbw")))
     .leftJoin(
       matchResults,
@@ -1346,11 +1362,11 @@ function toMyMatchSummary(rows: MyMatchRow[], settings: MatchSettings): MyMatchS
   };
 }
 
-/** One finished match, as the report the viewer reads. */
+/** One finished match, as the report about one of its players. */
 function toMatchHistoryEntry(
   rows: MatchHistoryRow[],
   settings: MatchSettings,
-  viewerUserId: string,
+  playerUserId: string,
   hasReplay: boolean,
 ): MatchHistoryEntry {
   const row = rows[0]!;
@@ -1373,14 +1389,15 @@ function toMatchHistoryEntry(
     name: row.name,
     mapId: row.mapId,
     mapRevision: row.mapRevision,
+    mapName: row.mapName,
     awbwMapId: row.awbwMapId,
     isPrivate: row.isPrivate,
     settings,
     startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
     // Only matches with a completion time are selected, so this is never null.
     completedAt: (row.completedAt ?? row.startedAt ?? new Date(0)).toISOString(),
-    viewerSlotIndexes: seats
-      .filter((seat) => seat.userId === viewerUserId)
+    playerSlotIndexes: seats
+      .filter((seat) => seat.userId === playerUserId)
       .map((seat) => seat.slotIndex),
     pool: row.pool,
     seats,
@@ -1394,7 +1411,7 @@ function canViewMatch(
   joinSlug: string | null,
   viewer: Actor | null,
 ): boolean {
-  if (!snapshot.isPrivate) {
+  if (isOpenToWatch(snapshot)) {
     return true;
   }
   // Taking part is checked below. This is the grant that reaches past it.

@@ -23,6 +23,7 @@ import {
   lobbySignature,
   STARTING_POLL_INTERVAL_MS,
 } from "#/matches/lobby_poll.ts";
+import { ordinal } from "#/matches/match_history.ts";
 import { mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
@@ -33,6 +34,7 @@ import { ClosedPairing } from "#/matchmaking/screens/RankedPendingPage.tsx";
 import { CoBrief } from "#/play/CoBrief.tsx";
 import { headingLooks } from "#/play/headings.ts";
 import { useOpeningCo } from "#/play/opening_co.ts";
+import { PlayerLink } from "#/players/components/PlayerLink.tsx";
 import { SeatStamp } from "#/play/Opponents.tsx";
 import { BattlefieldPeek, BattlefieldPicture, Fact, setupStyles } from "#/play/setup.tsx";
 import { TaskDock } from "#/play/TaskDock.tsx";
@@ -672,7 +674,13 @@ function SeatLine({
       {participant.isCoSealed || participant.coId !== null || participant.userId !== null ? (
         <SeatStamp coId={participant.coId} factionCode={factionCode} />
       ) : null}
-      <b {...stylex.props(styles.name)}>{participant.userName}</b>
+      {participant.userId !== null ? (
+        <PlayerLink userId={participant.userId}>
+          <b {...stylex.props(styles.name)}>{participant.userName}</b>
+        </PlayerLink>
+      ) : (
+        <b {...stylex.props(styles.name)}>{participant.userName}</b>
+      )}
       {isMine ? (
         <HStack as="span" xstyle={styles.you}>
           YOU
@@ -747,21 +755,6 @@ function CopyLinkKey({ url }: { url: string }) {
   );
 }
 
-function ordinal(position: number): string {
-  const tens = position % 100;
-  if (tens >= 11 && tens <= 13) return `${position}th`;
-  switch (position % 10) {
-    case 1:
-      return `${position}st`;
-    case 2:
-      return `${position}nd`;
-    case 3:
-      return `${position}rd`;
-    default:
-      return `${position}th`;
-  }
-}
-
 const styles = stylex.create({
   output: {
     display: "grid",
@@ -810,6 +803,8 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   name: {
+    display: "block",
+    minInlineSize: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",

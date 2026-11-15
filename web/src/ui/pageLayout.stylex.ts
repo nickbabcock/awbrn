@@ -9,6 +9,8 @@ export const pageLayout = stylex.defineConsts({
   /** Content width; the gutters sit outside it. */
   narrowWidth: "880px",
   railWidth: "392px",
+  /** A player profile's rail: Ongoing and COs. */
+  profileRailWidth: "380px",
   gutterDesktop: "32px",
   gutterPhone: "16px",
   /**

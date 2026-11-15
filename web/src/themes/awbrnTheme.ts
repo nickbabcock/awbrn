@@ -17,6 +17,7 @@ const ink = {
   700: "#283d78",
   600: "#3b5299",
   300: "#9eacd6",
+  200: "#c9d2ef",
   100: "#e4e9f8",
 } as const;
 
@@ -44,6 +45,8 @@ const airmail = {
   blueOnInk: "#9db2ff",
   violet: "#5a43b5",
   violetOnInk: "#b9abff",
+  /** The open season's wash on the bunting: Airmail Blue, faint. */
+  blueWash: "#e8edfa",
 } as const;
 
 const status = {
@@ -95,6 +98,8 @@ const STAMP_WHITE = "#ffffff";
 const INK_HAIRLINE = "rgba(16, 27, 58, 0.14)";
 const WELL_HAIRLINE = "rgba(255, 255, 255, 0.06)";
 const SHADOW_PENNANT = "drop-shadow(0 2px 2px rgba(6, 10, 26, 0.45))";
+/** Lighter than a pennant's: a bunting flag hangs flat against the sheet. */
+const SHADOW_FLAG = "drop-shadow(0 1px 1.5px rgba(10, 17, 40, 0.28))";
 const SHADOW_SLOT = "0 10px 24px -16px rgba(16, 27, 58, 0.45)";
 const SHADOW_DOCK = "0 -12px 24px -16px rgba(16, 27, 58, 0.5)";
 
@@ -320,6 +325,7 @@ const airmailTokens: Record<string, string> = {
   "--color-ink-700": ink[700],
   "--color-ink-600": ink[600],
   "--color-ink-300": ink[300],
+  "--color-ink-200": ink[200],
   "--color-ink-100": ink[100],
   "--color-paper": paper.ground,
   "--color-paper-well": paper.well,
@@ -334,6 +340,7 @@ const airmailTokens: Record<string, string> = {
   "--color-airmail-red-wash": airmail.redWash,
   "--color-airmail-blue": airmail.blue,
   "--color-airmail-blue-on-ink": airmail.blueOnInk,
+  "--color-airmail-blue-wash": airmail.blueWash,
   "--color-stamp-violet": airmail.violet,
   "--color-stamp-violet-on-ink": airmail.violetOnInk,
   "--color-ok": status.ok,
@@ -354,6 +361,7 @@ const airmailTokens: Record<string, string> = {
   "--color-ink-hairline": INK_HAIRLINE,
   "--color-well-hairline": WELL_HAIRLINE,
   "--shadow-pennant": SHADOW_PENNANT,
+  "--shadow-flag": SHADOW_FLAG,
   "--shadow-slot": SHADOW_SLOT,
   "--shadow-dock": SHADOW_DOCK,
   "--shadow-stamp":

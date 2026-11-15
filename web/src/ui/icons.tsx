@@ -175,6 +175,15 @@ export const IconBell = drawn(
   { strokeLinecap: "round", strokeLinejoin: "round" },
 );
 
+export const IconPerson = drawn(
+  "IconPerson",
+  <>
+    <circle cx="12" cy="8" r="3.75" />
+    <path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" />
+  </>,
+  { strokeLinecap: "round", strokeLinejoin: "round" },
+);
+
 export const IconEye = drawn(
   "IconEye",
   <>

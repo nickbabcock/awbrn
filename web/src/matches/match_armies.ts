@@ -19,6 +19,8 @@ export interface MatchArmy {
   hasLiveStats: boolean;
   isActive: boolean;
   name: string;
+  /** The person holding the seat, whose profile the army sheet opens; null for the server's seat. */
+  userId: string | null;
 }
 
 export function buildArmies(
@@ -37,6 +39,7 @@ export function buildArmies(
       hasLiveStats: liveEntry !== undefined,
       isActive: playerRoster?.activePlayerId === participant.slotIndex,
       name: participant.userName,
+      userId: participant.userId,
     };
   });
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyViewerVisibility } from "./match_visibility.ts";
+import { applyViewerVisibility, isOpenToWatch } from "./match_visibility.ts";
 import type { MatchParticipantSnapshot, MatchPhase, MatchSnapshot } from "./schemas.ts";
 
 const VIEWER = "player-one";
@@ -149,5 +149,22 @@ describe("a lobby", () => {
     const seen = applyViewerVisibility(pairing("active"), VIEWER);
 
     expect(seen.participants.every((entry) => entry.coId === 5)).toBe(true);
+  });
+});
+
+describe("isOpenToWatch", () => {
+  it("keeps a ranked pairing from anyone outside it until both players confirm", () => {
+    expect(isOpenToWatch(pairing("pending"))).toBe(false);
+    expect(isOpenToWatch(pairing("cancelled"))).toBe(false);
+  });
+
+  it("opens a confirmed ranked match to anyone", () => {
+    expect(isOpenToWatch(pairing("starting"))).toBe(true);
+    expect(isOpenToWatch(pairing("active"))).toBe(true);
+    expect(isOpenToWatch(pairing("completed"))).toBe(true);
+  });
+
+  it("keeps an invite-only match private", () => {
+    expect(isOpenToWatch(pairing("active", { pool: null }))).toBe(false);
   });
 });

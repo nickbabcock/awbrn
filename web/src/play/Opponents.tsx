@@ -8,6 +8,7 @@ import { getCoById } from "#/co_roster.ts";
 import { CoStamp, StampFrame } from "#/components/CoStamp.tsx";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
 import { getFactionById } from "#/factions.ts";
+import { PlayerLink } from "#/players/components/PlayerLink.tsx";
 import { factionColorVar } from "#/ui/faction_colors.ts";
 import { figureStyles } from "#/ui/Figure.tsx";
 
@@ -17,6 +18,8 @@ export interface OpponentSeat {
   factionId: number;
   coId: number | null;
   userName: string;
+  /** Set where the name may open the player's profile; a seat the server plays has none. */
+  userId?: string | null;
   /** A ranked pairing withholds the other player until both are ready. */
   isHidden?: boolean;
 }
@@ -46,6 +49,12 @@ export function Opponents({ seats }: { seats: readonly OpponentSeat[] }) {
         )}
         {seat.isHidden ? (
           <VisuallyHidden>Opponent not revealed yet</VisuallyHidden>
+        ) : seat.userId ? (
+          <PlayerLink userId={seat.userId}>
+            <Text color="inherit" display="block" type="inherit" xstyle={styles.name}>
+              {seat.userName}
+            </Text>
+          </PlayerLink>
         ) : (
           <Text color="inherit" type="inherit" xstyle={styles.name}>
             {seat.userName}

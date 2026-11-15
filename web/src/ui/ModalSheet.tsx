@@ -37,6 +37,7 @@ export function ModalSheet({
   onOpenChange,
   purpose = "info",
   title,
+  titleContent,
   width = 420,
 }: {
   children: ReactNode;
@@ -49,6 +50,8 @@ export function ModalSheet({
   /** `form` blocks light dismiss. */
   purpose?: "info" | "form";
   title: string;
+  /** Drawn in place of the title, as when the title is a link; `title` still names the sheet. */
+  titleContent?: ReactNode;
   width?: number;
 }) {
   const isCompactTouch = useCompactTouch();
@@ -66,7 +69,7 @@ export function ModalSheet({
             level={4}
             xstyle={styles.title}
           >
-            {title}
+            {titleContent ?? title}
           </Heading>
           {headMeta ? <Figure tone="on-ink-secondary">{headMeta}</Figure> : null}
         </HStack>

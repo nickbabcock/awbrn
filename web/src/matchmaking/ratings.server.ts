@@ -10,7 +10,7 @@
  * rating are written in one batch, so a pass that fails leaves neither.
  */
 
-import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   matchResults,
@@ -43,8 +43,11 @@ const RESULT_BATCH_LIMIT = 50;
 /** How many identifiers go into one statement, for the same reason. */
 const STAMP_CHUNK = 40;
 
-/** The phases which mean a match has not finished. */
-const ONGOING_PHASES: readonly MatchPhase[] = ["pending", "starting", "active"];
+/**
+ * The phases which mean a match has not finished. A profile lists these as
+ * games in progress, so its holds on the deviation match the ladder's.
+ */
+export const ONGOING_PHASES: readonly MatchPhase[] = ["pending", "starting", "active"];
 
 /** One rating move, as the player is told about it. */
 export interface AppliedRating {
@@ -470,6 +473,26 @@ export async function readLadder(
 }
 
 /**
+ * One player's place on the live ladder, or null when they are off it.
+ *
+ * `deviation` is theirs as the ladder grows it. A score never exceeds its
+ * rating, so a rating below the player's score is behind them: only the rows
+ * that may stand ahead are read, and the ladder's own order places them.
+ */
+export async function readLadderPlace(
+  database: D1Database,
+  pool: RankedPool,
+  player: { userId: string; rating: number; deviation: number },
+  now = new Date(),
+): Promise<number | null> {
+  if (!isListedOnLadder(player.deviation)) return null;
+  const floor = ladderScore(player.rating, player.deviation);
+  const rows = await readRatingRows(drizzle(database), pool, gte(ratings.rating, floor));
+  const index = listLadder(rows, now).findIndex((row) => row.userId === player.userId);
+  return index >= 0 ? index + 1 : null;
+}
+
+/**
  * The ladder as one closed season left it.
  *
  * A rating carries into the next season, so by the time the last match of a
@@ -557,6 +580,7 @@ interface RatingSnapshot {
 function readRatingRows(
   db: ReturnType<typeof drizzle>,
   pool: RankedPool,
+  where?: SQL,
 ): Promise<RatingSnapshot[]> {
   return db
     .select({
@@ -579,7 +603,7 @@ function readRatingRows(
     })
     .from(ratings)
     .innerJoin(user, eq(user.id, ratings.userId))
-    .where(and(eq(ratings.pool, pool), sql`${ratings.ratedMatches} > 0`));
+    .where(and(eq(ratings.pool, pool), sql`${ratings.ratedMatches} > 0`, where));
 }
 
 function listLadder(rows: readonly RatingSnapshot[], now: Date, limit?: number): LadderRow[] {

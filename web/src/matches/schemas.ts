@@ -423,19 +423,20 @@ export interface MatchHistorySeat {
   ratingAfter: number | null;
 }
 
-/** One finished match, as the viewer's own after action report. */
+/** One finished match, as an after action report about one of its players. */
 export interface MatchHistoryEntry {
   matchId: string;
   name: string;
   mapId: string;
   mapRevision: number;
+  mapName: string;
   awbwMapId: number | null;
   isPrivate: boolean;
   settings: MatchSettings;
   startedAt: string | null;
   completedAt: string;
-  /** Every seat the viewer held. More than one means a hotseat match. */
-  viewerSlotIndexes: number[];
+  /** Every seat the reported player held. More than one means a hotseat match. */
+  playerSlotIndexes: number[];
   /** The ranked pool this match was played in, or null when it was not ranked. */
   pool: RankedPool | null;
   seats: MatchHistorySeat[];

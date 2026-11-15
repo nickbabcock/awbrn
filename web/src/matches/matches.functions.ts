@@ -13,7 +13,7 @@ import {
   createMatch,
   getMatchSnapshot,
   listMatches,
-  listMyCompletedMatches,
+  listCompletedMatches,
   listMyMatches,
   mutateMatch,
   voidMatch,
@@ -59,7 +59,9 @@ export const listMyCompletedMatchesFn = createServerFn({ method: "GET" })
   .validator(matchHistoryRequestSchema)
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Response("Unauthorized", { status: 401 });
-    const result = await listMyCompletedMatches(context.session.user.id, data);
+    const result = await listCompletedMatches(context.session.user.id, data, {
+      includePrivate: true,
+    });
     if (!result.ok) throw new Error(result.error.message);
     return result.value;
   });
