@@ -91,14 +91,15 @@ const turn = stylex.keyframes({
 
 const styles = stylex.create({
   // Disabled keys fade rather than gray out, so the variant stays readable.
+  // Astryx marks them with aria-disabled, not the disabled attribute.
   root: {
     opacity: {
       default: null,
-      ":disabled": 0.45,
+      ":is([aria-disabled='true'])": 0.45,
     },
     cursor: {
       default: null,
-      ":disabled": "not-allowed",
+      ":is([aria-disabled='true'])": "not-allowed",
     },
   },
   // A busy key keeps its look: it is waiting, not refused.

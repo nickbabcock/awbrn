@@ -34,7 +34,6 @@ bevy = { workspace = true, features = [
     "std",
     "webgpu",
 ]}
-getrandom = { version = "0.3", features = ["wasm_js"] }
 js-sys.workspace = true
 raw-window-handle.workspace = true
 serde.workspace = true

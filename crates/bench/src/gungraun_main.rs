@@ -30,6 +30,8 @@ mod instrumented {
 }
 
 fn run_once() {
+    use gungraun::__internal::InternalBenchRunMode;
+
     macro_rules! run_once {
         ($($group:ident),+ $(,)?) => {
             $(
@@ -38,12 +40,12 @@ fn run_once() {
                     for benchmark in *benches {
                         match benchmark.func {
                             gungraun::__internal::InternalLibFunctionKind::Iter(function) => {
-                                for index in 0..function(None) {
-                                    function(Some(index));
+                                for index in 0..function(InternalBenchRunMode::Default, None) {
+                                    function(InternalBenchRunMode::Default, Some(index));
                                 }
                             }
                             gungraun::__internal::InternalLibFunctionKind::Default(function) => {
-                                function();
+                                function(InternalBenchRunMode::Default);
                             }
                         }
                     }

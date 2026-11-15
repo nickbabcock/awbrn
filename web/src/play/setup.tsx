@@ -97,7 +97,7 @@ export const setupStyles = stylex.create({
     boxShadow: "none",
     opacity: {
       default: null,
-      ":disabled": 1,
+      ":is([aria-disabled='true'])": 1,
     },
   },
 });

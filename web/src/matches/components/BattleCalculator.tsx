@@ -18,7 +18,7 @@ import {
   typographyVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { Close as CloseIcon } from "pixelarticons/react/Close";
+import { Close as CloseIcon } from "pixelarticons/react/Close.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";

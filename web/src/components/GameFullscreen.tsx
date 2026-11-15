@@ -5,7 +5,7 @@ import * as stylex from "@stylexjs/stylex";
 // The corner-to-corner arrows, not the window frame. The frame glyph is a grid
 // of 2px bars in a 24px box, and at icon size those bars close up into a solid
 // block: an icon that does not survive the size it is drawn at.
-import { Scale as ScaleIcon } from "pixelarticons/react/Scale";
+import { Scale as ScaleIcon } from "pixelarticons/react/Scale.js";
 import { useEffect, useState } from "react";
 import type { GameFullscreenMode } from "#/canvas_courier/index.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
