@@ -19,9 +19,6 @@
 //! ```
 //!
 //! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8|v8-move|v9> [map-id]`
-//!
-//! `AWBRN_MOVE2_TREES=<n>` scores the orders with only the first n trees of
-//! the tree move model ([`awbrn_ai::agents::Weights::move2_trees`]).
 
 use std::time::Instant;
 
@@ -58,7 +55,7 @@ fn main() {
         _ => panic!("expected at most one map ID"),
     };
     let pairs: std::num::NonZeroUsize = pairs.parse().expect("pairs must be positive");
-    let mut config = match mode.as_str() {
+    let config = match mode.as_str() {
         "uncapped" => PlannerConfig::V2,
         "v3" => PlannerConfig::V3,
         "v4" => PlannerConfig::V4,
@@ -71,12 +68,6 @@ fn main() {
         "v9" => PlannerConfig::V9,
         other => panic!("unknown mode {other}"),
     };
-    if let Some(trees) = std::env::var_os("AWBRN_MOVE2_TREES") {
-        config.baseline.weights.move2_trees = trees
-            .to_str()
-            .and_then(|trees| trees.parse().ok())
-            .expect("AWBRN_MOVE2_TREES is a count");
-    }
     let registry = MapRegistry::load(&MapManifest::read(manifest).expect("manifest reads"))
         .expect("maps load");
 

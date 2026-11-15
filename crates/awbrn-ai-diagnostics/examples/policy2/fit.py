@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["numpy==2.5.4", "scipy==1.18.1", "lightgbm==4.6.0"]
+# dependencies = ["numpy==2.5.4", "lightgbm==4.6.0"]
 # ///
 """Fit the second move model to the rows of `move_policy
 extract-policy2`, and write the model files of `move_policy2.rs`.
@@ -13,9 +13,7 @@ Inputs: for each prefix, `<prefix>.jsonl` (one row per decision),
 Models (`--model`):
 
 - `trees`: boosted trees with a per-decision softmax over the orders of the
-  unit, on all 148 features (b+l+g+r+t). It also fits the greedy reference:
-  a conditional logit over the three greedy score features for each group.
-  Writes `<out>.awt`.
+  unit, on all 148 features (b+l+g+r+t). Writes `<out>.awt`.
 - `unit`: boosted trees with a per-decision softmax over the units with
   candidate orders; the label is the unit that the human moved. Writes
   `<out>.awt`.
@@ -37,7 +35,6 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
-from scipy.optimize import minimize
 
 import awt
 from names import GROUPS, order_names, unit_names
@@ -232,71 +229,14 @@ def summary(d, r, foot_cap=None):
     return out
 
 
-def fit_logit(d, xg, l2=1e-4, maxiter=2000):
-    """Conditional logit over the columns of `xg` (rows of the decisions of
-    `d`), columns scaled by their std. Returns coefficients on the raw
-    scale."""
-    s1 = np.zeros(xg.shape[1])
-    s2 = np.zeros(xg.shape[1])
-    for c in range(0, len(xg), 200000):
-        b = xg[c:c + 200000].astype(np.float64)
-        s1 += b.sum(axis=0)
-        s2 += (b * b).sum(axis=0)
-    mean = s1 / len(xg)
-    scale = np.maximum(np.sqrt(np.maximum(s2 / len(xg) - mean * mean, 0)), 1e-6)
-    xg /= scale.astype(np.float32)
-    chosen_x = xg[d.chosen].astype(np.float64).sum(axis=0)
-
-    def objective(beta):
-        u = (xg @ beta.astype(np.float32)).astype(np.float64)
-        lp = log_softmax(d, u)
-        loss = -lp[d.chosen].sum() / d.n + 0.5 * l2 * beta @ beta
-        p = np.exp(lp).astype(np.float32)
-        grad = (xg.T @ p).astype(np.float64) - chosen_x
-        return loss, grad / d.n + l2 * beta
-
-    res = minimize(objective, np.zeros(xg.shape[1]), jac=True, method="L-BFGS-B",
-                   options={"maxiter": maxiter})
-    xg *= scale.astype(np.float32)
-    return res.x / scale, bool(res.success), float(res.fun)
-
-
-def group_logits(rows, train, columns, l2=1e-4):
-    """One conditional logit per group over `columns` of the order rows."""
-    betas = []
-    info = {}
-    for g in range(4):
-        sel = train[rows.group[train] == g]
-        if len(sel) == 0:
-            betas.append(np.zeros(len(columns)))
-            continue
-        d = Decisions(rows, sel, "x")
-        with Gather(rows, sel, "x") as gather:
-            xg = np.empty((gather.total, len(columns)), dtype=np.float32)
-            for lo in range(0, gather.total, 500000):
-                hi = min(gather.total, lo + 500000)
-                xg[lo:hi] = gather.read(lo, hi, columns)
-        beta, ok, loss = fit_logit(d, xg, l2)
-        del xg
-        print(f"logit group {GROUPS[g]}: {d.n} decisions, converged {ok}, loss {loss:.4f}",
-              file=sys.stderr)
-        info[GROUPS[g]] = {"decisions": int(d.n), "converged": ok, "loss": loss}
-        betas.append(beta)
-    return betas, info
-
-
-def linear_utility(rows, sel, columns, betas, greedy_only=None):
+def greedy_utility(rows, sel):
+    """The greedy score of each order (column 0)."""
     d = Decisions(rows, sel, "x")
     with Gather(rows, sel, "x") as gather:
         u = np.empty(gather.total)
-        gi = d.group[d.decision]
         for lo in range(0, gather.total, 500000):
             hi = min(gather.total, lo + 500000)
-            x = gather.read(lo, hi, columns).astype(np.float64)
-            for g in range(4):
-                m = gi[lo:hi] == g
-                b = betas[g] if greedy_only is None else np.where(greedy_only, betas[g], 0.0)
-                u[lo:hi][m] = x[m] @ b
+            u[lo:hi] = gather.read(lo, hi, [0])[:, 0]
     return d, u
 
 
@@ -428,13 +368,8 @@ def main():
     out = {"model": a.model, "fog": a.fog, "args": vars(a), "train_decisions": int(len(train)),
            "valid_decisions": int(len(valid))}
     if a.model == "trees":
-        # The greedy reference and the greedy argmax, on the same decisions.
-        betas, info = group_logits(rows, train, [0, 1, 2])
-        out["greedy_reference"] = {"coefficients": {GROUPS[g]: betas[g].tolist() for g in range(4)},
-                                   "fit": info}
-        dv, ug = linear_utility(rows, valid, [0, 1, 2], betas)
-        out["greedy_reference"]["held_out"] = summary(dv, evaluate(dv, ug), foot_cap)
-        dv, uraw = linear_utility(rows, valid, [0], [np.ones(1)] * 4)
+        # The greedy argmax, on the same decisions.
+        dv, uraw = greedy_utility(rows, valid)
         out["greedy_argmax_held_out"] = summary(dv, evaluate(dv, uraw), foot_cap)
         maps = rows.map[train]
         inner = np.isin(maps, list(inner_maps(maps)))
@@ -445,8 +380,7 @@ def main():
         out["held_out"] = summary(dv, evaluate(dv, u), foot_cap)
         dump = booster.dump_model(num_iteration=best)
         roots, nodes, leaves = awt.flatten(dump)
-        extra = [v for g in range(4) for v in betas[g]]
-        size = awt.write(a.out + ".awt", order_names(), extra, roots, nodes, leaves)
+        size = awt.write(a.out + ".awt", order_names(), [], roots, nodes, leaves)
         out["model_file"] = {"bytes": size, "trees": len(roots), "nodes": len(nodes), "leaves": len(leaves)}
         if a.fixture:
             fixture(a.fixture, booster, best, rows, valid, "x", a.fixture_rows, a.fixture_keep)

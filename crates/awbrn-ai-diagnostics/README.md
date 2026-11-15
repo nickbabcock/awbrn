@@ -277,68 +277,29 @@ directories outside the worktree.
 
 ## Measure planner-v9
 
-`planner-v9` (configuration `v9`) is `planner-v8` with:
+`planner-v9` (configuration `v9`) is `planner-v8` with the tree move model
+and the next-unit model in its greedy policy
+(`assets/ai-diagnostics/move-policy2/README.md`), the contest of decisive
+captures (`planner/contest.rs`), and a rollout check of three turns in place
+of the Hard reply check (`awbrn_ai::planner::RolloutConfig`). No profile
+seats it.
 
-- the tree move model at strength 1 and the next-unit model in its greedy
-  policy (`assets/ai-diagnostics/move-policy2/README.md`). The next-unit
-  model chooses which unit acts next, and the move model chooses its
-  order. Each simulated line, reply and rollout turn keeps its own turn so
-  far;
-- the contest of decisive captures (`planner/contest.rs`): the reply
-  estimate gives a decisive property (the headquarters, or the last lab on
-  a map with no headquarters) its share of the headquarters value and sees
-  through a blocker that focused fire destroys; the value after the reply
-  subtracts a decisive capture that our attacks cannot stop and adds our
-  own capture that completes then; and the planner adds plans that attack,
-  block or approach an enemy capturer of a decisive property;
-- the march guard: the reply estimate reads an enemy decisive power when
-  the meter lacks at most one eighth of its cost;
-- the last days and the labs: the greedy policy keeps playing on the last
-  two days of a game with a day limit instead of saving its funds, and on a
-  map with no headquarters it gives every lab, of any owner, the
-  headquarters weights in its scores;
-- the fog repair: a property out of sight has the capture points of an
-  untouched property in the position of the planner, so that a simulated
-  capture there does not fail;
-- the rollout check of three turns (`awbrn_ai::planner::RolloutConfig`) in
-  place of the Hard reply check: from the end of the seed plan and of the 16
-  best other lines, the greedy policy plays the enemy turn, the own turn and
-  the enemy turn, each after the opening plays of the planner for its side.
-  The position after the last turn decides. The rollouts do not spend the
-  node budget.
+The plans `planner-v9-vs-v8-move-fixed280.json` and
+`planner-v9-vs-v8-move-fog-fixed280.json` compare it with `planner-v8-move`
+on the 14 development maps, day limit 35, node budget 256. The Sami runs
+set `"commanders": ["sami", "sami"]` and the run seeds 2026111418002 and
+2026111418004. Mean pair differential with the descriptive 95% half width;
+no command was invalid:
 
-The plans compare `planner-v9` with `planner-v8-move` on the 14 development
-maps with a day limit of 35 and a node budget of 256, 280 pairs each:
-`planner-v9-vs-v8-move-fixed280.json` (Andy), `-sami-fixed280.json`,
-`-fog-fixed280.json` (Andy in fog) and `-sami-fog-fixed280.json`.
+| Games | Commander | Pairs | Score |
+| --- | --- | --- | --- |
+| Without fog | Andy | 280 | +0.604 ± 0.068 |
+| Without fog | Sami | 280 | +0.514 ± 0.069 |
+| Fog | Andy | 280 | +0.529 ± 0.071 |
+| Fog | Sami | 280 | +0.545 ± 0.065 |
 
-| Games | Commander | Pairs | Score | Without map 172238 | Map 160882 |
-| --- | --- | --- | --- | --- | --- |
-| Without fog | Andy | 280 | +0.604 ± 0.068 | +0.581 ± 0.072 | +0.700 ± 0.193 |
-| Without fog | Sami | 280 | +0.514 ± 0.069 | +0.485 ± 0.073 | +0.450 ± 0.265 |
-| Fog | Andy | 280 | +0.529 ± 0.071 | +0.554 ± 0.073 | +0.575 ± 0.192 |
-| Fog | Sami | 280 | +0.545 ± 0.065 | +0.575 ± 0.066 | +0.300 ± 0.240 |
-
-The score is the mean pair differential with the descriptive 95% half width.
-Map 172238 is unbalanced, so the score is also given without it; map 160882
-(islands) is given alone.
-No command was invalid.
-
-The planner statistics of a run count the rollout checks
-(`rollout_checks`), the rollouts (`rollouts`, `rollout_failed`), the
-simulated decisions in them (`rollout_work`), the plans where the rollout
-chose another line than the value after the first enemy turn would
-(`rollout_changed`), the rollouts that passed the first enemy turn with an
-extra end of the turn (`rollout_boundaries`, zero with the last days), the
-rollouts with an unstoppable decisive capture after the first enemy turn
-(`rollout_danger`) and those of them that ended at the start of our turn
-without one (`rollout_danger_cleared`), and the contest plans that won
-(`chose_contest`).
-
-A turn of `planner-v9` takes several times as long as a turn of
-`planner-v8-move`. `planner_timing <manifest> <pairs> v9` measures it. With
-`AWBRN_MOVE2_TREES=<n>` the move model scores with its first `n` trees only;
-a plan sets the same with the baseline weight `move2_trees`.
+A turn takes several times as long as a turn of `planner-v8-move`;
+`planner_timing <manifest> <pairs> v9` measures it.
 
 ## Run a search budget sweep
 

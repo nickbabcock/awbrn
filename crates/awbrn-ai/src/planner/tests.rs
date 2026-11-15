@@ -2848,13 +2848,6 @@ const V8_MOVE_CONTEST: PlannerConfig = PlannerConfig {
     ..PlannerConfig::V8_MOVE
 };
 
-/// planner-v8-move with the rollout check of three turns.
-const V8_MOVE_ROLLOUT: PlannerConfig = PlannerConfig {
-    identifier: "planner-v8-move-rollout",
-    rollout: Some(RolloutConfig::THREE_TURNS),
-    ..PlannerConfig::V8_MOVE
-};
-
 /// [`V8_MOVE_CONTEST`] with the rollout check of three turns, on the first
 /// move model.
 const V8_MOVE_COMBO: PlannerConfig = PlannerConfig {
@@ -2862,62 +2855,6 @@ const V8_MOVE_COMBO: PlannerConfig = PlannerConfig {
     rollout: Some(RolloutConfig::THREE_TURNS),
     ..V8_MOVE_CONTEST
 };
-
-/// The rollout check with one enemy turn, no opening plays and one greedy
-/// rollout of the 16 best lines is the reply check of planner-v8-move: the
-/// game is the same.
-#[test]
-fn a_one_turn_rollout_plays_as_the_reply_check() {
-    let control = PlannerConfig {
-        rollout: Some(RolloutConfig {
-            turns: 1,
-            top: PlannerConfig::V8_MOVE.hard_reply_top,
-            openings: false,
-        }),
-        ..PlannerConfig::V8_MOVE
-    };
-    let (commands, state, stats, invalid) = rollout_game(control, false, 12);
-    let (expected, expected_state, expected_stats, _) =
-        rollout_game(PlannerConfig::V8_MOVE, false, 12);
-    assert_eq!(invalid, 0);
-    assert!(stats.rollouts > 0);
-    assert_eq!(commands, expected);
-    assert_eq!(state, expected_state);
-    assert_eq!(stats.plans, expected_stats.plans);
-    assert_eq!(stats.evaluations, expected_stats.evaluations);
-}
-
-/// A rollout game has no refused command, and the same seeds give the same
-/// game, with and without fog.
-#[test]
-fn a_rollout_game_is_legal_and_repeatable() {
-    for fog in [false, true] {
-        let (commands, state, stats, invalid) = rollout_game(V8_MOVE_ROLLOUT, fog, 12);
-        assert_eq!(invalid, 0, "fog {fog}");
-        assert!(stats.rollout_checks > 0);
-        assert!(stats.rollouts >= stats.rollout_checks * 2);
-        assert!(stats.rollout_work > 0);
-        let (again, again_state, again_stats, _) = rollout_game(V8_MOVE_ROLLOUT, fog, 12);
-        assert_eq!(commands, again, "fog {fog}");
-        assert_eq!(state, again_state);
-        assert_eq!(stats, again_stats);
-    }
-}
-
-/// A rollout of more turns does more work.
-#[test]
-fn a_longer_rollout_does_more_work() {
-    let one = PlannerConfig {
-        rollout: Some(RolloutConfig {
-            turns: 1,
-            ..RolloutConfig::THREE_TURNS
-        }),
-        ..V8_MOVE_ROLLOUT
-    };
-    let (_, _, short, _) = rollout_game(one, false, 12);
-    let (_, _, long, _) = rollout_game(V8_MOVE_ROLLOUT, false, 12);
-    assert!(long.rollout_work > short.rollout_work);
-}
 
 /// A board with no headquarters, our only lab on (2, 2), and an enemy
 /// infantry next to it. The enemy turn is active, as the reply estimate
@@ -3131,48 +3068,6 @@ fn the_last_days_policy_keeps_playing() {
     );
 }
 
-/// A game of the contest switches against planner-v8-move, without fog and
-/// in fog, has no refused command, and the same seeds give the same game.
-#[test]
-fn a_contest_game_is_legal_and_repeatable() {
-    for fog in [false, true] {
-        let game = || {
-            let state = arena(fog, 3);
-            let mut session = Session::new(state.clone());
-            let mut first = PlannerAgent::with_config(
-                1,
-                PlannerConfig {
-                    plans_per_turn: 4,
-                    ..V8_MOVE_CONTEST
-                },
-            );
-            let mut second = PlannerAgent::with_config(
-                2,
-                PlannerConfig {
-                    plans_per_turn: 4,
-                    ..PlannerConfig::V8_MOVE
-                },
-            );
-            let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
-            let mut entropy = Rng::from_seed(5);
-            let limits = Limits {
-                days: 8,
-                ..Limits::DEFAULT
-            };
-            let record = play(state, &mut session, &mut agents, &mut entropy, limits)
-                .expect("the game runs");
-            (record, session.state().clone())
-        };
-        let (record, state) = game();
-        assert_eq!(record.refusals, 0, "fog {fog}");
-        assert_eq!(record.preflight_rejections, 0, "fog {fog}");
-        assert_eq!(record.unrealizable_plays, 0, "fog {fog}");
-        let (again, again_state) = game();
-        assert_eq!(record.commands, again.commands, "fog {fog}");
-        assert_eq!(state, again_state, "fog {fog}");
-    }
-}
-
 /// A rollout of one enemy turn with no opening plays, on the configuration
 /// with every contest switch, is the contest reply check: the game is the
 /// same, with and without fog. So the rollout keeps the contest terms of
@@ -3191,54 +3086,11 @@ fn a_one_turn_rollout_plays_as_the_contest_reply_check() {
         let (commands, state, stats, invalid) = rollout_game(control, fog, 12);
         let (expected, expected_state, expected_stats, _) = rollout_game(V8_MOVE_CONTEST, fog, 12);
         assert_eq!(invalid, 0, "fog {fog}");
-        assert!(stats.rollouts > 0, "fog {fog}");
+        assert!(stats.rollout_checks > 0, "fog {fog}");
         assert_eq!(commands, expected, "fog {fog}");
         assert_eq!(state, expected_state, "fog {fog}");
         assert_eq!(stats.plans, expected_stats.plans, "fog {fog}");
         assert_eq!(stats.chose_contest, expected_stats.chose_contest);
-    }
-}
-
-/// On the day before the day limit, the greedy policy of planner-v8-move
-/// saves its funds with an explicit end of the turn, and the rollout check
-/// then adds the extra end of the turn of the reply check, which passes the
-/// first enemy turn. The last days switch removes it.
-#[test]
-fn the_last_days_switch_keeps_the_enemy_turn_of_a_rollout() {
-    let mut state = arena(false, 3);
-    state.turn.day = 34;
-    state.settings.day_limit = Some(35);
-    let seat = state.players.seat(&state.turn.active_player).unwrap();
-    state.player_mut(seat).funds = 20_000;
-    let rollout = |config: PlannerConfig| {
-        let mut evaluator = Evaluator::new(config.eval_weights);
-        let mut replay = config.replay_score.map(ReplayReader::new);
-        let mut planner = probe_planner(&config, &mut evaluator, replay.as_mut(), seat);
-        let mut session = Session::new(state.clone());
-        let line = planner
-            .line(&mut session, Generator::Seed, &[])
-            .expect("the seed line");
-        let ends = line
-            .plays
-            .last()
-            .is_some_and(|play| play.kind() == OrderKind::EndTurn);
-        planner
-            .rolled_value(&mut session, &line, config.rollout.unwrap())
-            .expect("the rollout");
-        (ends, planner.rollout_stats)
-    };
-    let (ends, stats) = rollout(V8_MOVE_ROLLOUT);
-    assert!(ends, "the seed line saves its funds");
-    assert_eq!(stats.boundaries, 1);
-    for config in [V8_MOVE_COMBO, move2_combo(1.0, true)] {
-        let (ends, stats) = rollout(config);
-        assert!(
-            !ends,
-            "{}: the seed line plays the last day",
-            config.identifier
-        );
-        assert_eq!(stats.boundaries, 0);
-        assert_eq!(stats.rollouts, 1);
     }
 }
 
@@ -3272,7 +3124,7 @@ fn threat_board() -> (State, PlayerIdx) {
 /// The rollout values of the contest switches keep the contest terms: the
 /// value after the first enemy turn subtracts the capture of our
 /// headquarters that our attacks cannot stop, as the contest reply check
-/// does, and a longer rollout plays the capture out.
+/// does, and a rollout of three turns plays the capture out.
 #[test]
 fn the_rollout_values_keep_the_contest_terms() {
     let (state, ours) = threat_board();
@@ -3292,7 +3144,7 @@ fn the_rollout_values_keep_the_contest_terms() {
             .rolled_value(&mut session, &line, rollout)
             .expect("the rollout");
         assert_eq!(session.state(), &state, "the session is back at its start");
-        (value, planner.rollout_stats)
+        value
     };
     let plain = PlannerConfig {
         contest: false,
@@ -3301,36 +3153,14 @@ fn the_rollout_values_keep_the_contest_terms() {
     };
     let config = V8_MOVE_COMBO;
     let headquarters = config.reply_weight * config.property_values.headquarters;
-    let ((with, _), stats) = rolled(config, 1);
-    let ((without, _), _) = rolled(plain, 1);
+    let with = rolled(config, 1);
+    let without = rolled(plain, 1);
     assert!(
         (without - with - headquarters).abs() < 1e-6,
         "{without} - {with} is the headquarters value {headquarters}"
     );
-    assert_eq!(stats.danger, 1);
-    let ((end, first), stats) = rolled(config, 3);
-    assert_eq!(first, with, "the first reply keeps the contest terms");
-    assert!(end < first, "the capture completes: {end} < {first}");
-    assert_eq!(stats.danger, 1);
-    assert_eq!(stats.danger_cleared, 0);
-}
-
-/// A game of the contest switches with the rollout check against
-/// planner-v8-move, without fog and in fog, has no refused command, its
-/// rollouts run, and the same seeds give the same game.
-#[test]
-fn a_combo_game_is_legal_and_repeatable() {
-    for fog in [false, true] {
-        let (commands, state, stats, invalid) = rollout_game(V8_MOVE_COMBO, fog, 12);
-        assert_eq!(invalid, 0, "fog {fog}");
-        assert!(stats.rollout_checks > 0, "fog {fog}");
-        assert!(stats.rollouts >= stats.rollout_checks * 2, "fog {fog}");
-        assert_eq!(stats.rollout_boundaries, 0, "fog {fog}");
-        let (again, again_state, again_stats, _) = rollout_game(V8_MOVE_COMBO, fog, 12);
-        assert_eq!(commands, again, "fog {fog}");
-        assert_eq!(state, again_state, "fog {fog}");
-        assert_eq!(stats, again_stats, "fog {fog}");
-    }
+    let end = rolled(config, 3);
+    assert!(end < with, "the capture completes: {end} < {with}");
 }
 
 /// A planner whose greedy policy reads the turn so far keeps an order in its
@@ -3339,7 +3169,7 @@ fn a_combo_game_is_legal_and_repeatable() {
 /// refused order must not join the log.
 #[test]
 fn a_refused_order_does_not_join_the_turn_so_far() {
-    let config = move2_config(1.0, true);
+    let config = move2_config(true);
     let mut agents = [
         PlannerAgent::with_config(1, config),
         PlannerAgent::with_config(2, config),
@@ -3403,15 +3233,15 @@ fn a_refused_order_does_not_join_the_turn_so_far() {
     );
 }
 
-/// planner-v8 with the tree move model in its greedy policy at `strength`,
-/// with the next-unit model when `order`.
-fn move2_config(strength: f64, order: bool) -> PlannerConfig {
+/// planner-v8 with the tree move model in its greedy policy, with the
+/// next-unit model when `order`.
+fn move2_config(order: bool) -> PlannerConfig {
     PlannerConfig {
         identifier: "planner-v8-move2",
         baseline: crate::baseline::BaselineConfig {
             identifier: "greedy-v8-move2",
             weights: crate::agents::Weights {
-                move2: strength,
+                move2: true,
                 move2_order: order,
                 ..crate::profile::V8_GREEDY_CONFIG.weights
             },
@@ -3423,8 +3253,8 @@ fn move2_config(strength: f64, order: bool) -> PlannerConfig {
 
 /// [`move2_config`] with every switch of the contest of decisive captures,
 /// the two greedy switches and the rollout check of three turns.
-fn move2_combo(strength: f64, order: bool) -> PlannerConfig {
-    let move2 = move2_config(strength, order);
+fn move2_combo(order: bool) -> PlannerConfig {
+    let move2 = move2_config(order);
     PlannerConfig {
         identifier: "planner-v8-move2-combo",
         baseline: crate::baseline::BaselineConfig {
@@ -3443,104 +3273,6 @@ fn move2_combo(strength: f64, order: bool) -> PlannerConfig {
         run: true,
         rollout: Some(RolloutConfig::THREE_TURNS),
         ..move2
-    }
-}
-
-/// The planners with the tree move model play legal games with and without
-/// fog, the same game twice, and other games than planner-v8. Each one keeps
-/// the log of the orders that it played in the turn: at each decision, the
-/// log is the unit orders of the turn before it, which a wrapper of the
-/// agent records from the accepted plays. Debug builds also check the turn
-/// so far of each simulated line ([`TurnPlanner::line`]).
-#[test]
-fn the_move2_planners_play_legal_games_and_keep_the_turn_so_far() {
-    struct Checked<'a> {
-        inner: &'a mut PlannerAgent,
-        turn: Option<(awvm::semantic::PlayerId, u64)>,
-        log: TurnLog,
-        pending: Option<LogEntry>,
-        checked: usize,
-    }
-    impl Agent for Checked<'_> {
-        fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play> {
-            let turn = (view.turn.active_player.clone(), view.turn.day);
-            if self.turn.as_ref() != Some(&turn) {
-                self.turn = Some(turn);
-                self.log.clear();
-            }
-            self.pending = None;
-            let play = self.inner.act(view, budget);
-            if self.inner.config.baseline.weights.uses_turn_log() {
-                assert_eq!(
-                    self.inner.played, self.log,
-                    "the planner keeps the turn so far"
-                );
-                self.checked += 1;
-            } else {
-                assert!(self.inner.played.is_empty());
-            }
-            let session = Session::from_observation(view).expect("the view reifies");
-            self.pending = play
-                .as_ref()
-                .and_then(|play| LogEntry::of_play(session.state(), play));
-            play
-        }
-        fn start_match(&mut self) {
-            self.inner.start_match();
-        }
-        fn start_turn(&mut self, view: &Observation) {
-            self.inner.start_turn(view);
-        }
-        fn refresh(&mut self, view: &Observation) {
-            if let Some(entry) = self.pending.take() {
-                self.log.push(entry);
-            }
-            self.inner.refresh(view);
-        }
-        fn reject(&mut self, view: &Observation) {
-            self.pending = None;
-            self.inner.reject(view);
-        }
-    }
-
-    let game = |config: PlannerConfig, fog: bool| {
-        let state = arena(fog, 3);
-        let mut session = Session::new(state.clone());
-        let mut first = PlannerAgent::with_config(1, config);
-        let mut second = PlannerAgent::with_config(2, config);
-        let mut checked = Checked {
-            inner: &mut first,
-            turn: None,
-            log: TurnLog::new(),
-            pending: None,
-            checked: 0,
-        };
-        let mut agents: [&mut dyn Agent; 2] = [&mut checked, &mut second];
-        let mut entropy = Rng::from_seed(5);
-        let limits = Limits {
-            days: 6,
-            nodes: NodeBudget::new(16).expect("a budget"),
-            ..Limits::DEFAULT
-        };
-        let record =
-            play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
-        assert!(checked.checked > 10 || !config.baseline.weights.uses_turn_log());
-        assert_eq!(record.refusals, 0);
-        assert_eq!(record.preflight_rejections, 0);
-        assert_eq!(record.unrealizable_plays, 0);
-        assert!(
-            checked.inner.stats().candidates > 0,
-            "the planner simulates lines"
-        );
-        (record.commands, session.state().clone())
-    };
-    for fog in [false, true] {
-        let v8 = game(PlannerConfig::V8, fog);
-        for config in [move2_config(0.5, false), move2_config(1.0, true)] {
-            let once = game(config, fog);
-            assert_eq!(once, game(config, fog), "{} repeats", config.identifier);
-            assert_ne!(once.1, v8.1, "{} plays its own game", config.identifier);
-        }
     }
 }
 
@@ -3595,21 +3327,20 @@ fn the_earlier_configurations_play_the_same_games() {
 fn the_move2_planners_play_lines_replies_and_rollouts() {
     let replies = PlannerConfig {
         rollout: None,
-        ..move2_combo(1.0, true)
+        ..move2_combo(true)
     };
     for fog in [false, true] {
         for (config, rollouts) in [
             (replies, false),
-            (move2_combo(1.0, true), true),
-            (move2_combo(0.5, false), true),
+            (move2_combo(true), true),
+            (move2_combo(false), true),
         ] {
             let (commands, state, stats, invalid) = rollout_game(config, fog, 12);
             let name = config.identifier;
             assert_eq!(invalid, 0, "{name} fog {fog}");
             assert!(stats.candidates > 0, "{name} fog {fog}: lines");
             if rollouts {
-                assert!(stats.rollout_work > 0, "{name} fog {fog}: rollout turns");
-                assert!(stats.rollouts > 0);
+                assert!(stats.rollout_checks > 0, "{name} fog {fog}: rollouts");
                 assert_eq!(stats.rollout_failed, 0, "{name} fog {fog}");
             } else {
                 assert!(
@@ -3764,14 +3495,14 @@ fn a_decisive_lab_capture_is_worth_a_headquarters() {
     );
 }
 
-/// planner-v9 is planner-v8 with the tree move model at strength 1 and the
-/// next-unit model, the contest switches with the two greedy switches, and
-/// the rollout check of three turns: the configuration that the tests above
-/// play as `move2_combo(1.0, true)`, under its own names.
+/// planner-v9 is planner-v8 with the tree move model and the next-unit
+/// model, the contest switches with the two greedy switches, and the
+/// rollout check of three turns: the configuration that the tests above
+/// play as `move2_combo(true)`, under its own names.
 #[test]
 fn planner_v9_adds_only_its_parts() {
     let v9 = PlannerConfig::V9;
-    let combo = move2_combo(1.0, true);
+    let combo = move2_combo(true);
     assert_eq!(
         PlannerConfig {
             identifier: combo.identifier,
@@ -3790,13 +3521,12 @@ fn planner_v9_adds_only_its_parts() {
             weights: crate::agents::Weights {
                 play_last_days: true,
                 decisive_labs: true,
-                move2: 1.0,
+                move2: true,
                 move2_order: true,
                 ..crate::profile::V8_GREEDY_CONFIG.weights
             },
             ..crate::profile::V8_GREEDY_CONFIG
         }
     );
-    assert_eq!(v9.baseline.weights.move2_trees, 0, "every tree scores");
     assert_eq!(v9.rollout, Some(RolloutConfig::THREE_TURNS));
 }

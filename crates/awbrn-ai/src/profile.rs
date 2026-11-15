@@ -76,12 +76,13 @@ pub const V8_MOVE_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     ..V8_GREEDY_CONFIG
 };
 
-/// The [`V8_GREEDY_CONFIG`] scoring with the tree move model at strength 1
-/// and the next-unit model ([`crate::agents::Weights::move2`] and
+/// The [`V8_GREEDY_CONFIG`] scoring with the tree move model and the
+/// next-unit model ([`crate::agents::Weights::move2`] and
 /// [`crate::agents::Weights::move2_order`]), which keeps playing on the last
-/// two days ([`crate::agents::Weights::play_last_days`]) and values a
-/// decisive lab as a headquarters ([`crate::agents::Weights::decisive_labs`]).
-/// In fog games, the models are the fog models.
+/// two days ([`crate::agents::Weights::play_last_days`]) and, on a map with
+/// no headquarters, gives every lab the headquarters weights
+/// ([`crate::agents::Weights::decisive_labs`]). In fog games, the models are
+/// the fog models.
 ///
 /// [`PlannerConfig::V9`] uses it for its seed plan, its fallback, its
 /// simulated replies and both sides of its rollouts.
@@ -90,7 +91,7 @@ pub const V9_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     weights: Weights {
         play_last_days: true,
         decisive_labs: true,
-        move2: 1.0,
+        move2: true,
         move2_order: true,
         ..V8_GREEDY_CONFIG.weights
     },

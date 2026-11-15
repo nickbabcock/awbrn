@@ -1,5 +1,4 @@
-//! The decisions of the second move model (`extract-policy2`) and the check
-//! of its features in play (`check-policy2`).
+//! The decisions of the second move model (`extract-policy2`).
 //!
 //! `extract-policy2 <maps> <output> <division>...` writes, for the human unit
 //! orders of the archives:
@@ -17,24 +16,13 @@
 //! before the decision that the tool can read: the move of a unit before an
 //! unload, the unload, builds and powers do not count, and neither does an
 //! order whose unit the tool cannot find.
-//!
-//! `check-policy2 <maps> <output> <division>...` plays the greedy policy of
-//! `planner-v8` with the tree move model and the next-unit model
-//! ([`awbrn_ai::agents::Weights::move2`] and
-//! [`awbrn_ai::agents::Weights::move2_order`]) at each human decision of the
-//! archives, with the human turn so far, and compares the features that play
-//! calculated for every unit with those that the extractor writes. It writes
-//! a summary to `<output>.check.json`.
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use awbrn_ai::agents::GreedyAgent;
-use awbrn_ai::agents::move_policy2::{
-    ActionClass, LogEntry, TurnLog, policy2_feature_names, unit_feature_names,
-};
+use awbrn_ai::agents::move_policy2::{ActionClass, LogEntry, TurnLog};
 use awbrn_map::AwbwMapData;
 use awbw_replay::ReplayParser;
 use awbw_replay::turn_models::Action;
@@ -78,30 +66,7 @@ struct Coverage {
     logged: usize,
 }
 
-#[derive(Default, Serialize)]
-struct Check {
-    decisions: usize,
-    /// Units whose features play calculated.
-    units: usize,
-    /// Orders compared.
-    orders: usize,
-    /// Units whose candidate orders in play differ from the extracted ones.
-    order_sets_differ: usize,
-    /// Orders with at least one feature that differs.
-    orders_differ: usize,
-    /// Units of the next-unit model compared, and those that differ.
-    unit_rows: usize,
-    unit_rows_differ: usize,
-    /// Decisions where the unit lists of the next-unit model differ.
-    unit_lists_differ: usize,
-    /// The count of differences of each feature, by name.
-    feature_differences: std::collections::BTreeMap<String, usize>,
-    unit_feature_differences: std::collections::BTreeMap<String, usize>,
-    /// The first few differences, for a reader.
-    examples: Vec<String>,
-}
-
-pub fn run(divisions: &[&str], maps: &Path, output: &Path, check: bool) -> Result<()> {
+pub fn run(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
     let mut paths = Vec::new();
     for division in divisions {
         for entry in fs::read_dir(division).with_context(|| format!("read {division}"))? {
@@ -112,9 +77,6 @@ pub fn run(divisions: &[&str], maps: &Path, output: &Path, check: bool) -> Resul
         }
     }
     paths.sort();
-    if let Ok(limit) = std::env::var("POLICY2_GAME_LIMIT") {
-        paths.truncate(limit.parse()?);
-    }
     let with = |suffix: &str| {
         let mut path = output.as_os_str().to_owned();
         path.push(suffix);
@@ -128,17 +90,9 @@ pub fn run(divisions: &[&str], maps: &Path, output: &Path, check: bool) -> Resul
         unit_offset: 0,
     };
     let mut coverage = Coverage::default();
-    let mut summary = Check::default();
     for path in &paths {
         coverage.archives += 1;
-        let result = game(
-            path,
-            maps,
-            &mut writer,
-            &mut coverage,
-            check.then_some(&mut summary),
-        );
-        if let Err(error) = result {
+        if let Err(error) = game(path, maps, &mut writer, &mut coverage) {
             coverage.failed += 1;
             eprintln!("{}: {error:#}", path.display());
         }
@@ -150,21 +104,6 @@ pub fn run(divisions: &[&str], maps: &Path, output: &Path, check: bool) -> Resul
         with(".coverage.json"),
         serde_json::to_vec_pretty(&coverage)?,
     )?;
-    if check {
-        fs::write(with(".check.json"), serde_json::to_vec_pretty(&summary)?)?;
-        println!(
-            "{} decisions; {} units, {} orders compared; {} order sets differ; {} orders differ; \
-             {} unit rows compared, {} differ; {} unit lists differ",
-            summary.decisions,
-            summary.units,
-            summary.orders,
-            summary.order_sets_differ,
-            summary.orders_differ,
-            summary.unit_rows,
-            summary.unit_rows_differ,
-            summary.unit_lists_differ
-        );
-    }
     println!(
         "{} archives; {} fog; {} incomplete; {} decisions; {} unmatched; {} trapped; {} orders",
         coverage.archives,
@@ -178,17 +117,6 @@ pub fn run(divisions: &[&str], maps: &Path, output: &Path, check: bool) -> Resul
     Ok(())
 }
 
-pub fn names(output: &Path) -> Result<()> {
-    fs::write(
-        output,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "order": policy2_feature_names(),
-            "unit": unit_feature_names(),
-        }))?,
-    )?;
-    Ok(())
-}
-
 struct Writer {
     rows: BufWriter<File>,
     orders: BufWriter<File>,
@@ -197,13 +125,7 @@ struct Writer {
     unit_offset: u64,
 }
 
-fn game(
-    path: &Path,
-    maps: &Path,
-    writer: &mut Writer,
-    coverage: &mut Coverage,
-    mut check: Option<&mut Check>,
-) -> Result<()> {
+fn game(path: &Path, maps: &Path, writer: &mut Writer, coverage: &mut Coverage) -> Result<()> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let game_id: u64 = path
         .file_stem()
@@ -226,19 +148,6 @@ fn game(
         coverage.fog += 1;
     }
     let mut agent = awbrn_ai::profile::V8_GREEDY_CONFIG.build_greedy(0x6d6f_7665_5f70_6f6c);
-    // The policy of play: the greedy weights of the extractor with the tree
-    // move model and the next-unit model.
-    let mut player_agent = check.is_some().then(|| {
-        awbrn_ai::baseline::BaselineConfig {
-            weights: awbrn_ai::agents::Weights {
-                move2: 1.0,
-                move2_order: true,
-                ..awbrn_ai::profile::V8_GREEDY_CONFIG.weights
-            },
-            ..awbrn_ai::profile::V8_GREEDY_CONFIG
-        }
-        .build_greedy(0x6d6f_7665_5f70_6f6c)
-    });
     let mut turn_owner = None;
     let mut log = TurnLog::new();
     // An archive that fails part of the way keeps the rows before the
@@ -262,10 +171,6 @@ fn game(
             Some(kind) if matches!(state.match_state, Match::Active { .. }) => {
                 let view = observe(&AwbwVisibility, state, &player)?;
                 let (_, decision) = agent.policy2_candidates(&view, &log).unwrap_or_default();
-                if let (Some(check), Some(player_agent)) = (check.as_deref_mut(), &mut player_agent)
-                {
-                    compare(player_agent, &view, &log, &decision, check);
-                }
                 Some((kind, state.clone(), decision))
             }
             _ => None,
@@ -387,82 +292,4 @@ fn game(
         coverage.decisions += 1;
     }
     Ok(())
-}
-
-/// Play the decision with the features captured, and compare them with the
-/// extracted features of the same position and turn so far.
-fn compare(
-    agent: &mut GreedyAgent,
-    view: &awvm::semantic::Observation,
-    log: &TurnLog,
-    decision: &awbrn_ai::agents::move_policy2::Policy2Outputs,
-    check: &mut Check,
-) {
-    let order_names = policy2_feature_names();
-    let unit_names = unit_feature_names();
-    agent.capture_policy2();
-    let _ = agent.act_with_log(view, log);
-    let Some(played) = agent.take_policy2_capture() else {
-        return;
-    };
-    check.decisions += 1;
-    let mut units: Vec<_> = played.orders.iter().map(|c| c.unit).collect();
-    units.dedup();
-    for unit in units {
-        check.units += 1;
-        let mine: Vec<_> = played.orders.iter().filter(|c| c.unit == unit).collect();
-        let theirs: Vec<_> = decision.orders.iter().filter(|c| c.unit == unit).collect();
-        if mine.len() != theirs.len() || mine.iter().zip(&theirs).any(|(a, b)| a.order != b.order) {
-            check.order_sets_differ += 1;
-            if check.examples.len() < 20 {
-                check.examples.push(format!(
-                    "unit {unit:?}: {} orders in play, {} extracted",
-                    mine.len(),
-                    theirs.len()
-                ));
-            }
-            continue;
-        }
-        for (a, b) in mine.iter().zip(&theirs) {
-            check.orders += 1;
-            let mut differs = false;
-            for ((name, mine), theirs) in order_names.iter().zip(&a.features).zip(&b.features) {
-                if mine.to_bits() != theirs.to_bits() {
-                    differs = true;
-                    *check.feature_differences.entry(name.clone()).or_default() += 1;
-                    if check.examples.len() < 20 {
-                        check.examples.push(format!(
-                            "{:?} {name}: play {mine} extracted {theirs}",
-                            a.order
-                        ));
-                    }
-                }
-            }
-            check.orders_differ += usize::from(differs);
-        }
-    }
-    if played.units.len() != decision.units.len()
-        || played
-            .units
-            .iter()
-            .zip(&decision.units)
-            .any(|(a, b)| a.0 != b.0)
-    {
-        check.unit_lists_differ += 1;
-        return;
-    }
-    for (a, b) in played.units.iter().zip(&decision.units) {
-        check.unit_rows += 1;
-        let mut differs = false;
-        for ((name, mine), theirs) in unit_names.iter().zip(&a.1).zip(&b.1) {
-            if mine.to_bits() != theirs.to_bits() {
-                differs = true;
-                *check
-                    .unit_feature_differences
-                    .entry(name.clone())
-                    .or_default() += 1;
-            }
-        }
-        check.unit_rows_differ += usize::from(differs);
-    }
 }

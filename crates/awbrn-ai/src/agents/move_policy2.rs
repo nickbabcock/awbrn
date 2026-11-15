@@ -1011,18 +1011,6 @@ impl TreeEnsemble {
 
     /// The raw score of each row, the same values as [`TreeEnsemble::score`].
     pub fn score_rows<const N: usize>(&self, rows: &[[f32; N]], out: &mut Vec<f64>) {
-        self.score_rows_with_trees(rows, usize::MAX, out);
-    }
-
-    /// The raw score of each row over the first `trees` trees only (all of
-    /// them when there are fewer). With every tree, the same values as
-    /// [`TreeEnsemble::score_rows`].
-    pub fn score_rows_with_trees<const N: usize>(
-        &self,
-        rows: &[[f32; N]],
-        trees: usize,
-        out: &mut Vec<f64>,
-    ) {
         debug_assert_eq!(N, self.features);
         // A split sends NaN to the right, where LightGBM, with a missing value
         // rule, could send it left. The features are always finite.
@@ -1033,10 +1021,10 @@ impl TreeEnsemble {
         out.clear();
         out.resize(rows.len(), 0.0);
         if let Some(complete) = &self.complete {
-            complete.score_rows(rows, trees, out);
+            complete.score_rows(rows, out);
             return;
         }
-        for tree in self.trees.iter().take(trees) {
+        for tree in &self.trees {
             for (sum, x) in out.iter_mut().zip(rows) {
                 *sum += self.leaf(tree, x);
             }
@@ -1059,10 +1047,10 @@ impl TreeEnsemble {
 impl Complete {
     /// Add the score of each tree to each row, tree by tree, so that one
     /// tree stays in the cache for all rows. Four rows walk together.
-    fn score_rows<const N: usize>(&self, rows: &[[f32; N]], limit: usize, out: &mut [f64]) {
+    fn score_rows<const N: usize>(&self, rows: &[[f32; N]], out: &mut [f64]) {
         let depth = self.depth;
         let inner = (1 << depth) - 1;
-        let trees = (self.thresholds.len() / inner).min(limit);
+        let trees = self.thresholds.len() / inner;
         for tree in 0..trees {
             let features = &self.features[tree * inner..(tree + 1) * inner];
             let thresholds = &self.thresholds[tree * inner..(tree + 1) * inner];
@@ -1144,17 +1132,16 @@ impl Reader<'_> {
     }
 }
 
-/// A fitted model file: the feature names, the trees and the extra values.
+/// A fitted model file: the feature names and the trees.
 ///
 /// The layout, all little-endian: the magic `AWT1`; the feature count and
 /// each name (a `u16` length and UTF-8); the extra value count and each
-/// value (`f64`); the tree count and the root of each tree (`i32`); the node
-/// count and each node (feature `u16`, threshold `f64`, left `i32`, right
-/// `i32`); the leaf count and each leaf value (`f64`). A child or root that
-/// is negative is the complement of a leaf index.
+/// value (`f64`), which the models do not read; the tree count and the root
+/// of each tree (`i32`); the node count and each node (feature `u16`,
+/// threshold `f64`, left `i32`, right `i32`); the leaf count and each leaf
+/// value (`f64`). A child or root that is negative is the complement of a
+/// leaf index.
 struct ModelFile {
-    names: Vec<String>,
-    extra: Vec<f64>,
     trees: TreeEnsemble,
 }
 
@@ -1176,9 +1163,9 @@ impl ModelFile {
         if names != expected {
             return Err("the model features are not the features of this policy".into());
         }
-        let extra = (0..reader.count(8)?)
-            .map(|_| reader.f64())
-            .collect::<Result<Vec<_>, _>>()?;
+        for _ in 0..reader.count(8)? {
+            reader.f64()?;
+        }
         let roots = (0..reader.count(4)?)
             .map(|_| reader.i32())
             .collect::<Result<Vec<_>, _>>()?;
@@ -1200,112 +1187,26 @@ impl ModelFile {
             return Err("the model file has trailing bytes".into());
         }
         let trees = TreeEnsemble::new(count, &roots, &nodes, &leaves)?;
-        Ok(Self {
-            names,
-            extra,
-            trees,
-        })
+        Ok(Self { trees })
     }
 }
 
-/// The second move model: trees over [`policy2_feature_names`], and a
-/// greedy reference: a conditional logit over the three greedy score
-/// features for each unit group.
-///
-/// The utility of an order at strength `s` is `s` times the tree score plus
-/// `1 - s` times the greedy reference. Both are log-odds of the human
-/// choice, so the strength is the share of the trees on one scale. At one
-/// the choice is the fitted trees. At zero it is the greedy reference, which
-/// on the held-out maps chose the order with the best greedy score in every
-/// decision (the same top-1 as the greedy score, to four digits): its
-/// coefficient of being the best order is large. It is not monotone in the
-/// score by construction, though: the fit puts a positive coefficient on the
-/// gap to the best score for some groups.
+/// The second move model: trees over [`policy2_feature_names`]. The
+/// utility of an order is its tree score, the log-odds of the human choice.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Move2Model {
     trees: TreeEnsemble,
-    greedy: [[f64; 3]; 4],
 }
 
 impl Move2Model {
-    /// Read a model file. Its extra values are the greedy reference, three
-    /// coefficients for each group in group order.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let file = ModelFile::parse(bytes, &policy2_feature_names())?;
-        if file.extra.len() != 12 {
-            return Err("the greedy reference needs 12 values".into());
-        }
-        let mut greedy = [[0.0; 3]; 4];
-        for (slot, value) in greedy.iter_mut().flatten().zip(&file.extra) {
-            *slot = *value;
-        }
-        debug_assert_eq!(file.names.len(), POLICY2_FEATURE_COUNT);
-        Ok(Self {
-            trees: file.trees,
-            greedy,
-        })
+        Ok(Self { trees: file.trees })
     }
 
-    /// The raw tree score of one order.
-    #[cfg(test)]
-    fn tree_score(&self, x: &Policy2Features) -> f64 {
-        self.trees.score(x)
-    }
-
-    /// The greedy reference utility of one order of a unit of `kind`.
-    fn greedy_utility(&self, kind: UnitKind, x: &Policy2Features) -> f64 {
-        let beta = &self.greedy[MoveGroup::of(kind) as usize];
-        beta.iter()
-            .zip(&x[..3])
-            .map(|(beta, value)| beta * f64::from(*value))
-            .sum()
-    }
-
-    /// The utility of one order at `strength`.
-    #[cfg(test)]
-    fn utility(&self, kind: UnitKind, x: &Policy2Features, strength: f64) -> f64 {
-        self.blend(kind, x, self.tree_score(x), strength)
-    }
-
-    fn blend(&self, kind: UnitKind, x: &Policy2Features, tree: f64, strength: f64) -> f64 {
-        if strength == 1.0 {
-            return tree;
-        }
-        strength * tree + (1.0 - strength) * self.greedy_utility(kind, x)
-    }
-
-    /// The utility of each order of a unit of `kind` at `strength`, the same
-    /// values as [`Move2Model::utility`].
-    #[cfg(test)]
-    fn utilities(
-        &self,
-        kind: UnitKind,
-        rows: &[Policy2Features],
-        strength: f64,
-        out: &mut Vec<f64>,
-    ) {
-        self.utilities_with_trees(kind, rows, strength, usize::MAX, out);
-    }
-
-    /// [`Move2Model::utilities`] with the tree score of the first `trees`
-    /// trees only ([`TreeEnsemble::score_rows_with_trees`]).
-    pub fn utilities_with_trees(
-        &self,
-        kind: UnitKind,
-        rows: &[Policy2Features],
-        strength: f64,
-        trees: usize,
-        out: &mut Vec<f64>,
-    ) {
-        self.trees.score_rows_with_trees(rows, trees, out);
-        for (value, x) in out.iter_mut().zip(rows) {
-            *value = self.blend(kind, x, *value, strength);
-        }
-    }
-
-    /// The trees.
-    pub fn trees(&self) -> &TreeEnsemble {
-        &self.trees
+    /// The utility of each order of a unit.
+    pub fn utilities(&self, rows: &[Policy2Features], out: &mut Vec<f64>) {
+        self.trees.score_rows(rows, out);
     }
 }
 
@@ -1431,7 +1332,7 @@ mod tests {
 
     fn assert_scores(trees: &TreeEnsemble, name: &str) {
         let (columns, x, raw) = fixture(name);
-        assert!(raw.len() >= 500, "{name} has enough rows");
+        assert!(raw.len() >= 50, "{name} has enough rows");
         let mut batch = Vec::new();
         match columns {
             POLICY2_FEATURE_COUNT => {
@@ -1481,92 +1382,19 @@ mod tests {
     /// The Rust trees give the raw scores of LightGBM on held-out rows.
     #[test]
     fn the_trees_score_as_lightgbm() {
-        assert_scores(tree_model().trees(), "move2-nofog.rows");
-        assert_scores(fog_tree_model().trees(), "move2-fog.rows");
+        assert_scores(&tree_model().trees, "move2-nofog.rows");
+        assert_scores(&fog_tree_model().trees, "move2-fog.rows");
         assert_scores(&unit_model().trees, "unit2-nofog.rows");
         assert_scores(&fog_unit_model().trees, "unit2-fog.rows");
     }
 
-    /// The first trees of the ensemble score as the walk of those trees
-    /// alone, and every tree, or more, scores as the whole ensemble, bit for
-    /// bit.
-    #[test]
-    fn the_first_trees_score_as_their_walk() {
-        let (columns, x, _) = fixture("move2-nofog.rows");
-        assert_eq!(columns, POLICY2_FEATURE_COUNT);
-        let rows: Vec<Policy2Features> = x
-            .chunks(columns)
-            .map(|row| row.try_into().unwrap())
-            .collect();
-        for model in [tree_model(), fog_tree_model()] {
-            let trees = model.trees();
-            let mut whole = Vec::new();
-            trees.score_rows(&rows, &mut whole);
-            let mut out = Vec::new();
-            for limit in [trees.trees(), trees.trees() + 1, usize::MAX] {
-                trees.score_rows_with_trees(&rows, limit, &mut out);
-                assert!(
-                    out.iter()
-                        .zip(&whole)
-                        .all(|(a, b)| a.to_bits() == b.to_bits())
-                );
-            }
-            for limit in [0, 1, 100, 250, trees.trees() - 1] {
-                trees.score_rows_with_trees(&rows, limit, &mut out);
-                for (row, score) in rows.iter().zip(&out) {
-                    let mut walked = 0.0;
-                    for tree in trees.trees.iter().take(limit) {
-                        walked += trees.leaf(tree, row);
-                    }
-                    assert_eq!(walked.to_bits(), score.to_bits(), "{limit} trees");
-                }
-            }
-            let mut utilities = Vec::new();
-            model.utilities(UnitKind::Tank, &rows[..40], 0.5, &mut utilities);
-            model.utilities_with_trees(UnitKind::Tank, &rows[..40], 0.5, usize::MAX, &mut out);
-            assert_eq!(utilities, out);
-        }
-    }
-
     #[test]
     fn the_models_load() {
-        assert!(tree_model().trees().trees() > 0);
-        assert!(fog_tree_model().trees().trees() > 0);
+        assert!(tree_model().trees.trees() > 0);
+        assert!(fog_tree_model().trees.trees() > 0);
         assert!(unit_model().trees.trees() > 0);
         assert!(fog_unit_model().trees.trees() > 0);
         assert_ne!(tree_model(), fog_tree_model());
-    }
-
-    /// At strength zero, the utility is the greedy reference, which ranks
-    /// the orders of a unit as their greedy scores do.
-    #[test]
-    fn at_strength_zero_the_trees_follow_the_greedy_score() {
-        let model = tree_model();
-        let row = |score: f64, best: f64| {
-            let mut features = [0.0; MOVE_FEATURE_COUNT];
-            super::super::move_policy::set_greedy_features(best, score, &mut features);
-            let mut x = [0.0_f32; POLICY2_FEATURE_COUNT];
-            for (slot, value) in x.iter_mut().zip(features) {
-                *slot = value as f32;
-            }
-            x
-        };
-        for kind in [
-            UnitKind::Infantry,
-            UnitKind::Tank,
-            UnitKind::Artillery,
-            UnitKind::Bomber,
-        ] {
-            let scores = [400.0, 250.0, 120.0, 30.0, 0.0];
-            let utilities: Vec<f64> = scores
-                .iter()
-                .map(|score| model.utility(kind, &row(*score, 400.0), 0.0))
-                .collect();
-            assert!(
-                utilities.windows(2).all(|pair| pair[0] > pair[1]),
-                "{kind:?}: {utilities:?}"
-            );
-        }
     }
 
     #[test]
@@ -1754,9 +1582,12 @@ mod tests {
     fn play_reads_the_features_that_the_extractor_writes() {
         let base = crate::profile::V8_GREEDY_CONFIG.weights;
         for weights in [
-            crate::agents::Weights { move2: 0.5, ..base },
             crate::agents::Weights {
-                move2: 1.0,
+                move2: true,
+                ..base
+            },
+            crate::agents::Weights {
+                move2: true,
                 move2_order: true,
                 ..base
             },

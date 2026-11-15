@@ -432,20 +432,19 @@ pub struct Weights {
     /// weights when it is false.
     #[serde(skip_serializing_if = "is_false")]
     pub decisive_labs: bool,
-    /// The strength of the second move model: trees over the move features,
-    /// the unit group, the other orders of the unit, the turn so far and
-    /// the board near each destination ([`super::move_policy2`]). Zero turns
-    /// the model off.
+    /// Whether the tree move model chooses the order of each unit: trees
+    /// over the move features, the unit group, the other orders of the unit,
+    /// the turn so far and the board near each destination
+    /// ([`super::move_policy2`]).
     ///
-    /// When it is not zero, the model chooses the order of each unit, as the
-    /// first model does ([`Weights::move_policy`]), and the first model is
-    /// not read. The utility of an order is this value times the tree score
-    /// plus one less this value times the greedy reference, a conditional
-    /// logit over the greedy score features. Both are log-odds of the human
-    /// choice. In fog games, the policy uses the fog model. The field is left
-    /// out of the serialized weights at zero.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub move2: f64,
+    /// When true, the order of a unit is the one with the highest tree
+    /// score, and the first model ([`Weights::move_policy`]) is not read. In
+    /// fog games, the policy uses the fog model. The field is left out of
+    /// the serialized weights when it is false, and is written as the number
+    /// 1 when it is true, so that the fingerprint of `planner-v9` keeps the
+    /// value of the model strength that it replaced.
+    #[serde(skip_serializing_if = "is_false", with = "one_if_true")]
+    pub move2: bool,
     /// Whether the next-unit model chooses which unit acts next
     /// ([`super::move_policy2::UnitModel`]).
     ///
@@ -458,19 +457,12 @@ pub struct Weights {
     /// out of the serialized weights when it is false.
     #[serde(skip_serializing_if = "is_false")]
     pub move2_order: bool,
-    /// How many trees of the tree move model score an order
-    /// ([`Weights::move2`]): the first trees of the boosting order. Zero
-    /// reads every tree. Fewer trees cost less and fit the human choice
-    /// less well. The next-unit model always reads every tree. The field is
-    /// left out of the serialized weights at zero.
-    #[serde(skip_serializing_if = "is_zero_count")]
-    pub move2_trees: u32,
 }
 
 impl Weights {
     /// Whether the policy reads the turn so far ([`super::move_policy2`]).
     pub const fn uses_turn_log(&self) -> bool {
-        self.move2 != 0.0
+        self.move2
     }
 
     /// The ordering the agent was asked for.
@@ -521,9 +513,8 @@ impl Weights {
         move_policy: 0.0,
         play_last_days: false,
         decisive_labs: false,
-        move2: 0.0,
+        move2: false,
         move2_order: false,
-        move2_trees: 0,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -1276,15 +1267,6 @@ impl GreedyAgent {
         moves.map(|moves| (moves, out))
     }
 
-    /// Choose a play for the view with `log` as the turn so far. Unlike
-    /// [`Agent::act`], the policy does not keep the log itself. The check of
-    /// the extracted features (`move_policy check-policy2`) uses it.
-    pub fn act_with_log(&mut self, view: &Observation, log: &TurnLog) -> Option<Play> {
-        self.turn_log.clone_from(log);
-        self.with_observation(view, |agent, session| agent.act_in_session(session))
-            .flatten()
-    }
-
     /// Set the turn so far of the next decisions ([`TurnLog`]).
     pub fn set_turn_log(&mut self, log: &TurnLog) {
         self.turn_log.clone_from(log);
@@ -1308,14 +1290,16 @@ impl GreedyAgent {
     /// Collect the features of the second model of each decision in play,
     /// for every unit, until [`GreedyAgent::take_policy2_capture`]. The
     /// selections do not change.
-    pub fn capture_policy2(&mut self) {
+    #[cfg(test)]
+    pub(crate) fn capture_policy2(&mut self) {
         self.policy2_out = Some(Policy2Outputs::default());
         self.selection.position = None;
     }
 
     /// The features that the decisions in play calculated since
     /// [`GreedyAgent::capture_policy2`], and stop collecting.
-    pub fn take_policy2_capture(&mut self) -> Option<Policy2Outputs> {
+    #[cfg(test)]
+    pub(crate) fn take_policy2_capture(&mut self) -> Option<Policy2Outputs> {
         self.selection.position = None;
         self.policy2_out.take()
     }
@@ -2159,30 +2143,23 @@ impl GreedyAgent {
             build_sites.clear();
         }
         let fog_game = state.settings.fog;
-        let policy2_model = (!RECORD && weights.move2 != 0.0).then(|| Move2Choice {
-            model: if fog_game {
+        let policy2_model = (!RECORD && weights.move2).then(|| {
+            if fog_game {
                 move_policy2::fog_tree_model()
             } else {
                 move_policy2::tree_model()
-            },
-            strength: weights.move2,
-            trees: match weights.move2_trees {
-                0 => usize::MAX,
-                trees => trees as usize,
-            },
+            }
         });
         // The next-unit model chooses among all units, so it plays only in a
         // decision over the whole position.
-        let order_model =
-            (!RECORD && weights.move2 != 0.0 && weights.move2_order && scope.is_none()).then(
-                || {
-                    if fog_game {
-                        move_policy2::fog_unit_model()
-                    } else {
-                        move_policy2::unit_model()
-                    }
-                },
-            );
+        let order_model = (!RECORD && weights.move2 && weights.move2_order && scope.is_none())
+            .then(|| {
+                if fog_game {
+                    move_policy2::fog_unit_model()
+                } else {
+                    move_policy2::unit_model()
+                }
+            });
         let model = (!RECORD && weights.move_policy != 0.0 && policy2_model.is_none()).then(|| {
             let model = if state.settings.fog {
                 move_policy::fog_model()
@@ -2791,9 +2768,25 @@ const fn is_false(value: &bool) -> bool {
     !*value
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
-const fn is_zero_count(value: &u32) -> bool {
-    *value == 0
+/// The serialized form of [`Weights::move2`]: the number 1 for true and 0
+/// for false.
+mod one_if_true {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub(super) fn serialize<S: serde::Serializer>(value: &bool, out: S) -> Result<S::Ok, S::Error> {
+        out.serialize_f64(if *value { 1.0 } else { 0.0 })
+    }
+
+    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        input: D,
+    ) -> Result<bool, D::Error> {
+        match <f64 as serde::Deserialize>::deserialize(input)? {
+            0.0 => Ok(false),
+            1.0 => Ok(true),
+            other => Err(serde::de::Error::custom(format!(
+                "move2 is 0 or 1, not {other}"
+            ))),
+        }
+    }
 }
 
 /// `score`, or a value between zero and `floor` when `score` is below
@@ -2945,36 +2938,21 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     eager: bool,
 }
 
-/// The tree move model that chooses the order of each unit.
-#[derive(Clone, Copy)]
-struct Move2Choice {
-    model: &'static Move2Model,
-    /// [`Weights::move2`].
-    strength: f64,
-    /// How many of the first trees score ([`Weights::move2_trees`],
-    /// `usize::MAX` for all).
-    trees: usize,
-}
-
-impl Move2Choice {
-    /// Put the utility of each candidate order of a unit of `kind` in
-    /// `scores` and return the index of the highest.
-    fn choose(
-        self,
-        kind: UnitKind,
-        features: &[Policy2Features],
-        scores: &mut Vec<f64>,
-    ) -> Option<usize> {
-        self.model
-            .utilities_with_trees(kind, features, self.strength, self.trees, scores);
-        argmax(scores)
-    }
+/// Put the utility of each candidate order of a unit in `scores` and return
+/// the index of the highest.
+fn choose_order(
+    model: &Move2Model,
+    features: &[Policy2Features],
+    scores: &mut Vec<f64>,
+) -> Option<usize> {
+    model.utilities(features, scores);
+    argmax(scores)
 }
 
 /// The state of the second model in one decision.
 struct Policy2Run<'a> {
-    /// The tree move model, or `None` when it is off.
-    model: Option<Move2Choice>,
+    /// The tree move model ([`Weights::move2`]), or `None` when it is off.
+    model: Option<&'static Move2Model>,
     /// The next-unit model, when it chooses the unit ([`Weights::move2_order`]).
     order_model: Option<&'static UnitModel>,
     context: &'a mut Policy2Context,
@@ -3220,9 +3198,8 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
                 // With the next-unit model, the move model chooses only for
                 // the unit that it takes ([`Self::finish_policy2`]).
                 let model = run.model.filter(|_| run.order_model.is_none());
-                let choice = model.and_then(|model| {
-                    model.choose(unit.kind, &buffers.features, &mut buffers.scores)
-                });
+                let choice = model
+                    .and_then(|model| choose_order(model, &buffers.features, &mut buffers.scores));
                 if let Some(choice) = choice {
                     chosen = Some(buffers.indices[choice]);
                 }
@@ -3345,7 +3322,7 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
         );
         let choice = run
             .model
-            .and_then(|model| model.choose(unit.kind, &buffers.features, &mut buffers.scores));
+            .and_then(|model| choose_order(model, &buffers.features, &mut buffers.scores));
         // Without a choice, the order with the best greedy score.
         let chosen = choice.unwrap_or_else(|| {
             buffers.unit_orders[start..end]

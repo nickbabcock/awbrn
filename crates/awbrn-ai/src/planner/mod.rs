@@ -285,12 +285,10 @@ pub struct PlannerConfig {
 /// highest utility, so each line has one rollout.
 ///
 /// With [`PlannerConfig::contest`] and [`PlannerConfig::run`], the value of
-/// a position at the start of our turn has the contest terms of the reply
-/// check ([`TurnPlanner::contest_value`]): the value after a rollout of one
-/// or three turns, and the value after the first enemy turn, which the
-/// planner statistics compare with the rollout value
-/// ([`PlannerStats::rollout_changed`]). A rollout of one turn with no
-/// opening plays is that reply check. A rollout of two turns ends at the
+/// a position at the start of our turn, after a rollout of one or three
+/// turns, has the contest terms of the reply check
+/// ([`TurnPlanner::contest_value`]). A rollout of one turn with no opening
+/// plays is that reply check. A rollout of two turns ends at the
 /// start of an enemy turn, where the reply estimate subtracted from the
 /// value has the contest terms of the estimate
 /// ([`reply::ReplyOptions::contest`]).
@@ -501,7 +499,7 @@ impl PlannerConfig {
     /// planner-v8 with these additions:
     ///
     /// - The greedy policy [`crate::profile::V9_GREEDY_CONFIG`]: the tree
-    ///   move model at strength 1 with the next-unit model, which chooses
+    ///   move model with the next-unit model, which chooses
     ///   which unit acts next ([`crate::agents::Weights::move2`] and
     ///   [`crate::agents::Weights::move2_order`]), on the scoring of
     ///   planner-v8 that plays the last two days and, on a map with no
@@ -631,35 +629,9 @@ pub struct PlannerStats {
     /// Plans with a rollout check ([`PlannerConfig::rollout`]).
     #[serde(default, skip_serializing_if = "is_zero_count")]
     pub rollout_checks: u64,
-    /// Rollouts that finished.
-    #[serde(default, skip_serializing_if = "is_zero_count")]
-    pub rollouts: u64,
-    /// Simulated greedy decisions and opening plays in rollouts. These are
-    /// also part of [`PlannerStats::work`].
-    #[serde(default, skip_serializing_if = "is_zero_count")]
-    pub rollout_work: u64,
-    /// Plans where the rollout check chose another line than the value after
-    /// the first enemy turn would choose.
-    #[serde(default, skip_serializing_if = "is_zero_count")]
-    pub rollout_changed: u64,
     /// Rollouts that failed: a simulated order was refused.
     #[serde(default, skip_serializing_if = "is_zero_count")]
     pub rollout_failed: u64,
-    /// Rollouts that applied the extra end of the turn after a line that
-    /// ends with an explicit end of the turn, so that the first enemy turn
-    /// passed with no orders. [`PlannerConfig::last_days`] removes it.
-    #[serde(default, skip_serializing_if = "is_zero_count")]
-    pub rollout_boundaries: u64,
-    /// Rollouts where the position after the first enemy turn has a loss of
-    /// a decisive property that our attacks cannot stop
-    /// ([`PlannerConfig::contest`], [`contest::danger`]).
-    #[serde(default, skip_serializing_if = "is_zero_count")]
-    pub rollout_danger: u64,
-    /// Of [`PlannerStats::rollout_danger`], the rollouts that end at the
-    /// start of our turn with the game still on and no such loss there: the
-    /// played turns took the threat away.
-    #[serde(default, skip_serializing_if = "is_zero_count")]
-    pub rollout_danger_cleared: u64,
 }
 
 impl PlannerStats {
@@ -688,13 +660,7 @@ impl PlannerStats {
             work,
             max_turn_work,
             rollout_checks,
-            rollouts,
-            rollout_work,
-            rollout_changed,
             rollout_failed,
-            rollout_boundaries,
-            rollout_danger,
-            rollout_danger_cleared,
         } = other;
         self.plans += plans;
         self.evaluations += evaluations;
@@ -717,13 +683,7 @@ impl PlannerStats {
         self.work += work;
         self.max_turn_work = self.max_turn_work.max(*max_turn_work);
         self.rollout_checks += rollout_checks;
-        self.rollouts += rollouts;
-        self.rollout_work += rollout_work;
-        self.rollout_changed += rollout_changed;
         self.rollout_failed += rollout_failed;
-        self.rollout_boundaries += rollout_boundaries;
-        self.rollout_danger += rollout_danger;
-        self.rollout_danger_cleared += rollout_danger_cleared;
     }
 }
 
@@ -999,13 +959,7 @@ impl PlannerAgent {
         self.stats.swing_fired += u64::from(planner.march.swing_fired);
         self.stats.swing_expected += u64::from(planner.march.swing_expected);
         self.stats.rollout_checks += planner.rollout_stats.checks;
-        self.stats.rollouts += planner.rollout_stats.rollouts;
-        self.stats.rollout_work += planner.rollout_stats.work;
-        self.stats.rollout_changed += planner.rollout_stats.changed;
         self.stats.rollout_failed += planner.rollout_stats.failed;
-        self.stats.rollout_boundaries += planner.rollout_stats.boundaries;
-        self.stats.rollout_danger += planner.rollout_stats.danger;
-        self.stats.rollout_danger_cleared += planner.rollout_stats.danger_cleared;
         self.rollout = planner.rollout.take();
         self.stats.evaluations += u64::from(budget.get() - planner.nodes_left);
         self.stats.candidates += planner.candidates;
@@ -1204,13 +1158,7 @@ struct TurnPlanner<'a> {
 #[derive(Clone, Copy, Debug, Default)]
 struct RolloutStats {
     checks: u64,
-    rollouts: u64,
-    work: u64,
-    changed: u64,
     failed: u64,
-    boundaries: u64,
-    danger: u64,
-    danger_cleared: u64,
 }
 
 /// The inputs and results of the march plan in one planning call.
@@ -1803,7 +1751,7 @@ impl TurnPlanner<'_> {
         if rollout.top > 0 {
             contenders.truncate(rollout.top);
         }
-        let Some((seed_value, seed_first)) = self.rolled_value(session, &seed, rollout) else {
+        let Some(seed_value) = self.rolled_value(session, &seed, rollout) else {
             let better = seed.score + self.config.seed_margin;
             return contenders
                 .into_iter()
@@ -1812,44 +1760,32 @@ impl TurnPlanner<'_> {
         };
         let mut best = seed;
         let mut best_value = seed_value;
-        let mut first_best = seed_first;
-        // Which line the value after the first enemy turn would choose, by
-        // index; `None` is the seed plan.
-        let mut first_chosen = None;
-        let mut chosen = None;
-        for (index, line) in contenders.into_iter().enumerate() {
+        for line in contenders {
             if self.work_left.is_some_and(|left| self.work >= left) {
                 break;
             }
-            let Some((value, first)) = self.rolled_value(session, &line, rollout) else {
+            let Some(value) = self.rolled_value(session, &line, rollout) else {
                 continue;
             };
-            if first - line.penalty > first_best {
-                first_best = first - line.penalty;
-                first_chosen = Some(index);
-            }
             if value - line.penalty > best_value {
                 best_value = value - line.penalty;
-                chosen = Some(index);
                 best = line;
             }
         }
-        self.rollout_stats.changed += u64::from(chosen != first_chosen);
         best
     }
 
     /// Play [`RolloutConfig::turns`] whole turns from the end of `line`, and
     /// value the result.
     ///
-    /// Returns the value at the end and the value after the first enemy
-    /// turn, or `None` when a simulated order fails. The session is back at
+    /// Returns `None` when a simulated order fails. The session is back at
     /// its start position when this returns.
     fn rolled_value(
         &mut self,
         session: &mut Session,
         line: &Line,
         rollout: RolloutConfig,
-    ) -> Option<(f64, f64)> {
+    ) -> Option<f64> {
         let mut hard = self
             .rollout
             .take()
@@ -1862,14 +1798,12 @@ impl TurnPlanner<'_> {
         let mut entropy = MeanLuck;
         let root = session.state().clone();
         session.reset(line.end_state.clone());
-        let work = self.work;
         // A node is counted for the statistics only: the rollouts do not
         // spend the node budget.
         self.nodes_left = self.nodes_left.saturating_sub(1);
         let result = (|| {
             if !matches!(session.state().match_state, Match::Active { .. }) {
-                let value = self.leaf_value(session);
-                return Some((value, value));
+                return Some(self.leaf_value(session));
             }
             // Keep the extra boundary that command replay applies after
             // EndTurn, as the reply check does: without the last days switch
@@ -1886,12 +1820,8 @@ impl TurnPlanner<'_> {
                     })
                     .ok()?;
                 session.apply(end, &mut entropy, &mut ()).ok()?;
-                self.rollout_stats.boundaries += 1;
             }
-            let mut first = None;
-            // The contest danger in the position after the first enemy turn.
-            let mut first_danger = 0.0;
-            for turn in 0..rollout.turns {
+            for _ in 0..rollout.turns {
                 if !matches!(session.state().match_state, Match::Active { .. }) {
                     break;
                 }
@@ -1965,27 +1895,8 @@ impl TurnPlanner<'_> {
                         hard.push_turn_log(entry);
                     }
                 }
-                if turn == 0 && rollout.turns > 1 {
-                    let leaf = self.leaf_value(session);
-                    first_danger = self.contest_danger(session);
-                    first = Some(self.contest_value(session, leaf));
-                }
             }
             let leaf = self.leaf_value(session);
-            let end_danger = self.contest_danger(session);
-            if rollout.turns == 1 {
-                first_danger = end_danger;
-            }
-            if first_danger > 0.0 {
-                self.rollout_stats.danger += 1;
-                let state = session.state();
-                if matches!(state.match_state, Match::Active { .. })
-                    && state.players.seat(&state.turn.active_player) == Some(self.seat)
-                    && end_danger <= 0.0
-                {
-                    self.rollout_stats.danger_cleared += 1;
-                }
-            }
             // At the start of our turn, the value has the contest terms of
             // the reply check ([`TurnPlanner::contest_value`]).
             let mut value = self.contest_value(session, leaf);
@@ -2002,16 +1913,11 @@ impl TurnPlanner<'_> {
             {
                 value -= self.config.reply_weight * self.reply_estimate(session).total();
             }
-            Some((value, first.unwrap_or(value)))
+            Some(value)
         })();
         session.reset(root);
         self.rollout = Some(hard);
-        self.rollout_stats.work += self.work - work;
-        if result.is_some() {
-            self.rollout_stats.rollouts += 1;
-        } else {
-            self.rollout_stats.failed += 1;
-        }
+        self.rollout_stats.failed += u64::from(result.is_none());
         result
     }
 
@@ -2090,16 +1996,6 @@ impl TurnPlanner<'_> {
             }
         }
         value
-    }
-
-    /// The loss of [`contest::danger`] in the position of `session`, with
-    /// the contest switch, while the game is on; zero otherwise.
-    fn contest_danger(&self, session: &Session) -> f64 {
-        if self.config.contest && matches!(session.state().match_state, Match::Active { .. }) {
-            contest::danger(session, self.seat, self.config.property_values)
-        } else {
-            0.0
-        }
     }
 
     /// Play a Hard reply from the end of `line`, and value the result.

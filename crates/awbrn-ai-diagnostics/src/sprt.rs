@@ -1565,8 +1565,8 @@ mod tests {
             );
             plans += 1;
         }
-        // Andy and Sami, without fog and in fog.
-        assert_eq!(plans, 4);
+        // Andy without fog and in fog.
+        assert_eq!(plans, 2);
     }
 
     #[test]
