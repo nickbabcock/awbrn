@@ -1,0 +1,273 @@
+{
+  "id": "damage-rounds-once",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "combat-neutral-v1",
+  "evidence": {
+    "confidence": "confirmed-replay",
+    "note": "Archived AWBW replay 1598640, day 11, first action: a 2-bar Infantry counters a full Infantry on a city. The exact damage is 8.96 at the luckiest roll, and AWBW took 0.9 HP (10.0 to 9.1). Flooring before rounding would give 8."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 1,
+      "height": 2,
+      "tiles": [
+        [{ "terrain": "plain" }],
+        [
+          {
+            "terrain": "city",
+            "owner": "red",
+            "capture_points": 20
+          }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "neutral",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "neutral",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 1] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 67,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "counter-rounds-up-from-x-96",
+      "command": {
+        "type": "move-attack",
+        "player": "red",
+        "unit": 0,
+        "path": [[0, 1]],
+        "target": { "type": "unit", "unit": 1 }
+      },
+      "random": [
+        { "type": "combat-good-luck", "value": 0 },
+        { "type": "combat-bad-luck", "value": 0 },
+        { "type": "combat-good-luck", "value": 9 },
+        { "type": "combat-bad-luck", "value": 0 }
+      ],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "disabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 1,
+            "height": 2,
+            "tiles": [
+              [{ "terrain": "plain" }],
+              [
+                {
+                  "terrain": "city",
+                  "owner": "red",
+                  "capture_points": 20
+                }
+              ]
+            ]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                {
+                  "id": "neutral",
+                  "active": true,
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                {
+                  "id": "neutral",
+                  "active": true,
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red", "blue"],
+            "position": 0
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 91,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [0, 1]
+              }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 16,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [0, 0]
+              }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          {
+            "type": "attack-resolved",
+            "attacker": 0,
+            "weapon": "unlimited",
+            "target": { "type": "unit", "unit": 1 }
+          },
+          {
+            "type": "unit-damaged",
+            "unit": 1,
+            "from_hp": 67,
+            "to_hp": 16,
+            "reason": "combat"
+          },
+          {
+            "type": "attack-resolved",
+            "attacker": 1,
+            "weapon": "unlimited",
+            "target": { "type": "unit", "unit": 0 }
+          },
+          {
+            "type": "unit-damaged",
+            "unit": 0,
+            "from_hp": 100,
+            "to_hp": 91,
+            "reason": "combat-counter"
+          },
+          {
+            "type": "unit-action-changed",
+            "unit": 0,
+            "from": "ready",
+            "to": "spent",
+            "reason": "attack"
+          }
+        ],
+        "random_consumed": 4
+      }
+    }
+  ]
+}

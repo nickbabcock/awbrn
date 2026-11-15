@@ -169,7 +169,7 @@
               "ammo": 3,
               "concealment": "exposed",
               "fuel": 50,
-              "hp": 89,
+              "hp": 88,
               "id": 1,
               "kind": "mega-tank",
               "location": { "position": [2, 0], "type": "board" },
@@ -197,7 +197,7 @@
           {
             "from_hp": 100,
             "reason": "combat",
-            "to_hp": 89,
+            "to_hp": 88,
             "type": "unit-damaged",
             "unit": 1
           },

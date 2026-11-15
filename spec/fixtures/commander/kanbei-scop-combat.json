@@ -170,7 +170,7 @@
               "id": 0,
               "kind": "mega-tank",
               "owner": "red",
-              "hp": 91,
+              "hp": 90,
               "fuel": 50,
               "ammo": 2,
               "action": "spent",
@@ -238,7 +238,7 @@
             "type": "unit-damaged",
             "unit": 0,
             "from_hp": 100,
-            "to_hp": 91,
+            "to_hp": 90,
             "reason": "combat-counter"
           },
           {
