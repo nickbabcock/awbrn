@@ -3606,12 +3606,13 @@ fn golden_game(config: PlannerConfig, fog: bool) -> (u64, String) {
 
 /// With the switches of later configurations off, planner-v8 and
 /// planner-v8-move play the games they played before those switches were
-/// added. The values come from master before the tree move model.
+/// added. The values come from master before the tree move model, re-pinned
+/// when a rules change moves the games.
 #[test]
 fn the_earlier_configurations_play_the_same_games() {
     for (config, fog, commands, digest) in [
         (PlannerConfig::V8, false, 109, "8b3eb86f4fd4ed5a"),
-        (PlannerConfig::V8, true, 111, "f53cafc64e9f6471"),
+        (PlannerConfig::V8, true, 111, "5378e3e1fa6b27a1"),
         (PlannerConfig::V8_MOVE, false, 108, "4f256c7bef0e4b17"),
         (PlannerConfig::V8_MOVE, true, 116, "8c1e45589c2acea7"),
     ] {

@@ -142,7 +142,7 @@
               "id": 1,
               "kind": "black-boat",
               "owner": "red",
-              "hp": 70,
+              "hp": 65,
               "fuel": 60,
               "ammo": 0,
               "action": "spent",
@@ -184,7 +184,7 @@
             "type": "unit-repaired",
             "unit": 1,
             "from_hp": 55,
-            "to_hp": 70,
+            "to_hp": 65,
             "reason": "unit-repair"
           }
         ],

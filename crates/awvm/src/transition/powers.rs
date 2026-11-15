@@ -352,7 +352,7 @@ struct Activation<'a> {
     events: &'a mut Vec<Event>,
 }
 
-/// Restore whole HP bars, rounding as the visual scale does.
+/// Restore `amount` bars of exact HP, keeping the fraction (2.3 becomes 4.3).
 fn heal_visual_hp(cx: &mut Activation<'_>, amount: u8) -> Result<(), ExecuteError> {
     let mut targets: Vec<_> = cx
         .next
@@ -369,8 +369,7 @@ fn heal_visual_hp(cx: &mut Activation<'_>, amount: u8) -> Result<(), ExecuteErro
             .get_mut(target_id)
             .expect("power target remains present");
         let from_hp = target.hp;
-        let visual_hp = from_hp.div_ceil(10);
-        let to_hp = visual_hp.saturating_add(amount).min(10) * 10;
+        let to_hp = from_hp.saturating_add(amount.saturating_mul(10)).min(100);
         if to_hp == from_hp {
             continue;
         }

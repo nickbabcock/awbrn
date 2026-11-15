@@ -185,7 +185,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 40,
-              "hp": 80,
+              "hp": 75,
               "id": 0,
               "kind": "infantry",
               "location": { "position": [0, 0], "type": "board" },
@@ -232,7 +232,7 @@
           {
             "from_hp": 55,
             "reason": "commander-power",
-            "to_hp": 80,
+            "to_hp": 75,
             "type": "unit-repaired",
             "unit": 0
           },
