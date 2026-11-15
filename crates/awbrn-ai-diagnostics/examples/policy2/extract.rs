@@ -22,7 +22,9 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use awbrn_ai::agents::move_policy2::{ActionClass, LogEntry, TurnLog};
+use awbrn_ai::agents::move_policy2::{
+    ActionClass, LogEntry, Move2Candidate, Policy2Outputs, TurnLog,
+};
 use awbrn_map::AwbwMapData;
 use awbw_replay::ReplayParser;
 use awbw_replay::turn_models::Action;
@@ -93,6 +95,9 @@ pub fn run(divisions: &[&str], maps: &Path, output: &Path) -> Result<()> {
     for path in &paths {
         coverage.archives += 1;
         if let Err(error) = game(path, maps, &mut writer, &mut coverage) {
+            if error.is::<WriteFailed>() {
+                return Err(error.context(path.display().to_string()));
+            }
             coverage.failed += 1;
             eprintln!("{}: {error:#}", path.display());
         }
@@ -123,6 +128,45 @@ struct Writer {
     units: BufWriter<File>,
     order_offset: u64,
     unit_offset: u64,
+}
+
+/// The context of an error writing the output. It stops the run, since a
+/// decision written in part leaves the offsets of the rows out of step with
+/// the feature files.
+#[derive(Debug)]
+struct WriteFailed;
+
+impl std::fmt::Display for WriteFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("write the output")
+    }
+}
+
+impl Writer {
+    /// Writes the row of a decision and its features, and advances the
+    /// offsets.
+    fn decision(
+        &mut self,
+        row: &Row,
+        own: &[&Move2Candidate],
+        decision: &Policy2Outputs,
+    ) -> Result<()> {
+        serde_json::to_writer(&mut self.rows, row)?;
+        self.rows.write_all(b"\n")?;
+        for candidate in own {
+            for value in candidate.features {
+                self.orders.write_all(&value.to_le_bytes())?;
+            }
+        }
+        for (_, features) in &decision.units {
+            for value in features {
+                self.units.write_all(&value.to_le_bytes())?;
+            }
+        }
+        self.order_offset += own.len() as u64;
+        self.unit_offset += decision.units.len() as u64;
+        Ok(())
+    }
 }
 
 fn game(path: &Path, maps: &Path, writer: &mut Writer, coverage: &mut Coverage) -> Result<()> {
@@ -275,20 +319,9 @@ fn game(path: &Path, maps: &Path, writer: &mut Writer, coverage: &mut Coverage) 
             units_count: u32::try_from(decision.units.len())?,
             actor_index,
         };
-        serde_json::to_writer(&mut writer.rows, &row)?;
-        writer.rows.write_all(b"\n")?;
-        for candidate in &own {
-            for value in candidate.features {
-                writer.orders.write_all(&value.to_le_bytes())?;
-            }
-        }
-        for (_, features) in &decision.units {
-            for value in features {
-                writer.units.write_all(&value.to_le_bytes())?;
-            }
-        }
-        writer.order_offset += own.len() as u64;
-        writer.unit_offset += decision.units.len() as u64;
+        writer
+            .decision(&row, &own, &decision)
+            .context(WriteFailed)?;
         coverage.decisions += 1;
     }
     Ok(())
