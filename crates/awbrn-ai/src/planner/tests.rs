@@ -145,6 +145,7 @@ fn the_replay_score_keeps_terminal_scores() {
     let mut replay = ReplayReader::new(ReplayScore::CUP_3_4);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &PlannerConfig::V6,
         seed: 7,
         seat,
@@ -156,6 +157,7 @@ fn the_replay_score_keeps_terminal_scores() {
         nodes_left: 32,
         fog: None,
         march: MarchTurn::default(),
+        rollout_stats: RolloutStats::default(),
     };
     assert_eq!(planner.leaf_value(&session), 0.0);
     let own_team = session.state().player(seat).team.clone();
@@ -206,6 +208,7 @@ fn the_replay_score_is_antisymmetric_and_fog_keeps_the_stock_score() {
     let expected = evaluator.value_in(&fog, seats[0]);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &PlannerConfig::V6,
         seed: 7,
         seat: seats[0],
@@ -217,6 +220,7 @@ fn the_replay_score_is_antisymmetric_and_fog_keeps_the_stock_score() {
         nodes_left: 32,
         fog: None,
         march: MarchTurn::default(),
+        rollout_stats: RolloutStats::default(),
     };
     assert_eq!(planner.leaf_value(&fog), expected);
 }
@@ -254,6 +258,7 @@ fn print_puzzle_candidates() {
         let mut evaluator = Evaluator::new(config.eval_weights);
         let mut planner = TurnPlanner {
             rollout: None,
+            played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
             config: &config,
             seed: 1,
             seat,
@@ -265,6 +270,7 @@ fn print_puzzle_candidates() {
             nodes_left: u32::MAX,
             fog: None,
             march: MarchTurn::default(),
+            rollout_stats: RolloutStats::default(),
         };
         println!("{}", puzzle.name);
         let mut work = Session::new(session.state().clone());
@@ -394,6 +400,7 @@ fn stored_line_positions_and_replies_match_command_replay() {
             let mut evaluator = Evaluator::new(config.eval_weights);
             let mut planner = TurnPlanner {
                 rollout: None,
+                played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
                 config: &config,
                 seed: 7,
                 seat,
@@ -405,6 +412,7 @@ fn stored_line_positions_and_replies_match_command_replay() {
                 nodes_left: 16,
                 fog: None,
                 march: MarchTurn::default(),
+                rollout_stats: RolloutStats::default(),
             };
             let prefix = if explicit_boundary {
                 vec![Play::unitless(
@@ -484,6 +492,7 @@ fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &config,
         seed: 7,
         seat,
@@ -495,6 +504,7 @@ fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
         nodes_left: 16,
         fog: None,
         march: MarchTurn::default(),
+        rollout_stats: RolloutStats::default(),
     };
     let holds: Vec<_> = session
         .state()
@@ -556,35 +566,51 @@ fn the_production_profile_solves_all_puzzles() {
     for puzzle in suite() {
         // The ignored test below holds the puzzle that the profile does not
         // pass.
-        if puzzle.name == "capture-denial" {
+        if puzzle.name == "hq-block" {
             continue;
         }
         solve_with_the_production_profile(&puzzle);
     }
 }
 
-/// Our tank hits the enemy infantry on our city so that its capture cannot
-/// finish.
+/// The enemy infantry cannot reach our headquarters on its next turn.
 #[test]
-#[ignore = "planner-v8 does not pass this puzzle"]
-fn the_production_profile_solves_the_capture_denial_puzzle() {
+#[ignore = "planner-v9 does not pass this puzzle"]
+fn the_production_profile_solves_the_hq_block_puzzle() {
     let puzzle = suite()
         .into_iter()
-        .find(|puzzle| puzzle.name == "capture-denial")
+        .find(|puzzle| puzzle.name == "hq-block")
         .unwrap();
     solve_with_the_production_profile(&puzzle);
+}
+
+/// The Medium profile (planner-v8-move) passes the puzzle that the Hard
+/// profile does not.
+#[test]
+fn the_medium_profile_solves_the_hq_block_puzzle() {
+    let puzzle = suite()
+        .into_iter()
+        .find(|puzzle| puzzle.name == "hq-block")
+        .unwrap();
+    solve_with_profile(&crate::profile::MEDIUM, &puzzle);
 }
 
 /// Play the turn of `puzzle` with the Hard profile, and panic when the turn
 /// does not solve it.
 fn solve_with_the_production_profile(puzzle: &crate::puzzles::Puzzle) {
-    let mut agent = crate::profile::HARD.agent(7);
+    solve_with_profile(&crate::profile::HARD, puzzle);
+}
+
+/// Play the turn of `puzzle` with `profile`, and panic when the turn does
+/// not solve it.
+fn solve_with_profile(profile: &crate::profile::AiProfile, puzzle: &crate::puzzles::Puzzle) {
+    let mut agent = profile.agent(7);
     let mut entropy = Rng::from_seed(11);
     let result = crate::harness::run_agent_turn_unmeasured(
         puzzle.state.clone(),
         &mut *agent,
         &mut entropy,
-        crate::profile::HARD.node_budget(),
+        profile.node_budget(),
     )
     .unwrap();
     let turn = crate::puzzles::PuzzleTurn {
@@ -611,6 +637,7 @@ fn the_reply_estimate_lists_destroyed_units_as_exposed() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &config,
         seed: 1,
         seat,
@@ -622,6 +649,7 @@ fn the_reply_estimate_lists_destroyed_units_as_exposed() {
         nodes_left: u32::MAX,
         fog: None,
         march: MarchTurn::default(),
+        rollout_stats: RolloutStats::default(),
     };
     let mut session = Session::new(state);
     let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
@@ -641,6 +669,7 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
         let mut evaluator = Evaluator::new(config.eval_weights);
         let mut planner = TurnPlanner {
             rollout: None,
+            played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
             config: &config,
             seed: 1,
             seat,
@@ -652,6 +681,7 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
             nodes_left: u32::MAX,
             fog: None,
             march: MarchTurn::default(),
+            rollout_stats: RolloutStats::default(),
         };
         let mut session = Session::new(state.clone());
         let before = session.state().clone();
@@ -685,6 +715,7 @@ fn a_power_plan_uses_the_power_first() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &config,
         seed: 1,
         seat,
@@ -696,6 +727,7 @@ fn a_power_plan_uses_the_power_first() {
         nodes_left: u32::MAX,
         fog: None,
         march: MarchTurn::default(),
+        rollout_stats: RolloutStats::default(),
     };
     let mut session = Session::new(state);
     let before = session.state().clone();
@@ -856,7 +888,7 @@ const MARCH_ONLY: PlannerConfig = PlannerConfig {
 };
 
 /// The new fields and configurations do not change the fingerprints of the
-/// earlier configurations.
+/// earlier configurations. The fingerprints of planner-v9 are pinned too.
 #[test]
 fn the_earlier_fingerprints_do_not_change() {
     use crate::baseline::BaselineConfig;
@@ -874,6 +906,7 @@ fn the_earlier_fingerprints_do_not_change() {
         // The value of origin/master before the move model.
         (PlannerConfig::V8, "6534db27e716693b"),
         (PlannerConfig::V8_MOVE, "879c2d92802bcffb"),
+        (PlannerConfig::V9, "28d8ff58a45920e7"),
     ] {
         assert_eq!(config.fingerprint(), expected, "{}", config.identifier);
     }
@@ -885,6 +918,7 @@ fn the_earlier_fingerprints_do_not_change() {
         // The value of origin/master before the move model.
         (crate::profile::V8_GREEDY_CONFIG, "16c3ec8e4b5cca64"),
         (crate::profile::V8_MOVE_GREEDY_CONFIG, "c11e04679320dc84"),
+        (crate::profile::V9_GREEDY_CONFIG, "903d4f1a3070229a"),
     ] {
         assert_eq!(config.fingerprint(), expected, "{}", config.identifier);
     }
@@ -1395,7 +1429,9 @@ fn the_capture_bonus_follows_the_engine_for_sami() {
             values,
             reply::ReplyOptions {
                 commander_effects: true,
-                march: false
+                march: false,
+                contest: false,
+                march_guard: false,
             }
         )
         .headquarters_lost
@@ -1407,7 +1443,9 @@ fn the_capture_bonus_follows_the_engine_for_sami() {
             values,
             reply::ReplyOptions {
                 commander_effects: false,
-                march: false
+                march: false,
+                contest: false,
+                march_guard: false,
             }
         )
         .headquarters_lost
@@ -1444,7 +1482,9 @@ fn the_capture_bonus_reads_an_affordable_super_power() {
             values,
             reply::ReplyOptions {
                 commander_effects: true,
-                march: false
+                march: false,
+                contest: false,
+                march_guard: false,
             }
         )
         .headquarters_lost
@@ -1475,7 +1515,9 @@ fn the_capture_bonus_does_not_change_a_commander_without_one() {
                 values,
                 reply::ReplyOptions {
                     commander_effects: true,
-                    march: false
+                    march: false,
+                    contest: false,
+                    march_guard: false,
                 }
             ),
             reply::estimate(
@@ -1484,7 +1526,9 @@ fn the_capture_bonus_does_not_change_a_commander_without_one() {
                 values,
                 reply::ReplyOptions {
                     commander_effects: false,
-                    march: false
+                    march: false,
+                    contest: false,
+                    march_guard: false,
                 }
             ),
             "{commander:?}"
@@ -1502,6 +1546,7 @@ fn probe_planner<'a>(
 ) -> TurnPlanner<'a> {
     TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config,
         seed: 1,
         seat,
@@ -1513,6 +1558,7 @@ fn probe_planner<'a>(
         nodes_left: u32::MAX,
         fog: None,
         march: MarchTurn::default(),
+        rollout_stats: RolloutStats::default(),
     }
 }
 
@@ -2119,6 +2165,8 @@ fn the_reply_estimate_reads_an_enemy_victory_march() {
             reply::ReplyOptions {
                 commander_effects: true,
                 march: true,
+                contest: false,
+                march_guard: false,
             },
         );
         let without = reply::estimate(
@@ -2128,6 +2176,8 @@ fn the_reply_estimate_reads_an_enemy_victory_march() {
             reply::ReplyOptions {
                 commander_effects: true,
                 march: false,
+                contest: false,
+                march_guard: false,
             },
         );
         assert!(!without.headquarters_lost, "{commander:?}");
@@ -2379,6 +2429,8 @@ fn the_reply_estimate_counts_an_enemy_swing() {
             reply::ReplyOptions {
                 commander_effects: true,
                 march: true,
+                contest: false,
+                march_guard: false,
             },
         );
         let without = reply::estimate(
@@ -2388,6 +2440,8 @@ fn the_reply_estimate_counts_an_enemy_swing() {
             reply::ReplyOptions {
                 commander_effects: true,
                 march: false,
+                contest: false,
+                march_guard: false,
             },
         );
         assert!(!with.headquarters_lost);
@@ -2724,6 +2778,7 @@ fn only_the_own_lines_read_the_known_map_in_fog() {
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
         rollout: None,
+        played: &crate::agents::move_policy2::EMPTY_TURN_LOG,
         config: &config,
         seed: 7,
         seat: ours,
@@ -2735,6 +2790,7 @@ fn only_the_own_lines_read_the_known_map_in_fog() {
         nodes_left: 256,
         fog: None,
         march: MarchTurn::default(),
+        rollout_stats: RolloutStats::default(),
     };
     let line = planner.line(&mut session, Generator::Seed, &[]).unwrap();
     let (known, plain) = planner.rollout.as_ref().unwrap().fog_feature_builds();
@@ -2746,4 +2802,1029 @@ fn only_the_own_lines_read_the_known_map_in_fog() {
     let (known, plain) = planner.rollout.as_ref().unwrap().fog_feature_builds();
     assert_eq!(known, 0, "the reply does not read the known map");
     assert!(plain > 0, "the reply has move features");
+}
+
+/// The command count, the final state, the planner counters and the invalid
+/// commands of an arena game
+/// of `first` against planner-v8-move, with four plans each turn.
+fn rollout_game(first: PlannerConfig, fog: bool, days: u32) -> (u64, State, PlannerStats, u64) {
+    let state = arena(fog, 3);
+    let mut session = Session::new(state.clone());
+    let mut first = PlannerAgent::with_config(
+        1,
+        PlannerConfig {
+            plans_per_turn: 4,
+            ..first
+        },
+    );
+    let mut second = PlannerAgent::with_config(
+        2,
+        PlannerConfig {
+            plans_per_turn: 4,
+            ..PlannerConfig::V8_MOVE
+        },
+    );
+    let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+    let mut entropy = Rng::from_seed(5);
+    // The node budget of the measurements, so that it does not limit the
+    // reply check of planner-v8-move.
+    let limits = Limits {
+        days,
+        nodes: NodeBudget::TWO_HUNDRED_FIFTY_SIX,
+        ..Limits::DEFAULT
+    };
+    let record =
+        play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
+    let invalid = record.refusals + record.preflight_rejections + record.unrealizable_plays;
+    (
+        record.commands,
+        session.state().clone(),
+        first.stats().clone(),
+        invalid,
+    )
+}
+
+/// planner-v8-move with every switch of the contest of decisive captures, on
+/// its greedy policy with the two greedy switches. The contest tests compare
+/// it with planner-v8-move.
+const V8_MOVE_CONTEST: PlannerConfig = PlannerConfig {
+    identifier: "planner-v8-move-contest",
+    baseline: crate::baseline::BaselineConfig {
+        identifier: "greedy-v8-move-contest",
+        weights: crate::agents::Weights {
+            play_last_days: true,
+            decisive_labs: true,
+            ..crate::profile::V8_MOVE_GREEDY_CONFIG.weights
+        },
+        ..crate::profile::V8_MOVE_GREEDY_CONFIG
+    },
+    fog_repair: true,
+    last_days: true,
+    contest: true,
+    march_guard: true,
+    run: true,
+    ..PlannerConfig::V8_MOVE
+};
+
+/// [`V8_MOVE_CONTEST`] with the rollout check of three turns, on the first
+/// move model.
+const V8_MOVE_COMBO: PlannerConfig = PlannerConfig {
+    identifier: "planner-v8-move-combo",
+    rollout: Some(RolloutConfig::THREE_TURNS),
+    ..V8_MOVE_CONTEST
+};
+
+/// A board with no headquarters, our only lab on (2, 2), and an enemy
+/// infantry next to it. The enemy turn is active, as the reply estimate
+/// reads it.
+fn lab_board(points: u8) -> (State, PlayerIdx) {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, ours, theirs) = empty_board(5);
+    let lab = Pos::new(2, 2);
+    set_property(&mut state, lab, Terrain::Lab, TileOwner::Owned(ours));
+    state.board.tile_mut(lab).capture_points = Some(points);
+    set_property(
+        &mut state,
+        Pos::new(7, 7),
+        Terrain::Lab,
+        TileOwner::Owned(theirs),
+    );
+    state.units.push(board_unit(
+        1,
+        UnitKind::Infantry,
+        theirs,
+        Location::Board {
+            position: Pos::new(2, 3),
+        },
+    ));
+    state.next_unit_id = Some(2);
+    state.turn.active_player = state.player(theirs).id().clone();
+    (state, ours)
+}
+
+fn contest_options(contest: bool) -> reply::ReplyOptions {
+    reply::ReplyOptions {
+        commander_effects: true,
+        march: true,
+        contest,
+        march_guard: false,
+    }
+}
+
+/// On a map with no headquarters, our last lab is our headquarters for the
+/// contest estimate: a capture that completes loses the match, and one that
+/// starts and completes with the next capture costs at least the two-turn
+/// share. Without the switch, the lab is a small property.
+#[test]
+fn the_contest_estimate_reads_the_last_lab_as_a_headquarters() {
+    let values = PropertyValues::STANDARD;
+    let (state, ours) = lab_board(10);
+    let session = Session::new(state);
+    let with = reply::estimate(&session, ours, values, contest_options(true));
+    let without = reply::estimate(&session, ours, values, contest_options(false));
+    assert!(with.headquarters_lost);
+    assert!(with.property_loss >= values.headquarters);
+    assert!(!without.headquarters_lost);
+    assert!(without.property_loss < 20_000.0);
+
+    let (state, ours) = lab_board(20);
+    let session = Session::new(state);
+    let with = reply::estimate(&session, ours, values, contest_options(true));
+    let without = reply::estimate(&session, ours, values, contest_options(false));
+    assert!(!with.headquarters_lost);
+    assert!(with.property_loss >= contest::TWO_TURN_SHARE * values.headquarters);
+    assert!(without.property_loss < 10_000.0);
+}
+
+/// A blocker on our headquarters that the enemy can destroy does not hold:
+/// the contest estimate counts the capture behind it.
+#[test]
+fn a_blocker_that_enemy_fire_destroys_does_not_hold() {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, ours, theirs) = empty_board(5);
+    let hq = Pos::new(2, 2);
+    set_property(&mut state, hq, Terrain::Hq, TileOwner::Owned(ours));
+    state.board.tile_mut(hq).capture_points = Some(10);
+    let mut blocker = board_unit(
+        1,
+        UnitKind::Infantry,
+        ours,
+        Location::Board { position: hq },
+    );
+    blocker.hp = 10;
+    state.units.push(blocker);
+    state.units.push(board_unit(
+        2,
+        UnitKind::Tank,
+        theirs,
+        Location::Board {
+            position: Pos::new(3, 2),
+        },
+    ));
+    state.units.push(board_unit(
+        3,
+        UnitKind::Infantry,
+        theirs,
+        Location::Board {
+            position: Pos::new(2, 3),
+        },
+    ));
+    state.next_unit_id = Some(4);
+    state.turn.active_player = state.player(theirs).id().clone();
+    let session = Session::new(state);
+    let values = PropertyValues::STANDARD;
+    let with = reply::estimate(&session, ours, values, contest_options(true));
+    let without = reply::estimate(&session, ours, values, contest_options(false));
+    assert_eq!(with.destroyed, vec![UnitId::new(1)]);
+    assert!(with.headquarters_lost);
+    assert!(!without.headquarters_lost);
+}
+
+/// A board with our headquarters at (2, 2), our infantry with `blocker_hp`
+/// on it, and an enemy unit of each kind on each position of `enemies`, in
+/// that order in the unit store. The enemy turn is active, and one full
+/// enemy infantry completes the capture.
+fn blocked_headquarters(
+    blocker_hp: u8,
+    enemies: &[(awvm::ruleset::UnitKind, awvm::semantic::Pos)],
+) -> (State, PlayerIdx) {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, ours, theirs) = empty_board(5);
+    let hq = Pos::new(2, 2);
+    set_property(&mut state, hq, Terrain::Hq, TileOwner::Owned(ours));
+    state.board.tile_mut(hq).capture_points = Some(10);
+    let mut blocker = board_unit(
+        1,
+        UnitKind::Infantry,
+        ours,
+        Location::Board { position: hq },
+    );
+    blocker.hp = blocker_hp;
+    state.units.push(blocker);
+    state.next_unit_id = Some(2);
+    for (kind, position) in enemies {
+        add_unit(&mut state, *kind, theirs, *position);
+    }
+    state.turn.active_player = state.player(theirs).id().clone();
+    (state, ours)
+}
+
+/// Whether the contest estimate of a board of [`blocked_headquarters`] loses
+/// the headquarters. Focused fire must destroy the blocker.
+fn blocked_headquarters_lost(state: State, ours: PlayerIdx) -> bool {
+    let estimate = reply::estimate(
+        &Session::new(state),
+        ours,
+        PropertyValues::STANDARD,
+        contest_options(true),
+    );
+    assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
+    estimate.headquarters_lost
+}
+
+/// An enemy unit that attacks our blocker has ended its action, so it
+/// cannot also capture the property that the blocker held. Another enemy
+/// capturer still can.
+#[test]
+fn the_units_that_destroy_a_blocker_do_not_capture_behind_it() {
+    use awvm::ruleset::UnitKind::Infantry;
+    use awvm::semantic::Pos;
+    let [a, b, c] = [Pos::new(2, 3), Pos::new(3, 2), Pos::new(1, 2)].map(|at| (Infantry, at));
+    // One infantry destroys the blocker of one health.
+    let (state, ours) = blocked_headquarters(10, &[a]);
+    assert!(!blocked_headquarters_lost(state, ours));
+    // It takes two infantry to destroy the blocker of six health.
+    let (state, ours) = blocked_headquarters(60, &[a]);
+    let estimate = reply::estimate(
+        &Session::new(state),
+        ours,
+        PropertyValues::STANDARD,
+        contest_options(true),
+    );
+    assert!(estimate.destroyed.is_empty());
+    let (state, ours) = blocked_headquarters(60, &[a, b]);
+    assert!(!blocked_headquarters_lost(state, ours));
+    // A third infantry is left to capture.
+    let (state, ours) = blocked_headquarters(60, &[a, b, c]);
+    assert!(blocked_headquarters_lost(state, ours));
+}
+
+/// The enemy units that cannot capture attack our blocker first: a tank
+/// that destroys it alone, or two tanks that destroy it together, leave the
+/// enemy infantry free to capture, in any order of the enemy units.
+#[test]
+fn a_blocker_that_non_capturers_destroy_leaves_the_capturer_free() {
+    use awvm::ruleset::UnitKind::{Infantry, Tank};
+    use awvm::semantic::Pos;
+    let infantry = (Infantry, Pos::new(2, 3));
+    let tank = (Tank, Pos::new(3, 2));
+    for enemies in [[infantry, tank], [tank, infantry]] {
+        let (state, ours) = blocked_headquarters(10, &enemies);
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+    // One tank does not destroy the blocker of seven health; two do.
+    let second = (Tank, Pos::new(1, 2));
+    for enemies in [[tank, second, infantry], [infantry, tank, second]] {
+        let (state, ours) = blocked_headquarters(70, &enemies);
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// Our blocker of seven health on the headquarters, an enemy tank, mech and
+/// infantry next to it, and our artillery that only the tank reaches. Focused
+/// fire sends the tank to the artillery and the mech and infantry to the
+/// blocker, but the enemy can destroy the blocker with the tank and one
+/// capturer and capture with the other.
+#[test]
+fn a_blocker_that_a_non_capturer_and_one_capturer_destroy_leaves_a_capturer_free() {
+    use awvm::ruleset::UnitKind::{Artillery, Infantry, Mech, Tank};
+    use awvm::semantic::Pos;
+    let (mut state, ours) = blocked_headquarters(
+        70,
+        &[
+            (Tank, Pos::new(3, 2)),
+            (Mech, Pos::new(2, 3)),
+            (Infantry, Pos::new(1, 2)),
+        ],
+    );
+    let artillery = add_unit(&mut state, Artillery, ours, Pos::new(8, 2));
+    let estimate = reply::estimate(
+        &Session::new(state),
+        ours,
+        PropertyValues::STANDARD,
+        contest_options(true),
+    );
+    assert!(estimate.exposed.contains(&artillery));
+    assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
+    assert!(estimate.headquarters_lost);
+}
+
+/// Our blocker of six health, an enemy tank of seven health that does a
+/// little less damage to it than an enemy infantry, and two enemy infantry,
+/// none of which destroys it alone. The tank and either infantry destroy
+/// it, so the other infantry captures, in every order of the enemy units.
+#[test]
+fn a_tank_and_one_infantry_destroy_a_blocker_for_the_other_infantry() {
+    use awvm::ruleset::UnitKind::{Infantry, Tank};
+    use awvm::semantic::Pos;
+    let tank = (Tank, Pos::new(3, 2));
+    let infantry = [(Infantry, Pos::new(2, 3)), (Infantry, Pos::new(1, 2))];
+    for enemies in [
+        [tank, infantry[0], infantry[1]],
+        [infantry[0], tank, infantry[1]],
+        [infantry[0], infantry[1], tank],
+    ] {
+        let (mut state, ours) = blocked_headquarters(60, &enemies);
+        let tank_id = state
+            .units
+            .iter()
+            .find(|unit| unit.kind == Tank)
+            .map(|unit| unit.id)
+            .unwrap();
+        state.units.get_mut(tank_id).unwrap().hp = 70;
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// Our blocker of one health, an enemy mech next to the headquarters, and an
+/// enemy infantry that can attack the blocker but cannot reach the
+/// headquarters. The infantry destroys the blocker and the mech, which does
+/// more damage, captures, in either order of the units.
+///
+/// Spending the capturer that does the most damage fails both orders.
+#[test]
+fn a_weaker_capturer_that_cannot_reach_the_property_destroys_the_blocker() {
+    use awvm::ruleset::UnitKind::{Infantry, Mech};
+    use awvm::semantic::Pos;
+    let mech = (Mech, Pos::new(2, 3));
+    let infantry = (Infantry, Pos::new(6, 2));
+    for enemies in [[mech, infantry], [infantry, mech]] {
+        let (state, ours) = blocked_headquarters(10, &enemies);
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// Our blocker of one health, an enemy infantry next to the headquarters,
+/// and an enemy mech that can attack the blocker but cannot reach the
+/// headquarters. The mech destroys the blocker and the infantry captures, in
+/// either order of the units.
+///
+/// Spending the capturers in the order of the units fails the order with
+/// the infantry first.
+#[test]
+fn a_later_capturer_that_cannot_reach_the_property_destroys_the_blocker() {
+    use awvm::ruleset::UnitKind::{Infantry, Mech};
+    use awvm::semantic::Pos;
+    let infantry = (Infantry, Pos::new(2, 3));
+    let mech = (Mech, Pos::new(5, 2));
+    for enemies in [[infantry, mech], [mech, infantry]] {
+        let (state, ours) = blocked_headquarters(10, &enemies);
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// Our blocker of five health, an enemy mech next to the headquarters that
+/// destroys it, and an enemy infantry that can attack it but does not
+/// destroy it and cannot reach the headquarters. The only unit that can
+/// destroy the blocker is the only one that can capture, so the blocker
+/// holds in either order of the units.
+///
+/// Letting every enemy capturer capture behind a destroyed blocker fails
+/// this test.
+#[test]
+fn a_blocker_that_only_the_capturer_destroys_holds() {
+    use awvm::ruleset::UnitKind::{Infantry, Mech};
+    use awvm::semantic::Pos;
+    let mech = (Mech, Pos::new(2, 3));
+    let infantry = (Infantry, Pos::new(6, 2));
+    for enemies in [[mech, infantry], [infantry, mech]] {
+        let (state, ours) = blocked_headquarters(50, &enemies);
+        assert!(!blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// With the march guard and no contest switch, an enemy Sami infantry that
+/// destroys our blocker on the headquarters has ended its action and does
+/// not take the headquarters with Victory March; another Sami infantry in
+/// reach of the power does. Without the guard, the blocker holds.
+#[test]
+fn the_march_guard_spends_the_attackers_of_a_blocker() {
+    use awvm::commander::PowerLevel;
+    use awvm::ruleset::{CommanderKind, UnitKind};
+    use awvm::semantic::Pos;
+    let guard = reply::ReplyOptions {
+        commander_effects: true,
+        march: true,
+        contest: false,
+        march_guard: true,
+    };
+    let unguarded = reply::ReplyOptions {
+        march_guard: false,
+        ..guard
+    };
+    for far in [false, true] {
+        let (mut state, ours, theirs) = march_board(CommanderKind::Andy, CommanderKind::Sami);
+        let blocker = add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(0, 0));
+        state.units.get_mut(blocker).unwrap().hp = 10;
+        add_unit(&mut state, UnitKind::Infantry, theirs, Pos::new(1, 0));
+        if far {
+            add_unit(&mut state, UnitKind::Infantry, theirs, Pos::new(5, 0));
+        }
+        charge_power(&mut state, theirs, PowerLevel::Scop);
+        state.turn.active_player = state.player(theirs).id().clone();
+        let session = Session::new(state);
+        let values = PropertyValues::STANDARD;
+        let estimate = reply::estimate(&session, ours, values, guard);
+        assert_eq!(estimate.destroyed, vec![blocker]);
+        assert_eq!(estimate.headquarters_lost, far, "far {far}");
+        let estimate = reply::estimate(&session, ours, values, unguarded);
+        assert_eq!(estimate.destroyed, vec![blocker]);
+        assert!(!estimate.headquarters_lost, "far {far}");
+    }
+}
+
+/// With the march guard and no contest switch, an enemy tank destroys our
+/// blocker on the headquarters, so the enemy Sami infantry next to it takes
+/// the headquarters with Victory March. Focused fire gives the blocker to
+/// the infantry, the first of the tied attackers in the order of the units,
+/// so spending the attackers that focused fire chose fails this test.
+#[test]
+fn the_march_guard_frees_a_capturer_when_a_tank_destroys_the_blocker() {
+    use awvm::commander::PowerLevel;
+    use awvm::ruleset::{CommanderKind, UnitKind};
+    use awvm::semantic::Pos;
+    let guard = reply::ReplyOptions {
+        commander_effects: true,
+        march: true,
+        contest: false,
+        march_guard: true,
+    };
+    let (mut state, ours, theirs) = march_board(CommanderKind::Andy, CommanderKind::Sami);
+    let blocker = add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(0, 0));
+    state.units.get_mut(blocker).unwrap().hp = 10;
+    add_unit(&mut state, UnitKind::Infantry, theirs, Pos::new(1, 0));
+    add_unit(&mut state, UnitKind::Tank, theirs, Pos::new(0, 3));
+    charge_power(&mut state, theirs, PowerLevel::Scop);
+    state.turn.active_player = state.player(theirs).id().clone();
+    let session = Session::new(state);
+    let values = PropertyValues::STANDARD;
+    let estimate = reply::estimate(&session, ours, values, guard);
+    assert_eq!(estimate.destroyed, vec![blocker]);
+    assert!(estimate.headquarters_lost);
+    let unguarded = reply::ReplyOptions {
+        march_guard: false,
+        ..guard
+    };
+    let estimate = reply::estimate(&session, ours, values, unguarded);
+    assert!(!estimate.headquarters_lost);
+}
+
+/// At the start of our turn, an enemy capturer that completes the capture of
+/// our headquarters next turn is the whole headquarters value when no unit
+/// of ours can attack it, and nothing when our attacks stop it.
+#[test]
+fn the_danger_reads_whether_our_attacks_stop_the_capture() {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, ours, theirs) = empty_board(5);
+    let hq = Pos::new(2, 2);
+    set_property(&mut state, hq, Terrain::Hq, TileOwner::Owned(ours));
+    state.board.tile_mut(hq).capture_points = Some(10);
+    state.units.push(board_unit(
+        1,
+        UnitKind::Infantry,
+        theirs,
+        Location::Board { position: hq },
+    ));
+    state.next_unit_id = Some(2);
+    let values = PropertyValues::STANDARD;
+    let alone = Session::new(state.clone());
+    assert_eq!(contest::danger(&alone, ours, values), values.headquarters);
+    state.units.push(board_unit(
+        2,
+        UnitKind::Tank,
+        ours,
+        Location::Board {
+            position: Pos::new(2, 5),
+        },
+    ));
+    state.units.push(board_unit(
+        3,
+        UnitKind::Tank,
+        ours,
+        Location::Board {
+            position: Pos::new(5, 2),
+        },
+    ));
+    state.next_unit_id = Some(4);
+    let answered = Session::new(state);
+    assert_eq!(contest::danger(&answered, ours, values), 0.0);
+    // The danger is only read in our turn.
+    assert_eq!(contest::danger(&alone, theirs, values), 0.0);
+}
+
+/// The fog repair fills in the capture points that a fog view hides, and
+/// leaves a position without fog alone.
+#[test]
+fn the_fog_repair_fills_in_hidden_capture_points() {
+    use awvm::ruleset::Terrain;
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, _, _) = empty_board(5);
+    set_property(
+        &mut state,
+        Pos::new(4, 4),
+        Terrain::City,
+        TileOwner::Neutral,
+    );
+    state.board.tile_mut(Pos::new(4, 4)).capture_points = None;
+    let mut clear = Session::new(state.clone());
+    repair_fog_properties(&mut clear);
+    assert_eq!(clear.state(), &state);
+    state.settings.fog = true;
+    let mut fog = Session::new(state.clone());
+    repair_fog_properties(&mut fog);
+    assert_eq!(
+        fog.state().board.tile(Pos::new(4, 4)).capture_points,
+        Some(awvm::semantic::CAPTURE_REQUIRED_POINTS)
+    );
+    assert_eq!(fog.state().board.tile(Pos::new(0, 0)).capture_points, None);
+}
+
+/// On the day before the day limit, with funds to save, the greedy policy of
+/// planner-v8-move ends its turn at once, and the policy that plays the last
+/// days does not.
+#[test]
+fn the_last_days_policy_keeps_playing() {
+    let mut state = arena(false, 3);
+    state.turn.day = 34;
+    state.settings.day_limit = Some(35);
+    let seat = state.players.seat(&state.turn.active_player).unwrap();
+    state.player_mut(seat).funds = 20_000;
+    let session = Session::new(state);
+    let first = |config: crate::baseline::BaselineConfig| {
+        let mut greedy = config.build_greedy(7);
+        greedy.order_in_session(&session).map(|order| order.kind())
+    };
+    assert_eq!(
+        first(crate::profile::V8_MOVE_GREEDY_CONFIG),
+        Some(OrderKind::EndTurn)
+    );
+    let last_days = crate::baseline::BaselineConfig {
+        weights: crate::agents::Weights {
+            play_last_days: true,
+            ..crate::profile::V8_MOVE_GREEDY_CONFIG.weights
+        },
+        ..crate::profile::V8_MOVE_GREEDY_CONFIG
+    };
+    let kind = first(last_days);
+    assert!(
+        kind.is_some_and(|kind| kind != OrderKind::EndTurn),
+        "{kind:?}"
+    );
+}
+
+/// A rollout of one enemy turn with no opening plays, on the configuration
+/// with every contest switch, is the contest reply check: the game is the
+/// same, with and without fog. So the rollout keeps the contest terms of
+/// that check, and its handling of the last days.
+#[test]
+fn a_one_turn_rollout_plays_as_the_contest_reply_check() {
+    let control = PlannerConfig {
+        rollout: Some(RolloutConfig {
+            turns: 1,
+            top: V8_MOVE_CONTEST.hard_reply_top,
+            openings: false,
+        }),
+        ..V8_MOVE_CONTEST
+    };
+    for fog in [false, true] {
+        let (commands, state, stats, invalid) = rollout_game(control, fog, 12);
+        let (expected, expected_state, expected_stats, _) = rollout_game(V8_MOVE_CONTEST, fog, 12);
+        assert_eq!(invalid, 0, "fog {fog}");
+        assert!(stats.rollout_checks > 0, "fog {fog}");
+        assert_eq!(commands, expected, "fog {fog}");
+        assert_eq!(state, expected_state, "fog {fog}");
+        assert_eq!(stats.plans, expected_stats.plans, "fog {fog}");
+        assert_eq!(stats.chose_contest, expected_stats.chose_contest);
+    }
+}
+
+/// Our headquarters on (2, 2) with an enemy infantry next to it, and our
+/// only unit an APC far away: the enemy starts the capture in its next
+/// turn, and no unit of ours can attack it after that.
+fn threat_board() -> (State, PlayerIdx) {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, ours, theirs) = empty_board(5);
+    let dimensions = state.board.dimensions();
+    let (width, height) = (dimensions.width(), dimensions.height());
+    set_property(
+        &mut state,
+        Pos::new(2, 2),
+        Terrain::Hq,
+        TileOwner::Owned(ours),
+    );
+    set_property(
+        &mut state,
+        Pos::new(width - 1, height - 1),
+        Terrain::Hq,
+        TileOwner::Owned(theirs),
+    );
+    state.next_unit_id = Some(1);
+    add_unit(&mut state, UnitKind::Infantry, theirs, Pos::new(2, 3));
+    add_unit(&mut state, UnitKind::Apc, ours, Pos::new(width - 1, 0));
+    (state, ours)
+}
+
+/// The rollout values of the contest switches keep the contest terms: the
+/// value after the first enemy turn subtracts the capture of our
+/// headquarters that our attacks cannot stop, as the contest reply check
+/// does, and a rollout of three turns plays the capture out.
+#[test]
+fn the_rollout_values_keep_the_contest_terms() {
+    let (state, ours) = threat_board();
+    let rolled = |config: PlannerConfig, turns: u8| {
+        let mut evaluator = Evaluator::new(config.eval_weights);
+        let mut replay = config.replay_score.map(ReplayReader::new);
+        let mut planner = probe_planner(&config, &mut evaluator, replay.as_mut(), ours);
+        let mut session = Session::new(state.clone());
+        let line = planner
+            .line(&mut session, Generator::Seed, &[])
+            .expect("the seed line");
+        let rollout = RolloutConfig {
+            turns,
+            ..RolloutConfig::THREE_TURNS
+        };
+        let value = planner
+            .rolled_value(&mut session, &line, rollout)
+            .expect("the rollout");
+        assert_eq!(session.state(), &state, "the session is back at its start");
+        value
+    };
+    let plain = PlannerConfig {
+        contest: false,
+        run: false,
+        ..V8_MOVE_COMBO
+    };
+    let config = V8_MOVE_COMBO;
+    let headquarters = config.reply_weight * config.property_values.headquarters;
+    let with = rolled(config, 1);
+    let without = rolled(plain, 1);
+    assert!(
+        (without - with - headquarters).abs() < 1e-6,
+        "{without} - {with} is the headquarters value {headquarters}"
+    );
+    let end = rolled(config, 3);
+    assert!(end < with, "the capture completes: {end} < {with}");
+}
+
+/// A planner whose greedy policy reads the turn so far keeps an order in its
+/// log only when the host reports it accepted ([`Agent::refresh`]). The
+/// server asks again after a refused command without [`Agent::reject`]; the
+/// refused order must not join the log.
+#[test]
+fn a_refused_order_does_not_join_the_turn_so_far() {
+    let config = move2_config(true);
+    let mut agents = [
+        PlannerAgent::with_config(1, config),
+        PlannerAgent::with_config(2, config),
+    ];
+    let mut session = Session::new(arena(false, 3));
+    let mut entropy = Rng::from_seed(5);
+    let budget = NodeBudget::new(16).expect("a budget");
+    let mut log = TurnLog::new();
+    let mut turn = None;
+    let (mut accepted, mut refused) = (0, 0);
+    for _ in 0..2_000 {
+        let state = session.state().clone();
+        if !matches!(state.match_state, Match::Active { .. }) || state.turn.day > 5 {
+            break;
+        }
+        let player = state.turn.active_player.clone();
+        if turn.as_ref() != Some(&(player.clone(), state.turn.day)) {
+            turn = Some((player.clone(), state.turn.day));
+            log.clear();
+        }
+        let seat = state.players.seat(&player).expect("seat").get();
+        let view = awvm::semantic::observe(&awvm::semantic::AwbwVisibility, &state, &player)
+            .expect("observe");
+        let agent = &mut agents[seat];
+        let play = agent.act(&view, budget);
+        assert_eq!(
+            agent.played, log,
+            "the turn so far has only accepted orders"
+        );
+        let command = match play {
+            Some(play) => {
+                let entry = LogEntry::of_play(&state, &play);
+                if entry.is_some() && (accepted + refused) % 5 == 2 {
+                    refused += 1;
+                    continue;
+                }
+                if let Some(entry) = entry {
+                    log.push(entry);
+                    accepted += 1;
+                }
+                play.command(&session).expect("command")
+            }
+            None => awvm::transition::Command::EndTurn {
+                player: player.clone(),
+            },
+        };
+        let order = session.resolve(&command).expect("legal");
+        session
+            .apply(order, &mut entropy, &mut ())
+            .expect("applies");
+        let after = session.state();
+        if matches!(after.match_state, Match::Active { .. }) && after.turn.active_player == player {
+            let view = awvm::semantic::observe(&awvm::semantic::AwbwVisibility, after, &player)
+                .expect("observe");
+            agents[seat].refresh(&view);
+        }
+    }
+    assert!(
+        accepted > 10 && refused > 2,
+        "{accepted} accepted, {refused} refused"
+    );
+}
+
+/// planner-v8 with the tree move model in its greedy policy, with the
+/// next-unit model when `order`.
+fn move2_config(order: bool) -> PlannerConfig {
+    PlannerConfig {
+        identifier: "planner-v8-move2",
+        baseline: crate::baseline::BaselineConfig {
+            identifier: "greedy-v8-move2",
+            weights: crate::agents::Weights {
+                move2: true,
+                move2_order: order,
+                ..crate::profile::V8_GREEDY_CONFIG.weights
+            },
+            ..crate::profile::V8_GREEDY_CONFIG
+        },
+        ..PlannerConfig::V8
+    }
+}
+
+/// [`move2_config`] with every switch of the contest of decisive captures,
+/// the two greedy switches and the rollout check of three turns.
+fn move2_combo(order: bool) -> PlannerConfig {
+    let move2 = move2_config(order);
+    PlannerConfig {
+        identifier: "planner-v8-move2-combo",
+        baseline: crate::baseline::BaselineConfig {
+            identifier: "greedy-v8-move2-combo",
+            weights: crate::agents::Weights {
+                play_last_days: true,
+                decisive_labs: true,
+                ..move2.baseline.weights
+            },
+            ..move2.baseline
+        },
+        fog_repair: true,
+        last_days: true,
+        contest: true,
+        march_guard: true,
+        run: true,
+        rollout: Some(RolloutConfig::THREE_TURNS),
+        ..move2
+    }
+}
+
+/// The command count and a digest of the final state of a game of `config`
+/// against itself on a small map, with a short day limit.
+fn golden_game(config: PlannerConfig, fog: bool) -> (u64, String) {
+    let state = arena(fog, 3);
+    let mut session = Session::new(state.clone());
+    let mut first = PlannerAgent::with_config(1, config);
+    let mut second = PlannerAgent::with_config(2, config);
+    let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+    let mut entropy = Rng::from_seed(5);
+    let limits = Limits {
+        days: 8,
+        nodes: NodeBudget::new(16).expect("a budget"),
+        ..Limits::DEFAULT
+    };
+    let record =
+        play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
+    let digest = crate::fingerprint::fnv1a(format!("{:?}", session.state()).as_bytes());
+    (record.commands, format!("{digest:016x}"))
+}
+
+/// With the switches of later configurations off, planner-v8 and
+/// planner-v8-move play the games they played before those switches were
+/// added. The values come from master before the tree move model.
+#[test]
+fn the_earlier_configurations_play_the_same_games() {
+    for (config, fog, commands, digest) in [
+        (PlannerConfig::V8, false, 109, "8b3eb86f4fd4ed5a"),
+        (PlannerConfig::V8, true, 111, "f53cafc64e9f6471"),
+        (PlannerConfig::V8_MOVE, false, 108, "4f256c7bef0e4b17"),
+        (PlannerConfig::V8_MOVE, true, 116, "8c1e45589c2acea7"),
+    ] {
+        assert_eq!(
+            golden_game(config, fog),
+            (commands, digest.to_owned()),
+            "{} fog {fog}",
+            config.identifier
+        );
+    }
+}
+
+/// The planners on the tree move model with the contest switches and the
+/// rollout check play legal games, with and without fog and with and
+/// without the next-unit model, and the same game twice. Debug builds check
+/// the turn so far at each greedy decision of an own line (the orders played
+/// in the turn, then the opening, contest and other prefix plays of the
+/// line, then the greedy orders); the planner statistics show that lines,
+/// replies and rollout turns ran.
+#[test]
+fn the_move2_planners_play_lines_replies_and_rollouts() {
+    let replies = PlannerConfig {
+        rollout: None,
+        ..move2_combo(true)
+    };
+    for fog in [false, true] {
+        for (config, rollouts) in [
+            (replies, false),
+            (move2_combo(true), true),
+            (move2_combo(false), true),
+        ] {
+            let (commands, state, stats, invalid) = rollout_game(config, fog, 12);
+            let name = config.identifier;
+            assert_eq!(invalid, 0, "{name} fog {fog}");
+            assert!(stats.candidates > 0, "{name} fog {fog}: lines");
+            if rollouts {
+                assert!(stats.rollout_checks > 0, "{name} fog {fog}: rollouts");
+                assert_eq!(stats.rollout_failed, 0, "{name} fog {fog}");
+            } else {
+                assert!(
+                    stats.evaluations > stats.candidates,
+                    "{name} fog {fog}: replies"
+                );
+            }
+            let (again, again_state, again_stats, _) = rollout_game(config, fog, 12);
+            assert_eq!(commands, again, "{name} fog {fog} repeats");
+            assert_eq!(state, again_state);
+            assert_eq!(stats, again_stats);
+        }
+    }
+}
+
+/// With the margin of the march guard, [`march::powered_captures_with`] reads
+/// an enemy decisive power whose meter lacks at most one eighth of its cost,
+/// to the meter point; a meter that lacks more reads as no power, as does
+/// any meter short of the cost without the margin.
+#[test]
+fn the_march_guard_reads_a_power_that_lacks_one_eighth() {
+    use awvm::commander::PowerLevel;
+    use awvm::ruleset::{CommanderKind, UnitKind};
+    use awvm::semantic::Pos;
+    let (mut state, ours, theirs) = march_board(CommanderKind::Andy, CommanderKind::Sami);
+    add_unit(&mut state, UnitKind::Infantry, theirs, Pos::new(5, 0));
+    charge_power(&mut state, theirs, PowerLevel::Scop);
+    state.turn.active_player = state.player(theirs).id().clone();
+    let full = march::powered_captures_with(&state, ours, 0.0);
+    assert!(!full.is_empty(), "a full meter takes the headquarters");
+    let cost = state.player(theirs).commanders[0].power_charge;
+    // The lowest meter that lacks at most one eighth of the cost.
+    let edge = (cost as f64 * (1.0 - march::METER_MARGIN)).ceil() as u64;
+    assert!(edge > 0 && edge < cost, "{edge} of {cost}");
+    let charged = |state: &mut State, charge: u64| {
+        state.player_mut(theirs).commanders[0].power_charge = charge;
+    };
+    charged(&mut state, cost - 1);
+    assert!(march::powered_captures_with(&state, ours, 0.0).is_empty());
+    assert_eq!(
+        march::powered_captures_with(&state, ours, march::METER_MARGIN),
+        full
+    );
+    charged(&mut state, edge);
+    assert!(march::powered_captures_with(&state, ours, 0.0).is_empty());
+    assert_eq!(
+        march::powered_captures_with(&state, ours, march::METER_MARGIN),
+        full,
+        "a meter at {edge} of {cost}"
+    );
+    charged(&mut state, edge - 1);
+    assert!(
+        march::powered_captures_with(&state, ours, march::METER_MARGIN).is_empty(),
+        "a meter at {} of {cost}",
+        edge - 1
+    );
+}
+
+/// Our turn, our headquarters on (2, 2). An enemy infantry next to it gets
+/// an attack plan from our tank in reach; with the infantry two moves away,
+/// our tank gets a plan that blocks the headquarters.
+#[test]
+fn the_contest_plays_attack_the_capturer_and_block_the_headquarters() {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let board = |enemy: Pos| {
+        let (mut state, ours, theirs) = empty_board(5);
+        set_property(
+            &mut state,
+            Pos::new(2, 2),
+            Terrain::Hq,
+            TileOwner::Owned(ours),
+        );
+        set_property(
+            &mut state,
+            Pos::new(9, 9),
+            Terrain::Hq,
+            TileOwner::Owned(theirs),
+        );
+        state.next_unit_id = Some(1);
+        add_unit(&mut state, UnitKind::Infantry, theirs, enemy);
+        add_unit(&mut state, UnitKind::Tank, ours, Pos::new(4, 3));
+        (Session::new(state), ours)
+    };
+    let hq = |session: &Session| {
+        session
+            .state()
+            .board
+            .dimensions()
+            .cell_index(Pos::new(2, 2))
+            .unwrap()
+    };
+
+    let (session, ours) = board(Pos::new(2, 3));
+    let target = session
+        .state()
+        .board
+        .dimensions()
+        .cell_index(Pos::new(2, 3))
+        .unwrap();
+    let plays = contest::plays(&session, ours, &[]);
+    assert!(
+        plays
+            .iter()
+            .any(|play| play.kind() == OrderKind::Attack(target)),
+        "{plays:?}"
+    );
+
+    let (session, ours) = board(Pos::new(2, 6));
+    let plays = contest::plays(&session, ours, &[]);
+    assert!(
+        plays
+            .iter()
+            .any(|play| play.kind() == OrderKind::Wait && play.destination() == hq(&session)),
+        "{plays:?}"
+    );
+}
+
+/// On a map with labs and no headquarters, the greedy capture of a lab is
+/// worth a headquarters with `decisive_labs`, and a property that pays
+/// nothing without it.
+#[test]
+fn a_decisive_lab_capture_is_worth_a_headquarters() {
+    let (state, ours) = lab_board(20);
+    let theirs = state.players.seat(&state.turn.active_player).unwrap();
+    assert_ne!(ours, theirs);
+    let view = awvm::semantic::observe(
+        &awvm::semantic::AwbwVisibility,
+        &state,
+        &state.turn.active_player,
+    )
+    .unwrap();
+    let capture = |decisive_labs: bool| {
+        let weights = crate::agents::Weights {
+            decisive_labs,
+            ..crate::profile::V8_GREEDY_CONFIG.weights
+        };
+        let mut greedy = crate::agents::GreedyAgent::with_generic_tactical_policy(1, weights);
+        let scored = greedy.scored_orders(&view).expect("scores");
+        scored
+            .candidates()
+            .iter()
+            .filter(|candidate| candidate.order.kind() == OrderKind::Capture)
+            .map(|candidate| candidate.score)
+            .fold(f64::NEG_INFINITY, f64::max)
+    };
+    let (with, without) = (capture(true), capture(false));
+    assert!(without.is_finite(), "the infantry can capture the lab");
+    assert!(
+        with > without + 10_000.0,
+        "{with} with the switch, {without} without"
+    );
+}
+
+/// planner-v9 is planner-v8 with the tree move model and the next-unit
+/// model, the contest switches with the two greedy switches, and the
+/// rollout check of three turns: the configuration that the tests above
+/// play as `move2_combo(true)`, under its own names.
+#[test]
+fn planner_v9_adds_only_its_parts() {
+    let v9 = PlannerConfig::V9;
+    let combo = move2_combo(true);
+    assert_eq!(
+        PlannerConfig {
+            identifier: combo.identifier,
+            baseline: crate::baseline::BaselineConfig {
+                identifier: combo.baseline.identifier,
+                ..v9.baseline
+            },
+            ..v9
+        },
+        combo
+    );
+    assert_eq!(
+        v9.baseline,
+        crate::baseline::BaselineConfig {
+            identifier: v9.baseline.identifier,
+            weights: crate::agents::Weights {
+                play_last_days: true,
+                decisive_labs: true,
+                move2: true,
+                move2_order: true,
+                ..crate::profile::V8_GREEDY_CONFIG.weights
+            },
+            ..crate::profile::V8_GREEDY_CONFIG
+        }
+    );
+    assert_eq!(v9.rollout, Some(RolloutConfig::THREE_TURNS));
 }

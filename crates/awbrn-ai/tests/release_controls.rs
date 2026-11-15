@@ -104,9 +104,11 @@ fn fixed_behavior_corpus_passes_twice_with_identical_commands() {
     assert!(has_capture(&defense.commands));
     assert!(has_wait(&defense.commands));
 
-    let saving = run_fixture_twice("justified-saving", 0x295);
-    assert_eq!(saving.commands.len(), 1);
-    assert!(matches!(saving.commands[0], Command::EndTurn { .. }));
+    // The day before the day limit: planner-v9 keeps playing instead of
+    // saving its funds (`Weights::play_last_days`), because a game that
+    // reaches the day limit is decided by the properties held.
+    let last_days = run_fixture_twice("justified-saving", 0x295);
+    assert!(last_days.commands.len() > 1);
 }
 
 #[test]

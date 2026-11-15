@@ -819,7 +819,28 @@ pub(crate) fn powered_headquarters_captures(state: &State, ours: PlayerIdx) -> V
 /// no headquarters. The result also has the other properties of ours that
 /// the enemy capturers take with the power, one property for each capturer
 /// ([`swing`]).
+#[cfg(test)]
 pub(crate) fn powered_captures(state: &State, ours: PlayerIdx) -> Vec<(CellIdx, bool)> {
+    powered_captures_with(state, ours, 0.0)
+}
+
+/// The share of the cost of a decisive power that the enemy meter may lack
+/// in [`powered_captures_with`] with the march guard
+/// ([`super::PlannerConfig::march_guard`]).
+///
+/// The meter charges in the enemy turn before the power: each attack of the
+/// enemy adds to it, so a meter a little short of the cost at the start of
+/// the turn can pay for the power after the first attacks. One eighth of the
+/// cost is one star of an eight-star power.
+pub(crate) const METER_MARGIN: f64 = 0.125;
+
+/// [`powered_captures`], where the enemy meter can pay for a power when it
+/// lacks at most `margin` of its cost.
+pub(crate) fn powered_captures_with(
+    state: &State,
+    ours: PlayerIdx,
+    margin: f64,
+) -> Vec<(CellIdx, bool)> {
     let Some(enemy) = state.players.seat(&state.turn.active_player) else {
         return Vec::new();
     };
@@ -835,7 +856,9 @@ pub(crate) fn powered_captures(state: &State, ours: PlayerIdx) -> Vec<(CellIdx, 
     let levels: Vec<PowerLevel> = decisive_powers(state, enemy)
         .into_iter()
         .filter(|level| {
-            power_cost(state, enemy, *level).is_some_and(|(cost, charge)| charge >= cost)
+            power_cost(state, enemy, *level).is_some_and(|(cost, charge)| {
+                charge >= cost || (margin > 0.0 && charge as f64 >= cost as f64 * (1.0 - margin))
+            })
         })
         .collect();
     if levels.is_empty() {

@@ -757,7 +757,7 @@ pub fn set_greedy_features(best: f64, score: f64, features: &mut MoveFeatures) {
 
 /// Which unit group a coefficient vector of the model is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MoveGroup {
+pub(crate) enum MoveGroup {
     /// Infantry and mech.
     Foot,
     /// Direct ground units that cannot capture.
@@ -769,9 +769,9 @@ enum MoveGroup {
 }
 
 impl MoveGroup {
-    const ALL: [Self; 4] = [Self::Foot, Self::Direct, Self::Indirect, Self::Other];
+    pub(crate) const ALL: [Self; 4] = [Self::Foot, Self::Direct, Self::Indirect, Self::Other];
 
-    const fn name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Foot => "foot",
             Self::Direct => "direct",
@@ -780,7 +780,7 @@ impl MoveGroup {
         }
     }
 
-    fn of(kind: UnitKind) -> Self {
+    pub(crate) fn of(kind: UnitKind) -> Self {
         let profile = ruleset::profile(kind);
         if profile.can_capture {
             Self::Foot

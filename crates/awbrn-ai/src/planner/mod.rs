@@ -30,6 +30,9 @@
 //!    simulated Hard reply. A plan can enter this check with a score below the
 //!    seed plan when it is inside the reply window, because the fast estimate
 //!    does not see how the enemy reply changes the board.
+//!    With [`PlannerConfig::rollout`], this check plays more turns after the
+//!    line, for both sides, and scores the position at the end
+//!    ([`RolloutConfig`]).
 //! 4. The agent plays the best turn one order at a time. Before each order it
 //!    compares the observed position with the predicted one. A combat roll or
 //!    a fog reveal changes the position, and the agent then plans again from
@@ -38,6 +41,7 @@
 //! Simulation uses the middle of each luck range, so a plan is deterministic.
 
 mod combat;
+mod contest;
 mod ferry;
 mod march;
 mod position;
@@ -54,6 +58,7 @@ use awvm::transition::Command;
 
 use crate::agent::{Agent, NodeBudget, Play};
 use crate::agents::GreedyAgent;
+use crate::agents::move_policy2::{LogEntry, TurnLog};
 use crate::baseline::BaselineConfig;
 use crate::eval::{EvalWeights, Evaluator};
 use crate::fog::{FogEstimate, FogMemory};
@@ -193,6 +198,128 @@ pub struct PlannerConfig {
     /// plays as before.
     #[serde(skip_serializing_if = "is_false")]
     pub march: bool,
+    /// Whether the planner fills in the capture points of properties that
+    /// fog hides from its view.
+    ///
+    /// In fog, the position that the planner builds from its view has no
+    /// capture points on a property out of sight, and the engine refuses a
+    /// capture there. A simulated turn that captures such a property then
+    /// fails: when the seed plan fails, the plan fails and the greedy policy
+    /// plays the decision alone, and a simulated enemy reply that fails
+    /// drops its line from the reply check. With this switch, such a
+    /// property has the points of an untouched property in the position of
+    /// the planner, before it plans and before it compares the view with
+    /// the plan. A game without fog does not change.
+    #[serde(skip_serializing_if = "is_false")]
+    pub fog_repair: bool,
+    /// Whether the simulated enemy reply follows a line that ends with an
+    /// explicit end of the turn.
+    ///
+    /// The reply check applies a second end of the turn after a line whose
+    /// last play is the end of the turn, and that second end passes the
+    /// enemy turn: the simulated enemy does nothing. The greedy policy plays
+    /// such an end of the turn on the last two days of a game with a day
+    /// limit when it saves its funds. With this switch, the reply check
+    /// plays the enemy turn after every line. Use it with a greedy policy
+    /// that plays the last two days ([`crate::agents::Weights::play_last_days`]).
+    #[serde(skip_serializing_if = "is_false")]
+    pub last_days: bool,
+    /// Whether the planner contests the captures of decisive properties
+    /// ([`contest`]).
+    ///
+    /// When true:
+    ///
+    /// - The reply estimate gives each decisive property its share of the
+    ///   headquarters value, counts a capture that starts and completes with
+    ///   the next capture at [`contest::TWO_TURN_SHARE`] or more, and does
+    ///   not count a blocker that focused fire destroys
+    ///   ([`reply::ReplyOptions::contest`]).
+    /// - After the simulated enemy reply, the value also subtracts the loss
+    ///   of a decisive property that our attacks cannot stop in time
+    ///   ([`contest::danger`]).
+    /// - The planner adds plans that attack a capturer, block with a unit
+    ///   that is hard to destroy, attack from the decisive tile, or move
+    ///   nearer to it ([`contest::plays`]).
+    #[serde(skip_serializing_if = "is_false")]
+    pub contest: bool,
+    /// Whether the reply estimate reads the decisive powers of the enemy
+    /// before the meter is full, and sees through a blocker that focused
+    /// fire destroys ([`reply::ReplyOptions::march_guard`]). Only with
+    /// [`PlannerConfig::march`].
+    #[serde(skip_serializing_if = "is_false")]
+    pub march_guard: bool,
+    /// Whether the reply check values our capture of an enemy decisive
+    /// property that completes in our next turn ([`contest::run_bonus`]).
+    #[serde(skip_serializing_if = "is_false")]
+    pub run: bool,
+    /// The rollout check that replaces the simulated Hard reply check
+    /// ([`RolloutConfig`]). `None` keeps the reply check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollout: Option<RolloutConfig>,
+}
+
+/// A check of the best lines that plays more turns after each line.
+///
+/// It replaces the simulated Hard reply check of
+/// [`PlannerConfig::hard_reply_top`]. The seed plan and the best
+/// [`RolloutConfig::top`] other lines by score enter. From the end of each
+/// line, the greedy policy of the planner ([`PlannerConfig::baseline`],
+/// with the move model when its weights have one) plays
+/// [`RolloutConfig::turns`] whole turns, alternating sides: the enemy, then
+/// the own side, then the enemy. Each turn includes the builds and the
+/// powers that the greedy policy plays. With [`RolloutConfig::openings`],
+/// each turn first plays the opening plays that the planner would put before
+/// the greedy policy in its seed plan for that side
+/// ([`TurnPlanner::rollout_opening`]). The position after the last turn is
+/// scored with the leaf score, and the line with the best value wins. With
+/// two turns or more, when that position is at the start of an enemy turn,
+/// the score subtracts the reply estimate, as the score of a line does. A
+/// line ends at the start of the enemy turn, or with the game, so each
+/// rollout turn is a new turn of its side and starts its own turn so far.
+/// The first rollout turn is the enemy turn, unless the extra end of the
+/// turn below passes it.
+///
+/// The check reads only the position that the planner plans on: in fog,
+/// the observed position of the planning seat, as the reply check does.
+/// Simulation uses mean luck, and the greedy policy takes the order with the
+/// highest utility, so each line has one rollout.
+///
+/// With [`PlannerConfig::contest`] and [`PlannerConfig::run`], the value of
+/// a position at the start of our turn, after a rollout of one or three
+/// turns, has the contest terms of the reply check
+/// ([`TurnPlanner::contest_value`]). A rollout of one turn with no opening
+/// plays is that reply check. A rollout of two turns ends at the
+/// start of an enemy turn, where the reply estimate subtracted from the
+/// value has the contest terms of the estimate
+/// ([`reply::ReplyOptions::contest`]).
+///
+/// With [`PlannerConfig::last_days`], a line that ends with an explicit end
+/// of the turn gets no extra end of the turn, as in the reply check, so the
+/// first rollout turn is the enemy turn. The rollouts do not spend the node
+/// budget; [`RolloutConfig::top`] bounds them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct RolloutConfig {
+    /// The whole turns played after the own turn of a line. One is the
+    /// enemy reply only, two add an own turn, three add another enemy turn.
+    pub turns: u8,
+    /// The number of best lines other than the seed plan that get rollouts.
+    /// Zero checks every line that is inside the reply window.
+    pub top: usize,
+    /// Whether each rollout turn plays the opening plays of the planner for
+    /// its side before the greedy policy: a capture that wins at once, the
+    /// power and the captures of a swing turn, the ferry plays and the moves
+    /// of the march plan, with the powers that the march plan holds.
+    pub openings: bool,
+}
+
+impl RolloutConfig {
+    /// The rollout of `planner-v9`: three turns after each line, the seed
+    /// and the 16 best lines, with the opening plays.
+    pub const THREE_TURNS: Self = Self {
+        turns: 3,
+        top: 16,
+        openings: true,
+    };
 }
 
 // The fields that later configurations add are left out of the fingerprint
@@ -246,6 +373,12 @@ impl PlannerConfig {
         reuse_equivalent_positions: false,
         ferry: false,
         march: false,
+        fog_repair: false,
+        last_days: false,
+        contest: false,
+        march_guard: false,
+        run: false,
+        rollout: None,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -363,6 +496,36 @@ impl PlannerConfig {
         ..Self::V8
     };
 
+    /// planner-v8 with these additions:
+    ///
+    /// - The greedy policy [`crate::profile::V9_GREEDY_CONFIG`]: the tree
+    ///   move model with the next-unit model, which chooses
+    ///   which unit acts next ([`crate::agents::Weights::move2`] and
+    ///   [`crate::agents::Weights::move2_order`]), on the scoring of
+    ///   planner-v8 that plays the last two days and, on a map with no
+    ///   headquarters, gives every lab, of any owner, the headquarters
+    ///   weights ([`crate::agents::Weights::decisive_labs`]). Each simulated
+    ///   line, reply and rollout turn keeps its own turn so far.
+    /// - The contest of decisive captures: [`PlannerConfig::fog_repair`],
+    ///   [`PlannerConfig::last_days`], [`PlannerConfig::contest`],
+    ///   [`PlannerConfig::march_guard`] and [`PlannerConfig::run`].
+    /// - The rollout check of three turns ([`RolloutConfig::THREE_TURNS`]) in
+    ///   place of the Hard reply check.
+    ///
+    /// Use a node budget of 256. The rollouts do not spend it, and a turn
+    /// takes several times as long as a turn of planner-v8-move.
+    pub const V9: Self = Self {
+        identifier: "planner-v9",
+        baseline: crate::profile::V9_GREEDY_CONFIG,
+        fog_repair: true,
+        last_days: true,
+        contest: true,
+        march_guard: true,
+        run: true,
+        rollout: Some(RolloutConfig::THREE_TURNS),
+        ..Self::V8
+    };
+
     /// planner-v6 with the fog memory.
     pub const V6_FOG: Self = Self {
         identifier: "planner-v6-fog",
@@ -407,6 +570,8 @@ pub enum Generator {
     Power,
     /// A capture that wins the game in this turn ([`march::win_now`]).
     March,
+    /// A play that contests a decisive capture ([`contest::plays`]).
+    Contest,
 }
 
 /// Counters for one agent over a match.
@@ -435,6 +600,9 @@ pub struct PlannerStats {
     /// Plans where a winning capture of [`march::win_now`] won.
     #[serde(default, skip_serializing_if = "is_zero_count")]
     pub chose_march: u64,
+    /// Plans where a contest plan of [`contest::plays`] won.
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub chose_contest: u64,
     /// Plans in which the march plan of [`march::prepare`] was live.
     #[serde(default, skip_serializing_if = "is_zero_count")]
     pub march_live: u64,
@@ -458,6 +626,12 @@ pub struct PlannerStats {
     pub work: u64,
     /// The most simulated greedy decisions in one own turn.
     pub max_turn_work: u64,
+    /// Plans with a rollout check ([`PlannerConfig::rollout`]).
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub rollout_checks: u64,
+    /// Rollouts that failed: a simulated order was refused.
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub rollout_failed: u64,
 }
 
 impl PlannerStats {
@@ -475,6 +649,7 @@ impl PlannerStats {
             chose_reroute,
             chose_power,
             chose_march,
+            chose_contest,
             march_live,
             swing_live,
             swing_fired,
@@ -484,6 +659,8 @@ impl PlannerStats {
             rejections,
             work,
             max_turn_work,
+            rollout_checks,
+            rollout_failed,
         } = other;
         self.plans += plans;
         self.evaluations += evaluations;
@@ -495,6 +672,7 @@ impl PlannerStats {
         self.chose_reroute += chose_reroute;
         self.chose_power += chose_power;
         self.chose_march += chose_march;
+        self.chose_contest += chose_contest;
         self.march_live += march_live;
         self.swing_live += swing_live;
         self.swing_fired += swing_fired;
@@ -504,6 +682,8 @@ impl PlannerStats {
         self.rejections += rejections;
         self.work += work;
         self.max_turn_work = self.max_turn_work.max(*max_turn_work);
+        self.rollout_checks += rollout_checks;
+        self.rollout_failed += rollout_failed;
     }
 }
 
@@ -570,6 +750,13 @@ pub struct PlannerAgent {
     meter: MeterLog,
     /// The powers that the last plan of this turn holds.
     hold: Option<crate::power::PowerHold>,
+    /// The unit orders that this agent played in this turn, for a greedy
+    /// policy that reads the turn so far ([`crate::agents::Weights::uses_turn_log`]).
+    /// The order of the last decision joins the log when the host reports
+    /// it accepted ([`Agent::refresh`]). An order that is refused, or that
+    /// the host drops without a report, does not.
+    played: TurnLog,
+    played_pending: Option<LogEntry>,
 }
 
 /// The own power meter at the start of the recent own turns, for the march
@@ -661,6 +848,8 @@ impl PlannerAgent {
             fog: None,
             meter: MeterLog::default(),
             hold: None,
+            played: TurnLog::new(),
+            played_pending: None,
         }
     }
 
@@ -684,6 +873,8 @@ impl PlannerAgent {
             self.positions.clear();
             self.next = 0;
             self.hold = None;
+            self.played.clear();
+            self.played_pending = None;
         }
     }
 
@@ -740,6 +931,7 @@ impl PlannerAgent {
         let planning = modeled.as_ref().unwrap_or(session);
         let mut planner = TurnPlanner {
             config: &self.config,
+            played: &self.played,
             rollout: self.rollout.take(),
             seed: Rng::mix(self.seed ^ u64::from(self.plans_this_turn)),
             seat,
@@ -755,6 +947,7 @@ impl PlannerAgent {
                 held: self.meter.held,
                 ..MarchTurn::default()
             },
+            rollout_stats: RolloutStats::default(),
         };
         let line = planner.plan(planning);
         self.hold = planner.march.hold;
@@ -765,6 +958,8 @@ impl PlannerAgent {
         self.stats.swing_live += u64::from(planner.march.swing_live);
         self.stats.swing_fired += u64::from(planner.march.swing_fired);
         self.stats.swing_expected += u64::from(planner.march.swing_expected);
+        self.stats.rollout_checks += planner.rollout_stats.checks;
+        self.stats.rollout_failed += planner.rollout_stats.failed;
         self.rollout = planner.rollout.take();
         self.stats.evaluations += u64::from(budget.get() - planner.nodes_left);
         self.stats.candidates += planner.candidates;
@@ -783,6 +978,7 @@ impl PlannerAgent {
             Generator::Reroute => self.stats.chose_reroute += 1,
             Generator::Power => self.stats.chose_power += 1,
             Generator::March => self.stats.chose_march += 1,
+            Generator::Contest => self.stats.chose_contest += 1,
         }
         self.plan = line.plays;
         self.positions = positions;
@@ -793,6 +989,30 @@ impl PlannerAgent {
 
 impl PlannerAgent {
     fn act_observed(
+        &mut self,
+        view: &Observation,
+        budget: NodeBudget,
+        session: &Session,
+    ) -> Option<Play> {
+        if !self.config.baseline.weights.uses_turn_log() {
+            return self.act_unlogged(view, budget, session);
+        }
+        if !session.is_commandable() {
+            return None;
+        }
+        self.begin_turn(view);
+        // An order that is still pending was not accepted: the host asks
+        // again without a refresh, as after a refusal that it does not
+        // report ([`Agent::reject`]).
+        self.played_pending = None;
+        let play = self.act_unlogged(view, budget, session);
+        self.played_pending = play
+            .as_ref()
+            .and_then(|play| LogEntry::of_play(session.state(), play));
+        play
+    }
+
+    fn act_unlogged(
         &mut self,
         view: &Observation,
         budget: NodeBudget,
@@ -833,6 +1053,9 @@ impl PlannerAgent {
                 self.fallback.set_power_hold(self.hold);
                 self.fallback
                     .set_viewer(session.state().players.seat(&view.recipient));
+                if self.config.baseline.weights.uses_turn_log() {
+                    self.fallback.set_turn_log(&self.played);
+                }
                 let modeled = (self.config.fog_memory && session.state().settings.fog)
                     .then(|| Session::new(self.memory.planning_state(session.state())));
                 return self
@@ -863,6 +1086,10 @@ impl Agent for PlannerAgent {
             }
             None => Session::from_observation(view).ok()?,
         };
+        let mut session = session;
+        if self.config.fog_repair {
+            repair_fog_properties(&mut session);
+        }
         let play = self.act_observed(view, budget, &session);
         self.observed = Some(session);
         play
@@ -883,7 +1110,14 @@ impl Agent for PlannerAgent {
         self.remember(view);
     }
 
+    fn refresh(&mut self, _view: &Observation) {
+        if let Some(entry) = self.played_pending.take() {
+            self.played.push(entry);
+        }
+    }
+
     fn reject(&mut self, _view: &Observation) {
+        self.played_pending = None;
         self.stats.rejections += 1;
         self.plan.clear();
         self.positions.clear();
@@ -898,6 +1132,10 @@ impl Agent for PlannerAgent {
 struct TurnPlanner<'a> {
     rollout: Option<GreedyAgent>,
     config: &'a PlannerConfig,
+    /// The unit orders of this turn before the position of the plan. Each
+    /// own line starts from it, for a greedy policy that reads the turn so
+    /// far.
+    played: &'a TurnLog,
     seed: u64,
     seat: PlayerIdx,
     evaluator: &'a mut Evaluator,
@@ -912,6 +1150,15 @@ struct TurnPlanner<'a> {
     fog: Option<Arc<FogEstimate>>,
     /// The inputs and results of the march plan in this call.
     march: MarchTurn,
+    /// The rollout counters of this call.
+    rollout_stats: RolloutStats,
+}
+
+/// The rollout counters of one planning call.
+#[derive(Clone, Copy, Debug, Default)]
+struct RolloutStats {
+    checks: u64,
+    failed: u64,
 }
 
 /// The inputs and results of the march plan in one planning call.
@@ -1056,7 +1303,55 @@ impl TurnPlanner<'_> {
         if !self.out_of_work() && self.config.kill_plans > 0 {
             let options = combat::attack_options(&session);
             let kills = combat::kills(&options);
-            for plan in combat::plans(&kills, self.config.kill_plans) {
+            let capturers = if self.config.contest {
+                contest::capturers_near(session.state(), self.seat)
+            } else {
+                Vec::new()
+            };
+            // With the contest switch, the kills of an enemy capturer on or
+            // next to a decisive property of ours come first, each alone:
+            // the kill plans rank kills by the value of the target, and a
+            // capturer is cheap.
+            if self.config.contest {
+                for kill in kills
+                    .iter()
+                    .filter(|group| {
+                        group
+                            .first()
+                            .and_then(|kill| kill.attacks.first())
+                            .is_some_and(|attack| capturers.contains(&attack.target))
+                    })
+                    .flat_map(|group| group.iter().take(contest::KILL_PLANS))
+                {
+                    let plays = kill
+                        .attacks
+                        .iter()
+                        .map(|attack| {
+                            let target = target_cell(session.state(), attack.target)?;
+                            Some(Play::new(
+                                attack.attacker,
+                                attack.destination,
+                                OrderKind::Attack(target),
+                            ))
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    if let Some(plays) = plays {
+                        alternatives.push((Generator::Contest, plays, true, false));
+                    }
+                }
+            }
+            for mut plan in combat::plans(&kills, self.config.kill_plans) {
+                // With the contest switch, the kill of a capturer near a
+                // decisive property comes first, so that the other units can
+                // still finish it when a roll leaves it alive.
+                if !capturers.is_empty() {
+                    plan.kills.sort_by_key(|kill| {
+                        !kill
+                            .attacks
+                            .first()
+                            .is_some_and(|attack| capturers.contains(&attack.target))
+                    });
+                }
                 let plays = plan
                     .orders()
                     .map(|attack| {
@@ -1103,6 +1398,14 @@ impl TurnPlanner<'_> {
                 alternatives.push((Generator::Block, vec![play], true, false));
             }
         }
+        if self.config.contest {
+            alternatives.extend(
+                contest::plays(&session, self.seat, &best.reply.threatened)
+                    .into_iter()
+                    .filter(|play| best.plays.first() != Some(play))
+                    .map(|play| (Generator::Contest, vec![play], true, false)),
+            );
+        }
         // Reroutes come last: a block can save the headquarters, and a work
         // limit must not stop it.
         for play in self.reroutes(&mut session, &best) {
@@ -1147,6 +1450,12 @@ impl TurnPlanner<'_> {
         };
         if contenders.is_empty() {
             return Some(best);
+        }
+        if let Some(rollout) = self.config.rollout {
+            if self.work_left.is_some_and(|left| self.work >= left) {
+                return unchecked(contenders, best);
+            }
+            return Some(self.rollout_check(&mut session, best, contenders, rollout));
         }
         if self.config.hard_reply_top == 0 {
             return unchecked(contenders, best);
@@ -1414,12 +1723,279 @@ impl TurnPlanner<'_> {
             reply::ReplyOptions {
                 commander_effects: self.config.baseline.weights.commander_effects,
                 march: self.config.march,
+                contest: self.config.contest,
+                march_guard: self.config.march_guard,
             },
         )
     }
 
     fn out_of_work(&self) -> bool {
         self.nodes_left == 0 || self.work_left.is_some_and(|left| self.work >= left)
+    }
+
+    /// The rollout check ([`RolloutConfig`]) of the seed plan and the best
+    /// contenders, sorted by score. It returns the line with the best value.
+    ///
+    /// The seed plan comes first, so a contender must be better than it to
+    /// win. A contender whose rollouts all fail is left out. When the seed
+    /// rollouts fail, the best contender above the seed score wins, as
+    /// without the check.
+    fn rollout_check(
+        &mut self,
+        session: &mut Session,
+        seed: Line,
+        mut contenders: Vec<Line>,
+        rollout: RolloutConfig,
+    ) -> Line {
+        self.rollout_stats.checks += 1;
+        if rollout.top > 0 {
+            contenders.truncate(rollout.top);
+        }
+        let Some(seed_value) = self.rolled_value(session, &seed, rollout) else {
+            let better = seed.score + self.config.seed_margin;
+            return contenders
+                .into_iter()
+                .find(|line| line.score > better)
+                .unwrap_or(seed);
+        };
+        let mut best = seed;
+        let mut best_value = seed_value;
+        for line in contenders {
+            if self.work_left.is_some_and(|left| self.work >= left) {
+                break;
+            }
+            let Some(value) = self.rolled_value(session, &line, rollout) else {
+                continue;
+            };
+            if value - line.penalty > best_value {
+                best_value = value - line.penalty;
+                best = line;
+            }
+        }
+        best
+    }
+
+    /// Play [`RolloutConfig::turns`] whole turns from the end of `line`, and
+    /// value the result.
+    ///
+    /// Returns `None` when a simulated order fails. The session is back at
+    /// its start position when this returns.
+    fn rolled_value(
+        &mut self,
+        session: &mut Session,
+        line: &Line,
+        rollout: RolloutConfig,
+    ) -> Option<f64> {
+        let mut hard = self
+            .rollout
+            .take()
+            .unwrap_or_else(|| self.config.baseline.build_greedy(self.seed));
+        hard.restart(Rng::mix(self.seed ^ 0x5eed));
+        hard.set_viewer(Some(self.seat));
+        // For a greedy policy that reads the turn so far, each rollout turn
+        // keeps its own log ([`TurnLog`]).
+        let logged = self.config.baseline.weights.uses_turn_log();
+        let mut entropy = MeanLuck;
+        let root = session.state().clone();
+        session.reset(line.end_state.clone());
+        // A node is counted for the statistics only: the rollouts do not
+        // spend the node budget.
+        self.nodes_left = self.nodes_left.saturating_sub(1);
+        let result = (|| {
+            if !matches!(session.state().match_state, Match::Active { .. }) {
+                return Some(self.leaf_value(session));
+            }
+            // Keep the extra boundary that command replay applies after
+            // EndTurn, as the reply check does: without the last days switch
+            // only ([`PlannerConfig::last_days`]).
+            if !self.config.last_days
+                && line
+                    .plays
+                    .last()
+                    .is_some_and(|play| play.kind() == OrderKind::EndTurn)
+            {
+                let end = session
+                    .resolve(&Command::EndTurn {
+                        player: session.state().turn.active_player.clone(),
+                    })
+                    .ok()?;
+                session.apply(end, &mut entropy, &mut ()).ok()?;
+            }
+            for _ in 0..rollout.turns {
+                if !matches!(session.state().match_state, Match::Active { .. }) {
+                    break;
+                }
+                let side = session.state().turn.active_player.clone();
+                let seat = session.state().players.seat(&side)?;
+                let own = seat == self.seat;
+                // Each rollout turn is a new turn of its side: a line ends
+                // at the start of the enemy turn, or with the game. So the
+                // turn so far starts empty.
+                if logged {
+                    hard.clear_turn_log();
+                }
+                hard.set_fog(if own { self.fog.clone() } else { None });
+                let opening = if rollout.openings {
+                    let (plays, hold) = self.rollout_opening(session, seat);
+                    hard.set_power_hold(hold);
+                    plays
+                } else {
+                    hard.set_power_hold(self.march.hold);
+                    // As the reply check: the enemy plays a capture that
+                    // wins at once before the greedy policy.
+                    if self.config.march
+                        && !own
+                        && !march::decisive_powers(session.state(), seat).is_empty()
+                    {
+                        march::win_now(session, seat).unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    }
+                };
+                for play in opening {
+                    if session.state().turn.active_player != side
+                        || !matches!(session.state().match_state, Match::Active { .. })
+                    {
+                        break;
+                    }
+                    // A play can become illegal after an earlier one. Skip it.
+                    let Some(order) = play_order(session, &play) else {
+                        continue;
+                    };
+                    self.work += 1;
+                    // The opening plays are part of the turn, so they join
+                    // the turn so far of the greedy policy after them.
+                    let entry = logged
+                        .then(|| LogEntry::of_order(session.state(), order))
+                        .flatten();
+                    if session.apply(order, &mut entropy, &mut ()).is_err() {
+                        continue;
+                    }
+                    if let Some(entry) = entry {
+                        hard.push_turn_log(entry);
+                    }
+                }
+                while session.state().turn.active_player == side
+                    && matches!(session.state().match_state, Match::Active { .. })
+                {
+                    self.work += 1;
+                    let order = match hard.order_in_session(session) {
+                        Some(order) => order,
+                        None => session
+                            .resolve(&Command::EndTurn {
+                                player: side.clone(),
+                            })
+                            .ok()?,
+                    };
+                    let entry = logged
+                        .then(|| LogEntry::of_order(session.state(), order))
+                        .flatten();
+                    session.apply(order, &mut entropy, &mut ()).ok()?;
+                    if let Some(entry) = entry {
+                        hard.push_turn_log(entry);
+                    }
+                }
+            }
+            let leaf = self.leaf_value(session);
+            // At the start of our turn, the value has the contest terms of
+            // the reply check ([`TurnPlanner::contest_value`]).
+            let mut value = self.contest_value(session, leaf);
+            // At the start of an enemy turn, the value subtracts the reply
+            // estimate, as the score of a line does. One turn keeps the value
+            // of the Hard reply check, which never subtracts it.
+            if rollout.turns > 1
+                && matches!(session.state().match_state, Match::Active { .. })
+                && session
+                    .state()
+                    .players
+                    .seat(&session.state().turn.active_player)
+                    != Some(self.seat)
+            {
+                value -= self.config.reply_weight * self.reply_estimate(session).total();
+            }
+            Some(value)
+        })();
+        session.reset(root);
+        self.rollout = Some(hard);
+        self.rollout_stats.failed += u64::from(result.is_none());
+        result
+    }
+
+    /// The opening plays of a rollout turn of `seat`, the active seat in
+    /// `session`, and the powers that the turn holds.
+    ///
+    /// This mirrors the opening plays of [`TurnPlanner::plan`] for that seat:
+    /// a capture that wins at once when one exists; otherwise, on a swing
+    /// turn, the power and its captures; then the ferry plays and the moves
+    /// of the march plan that steer capturers. The march plan of the own seat
+    /// reads the meter rate of the planning seat. The enemy has no measured
+    /// rate, so its plan and its swing rule act only when its meter can pay
+    /// for the decisive power now.
+    fn rollout_opening(
+        &mut self,
+        session: &mut Session,
+        seat: PlayerIdx,
+    ) -> (Vec<Play>, Option<crate::power::PowerHold>) {
+        if self.config.march
+            && !march::decisive_powers(session.state(), seat).is_empty()
+            && let Some(plays) = march::win_now(session, seat)
+        {
+            return (plays, None);
+        }
+        let own = seat == self.seat;
+        let rate = if own { self.march.rate } else { None };
+        let held = if own { self.march.held } else { 0 };
+        let mut opening = if self.config.ferry {
+            ferry_plays(session)
+        } else {
+            Vec::new()
+        };
+        if !self.config.march {
+            return (opening, None);
+        }
+        let plan = march::prepare(session, seat, rate, held);
+        let swing = march::swing_turn(session, seat, rate, plan.as_ref());
+        let mut hold = plan.as_ref().map(|plan| plan.hold);
+        if let Some(plan) = plan
+            && !matches!(swing, march::SwingTurn::Fire(..))
+        {
+            opening.extend(plan.steer);
+        }
+        match swing {
+            march::SwingTurn::None => {}
+            march::SwingTurn::Hold(swing) => {
+                let held = hold.get_or_insert(swing);
+                held.cop |= swing.cop;
+                held.scop |= swing.scop;
+            }
+            march::SwingTurn::Fire(play, captures) => {
+                hold = None;
+                opening.splice(0..0, std::iter::once(play).chain(captures));
+            }
+        }
+        (opening, hold)
+    }
+
+    /// `value`, the leaf value of the position in `session`, with the
+    /// contest terms of the reply check: minus the loss of a decisive
+    /// property that our attacks cannot stop ([`PlannerConfig::contest`],
+    /// [`contest::danger`]), plus our capture of an enemy decisive property
+    /// that completes now ([`PlannerConfig::run`], [`contest::run_bonus`]).
+    ///
+    /// Both terms read only a position at the start of our turn, and they are
+    /// zero elsewhere. An ended game keeps its value.
+    fn contest_value(&self, session: &Session, mut value: f64) -> f64 {
+        if matches!(session.state().match_state, Match::Active { .. }) {
+            if self.config.contest {
+                value -= self.config.reply_weight
+                    * contest::danger(session, self.seat, self.config.property_values);
+            }
+            if self.config.run {
+                value +=
+                    contest::run_bonus(session.state(), self.seat, self.config.property_values);
+            }
+        }
+        value
     }
 
     /// Play a Hard reply from the end of `line`, and value the result.
@@ -1434,6 +2010,12 @@ impl TurnPlanner<'_> {
         hard.set_fog(None);
         hard.set_viewer(Some(self.seat));
         hard.set_power_hold(self.march.hold);
+        // The reply is a new turn of the enemy, so its turn so far starts
+        // empty.
+        let logged = self.config.baseline.weights.uses_turn_log();
+        if logged {
+            hard.clear_turn_log();
+        }
         let mut entropy = MeanLuck;
         let root = session.state().clone();
         session.reset(line.end_state.clone());
@@ -1443,10 +2025,11 @@ impl TurnPlanner<'_> {
                 return Some(self.leaf_value(session));
             }
             // Keep the extra boundary that command replay applies after EndTurn.
-            if line
-                .plays
-                .last()
-                .is_some_and(|play| play.kind() == OrderKind::EndTurn)
+            if !self.config.last_days
+                && line
+                    .plays
+                    .last()
+                    .is_some_and(|play| play.kind() == OrderKind::EndTurn)
             {
                 let end = session
                     .resolve(&Command::EndTurn {
@@ -1471,7 +2054,13 @@ impl TurnPlanner<'_> {
                 for play in plays {
                     let order = play_order(session, &play)?;
                     self.work += 1;
+                    let entry = logged
+                        .then(|| LogEntry::of_order(session.state(), order))
+                        .flatten();
                     session.apply(order, &mut entropy, &mut ()).ok()?;
+                    if let Some(entry) = entry {
+                        hard.push_turn_log(entry);
+                    }
                 }
             }
             while session.state().turn.active_player == enemy
@@ -1486,10 +2075,17 @@ impl TurnPlanner<'_> {
                         })
                         .ok()?,
                 };
+                let entry = logged
+                    .then(|| LogEntry::of_order(session.state(), order))
+                    .flatten();
                 session.apply(order, &mut entropy, &mut ()).ok()?;
+                if let Some(entry) = entry {
+                    hard.push_turn_log(entry);
+                }
             }
             self.nodes_left -= 1;
-            Some(self.leaf_value(session))
+            let value = self.leaf_value(session);
+            Some(self.contest_value(session, value))
         })();
         session.reset(root);
         self.rollout = Some(hard);
@@ -1515,6 +2111,12 @@ impl TurnPlanner<'_> {
         hard.set_fog(self.fog.clone());
         hard.set_viewer(Some(self.seat));
         hard.set_power_hold(self.march.hold);
+        // The turn so far of the line: the orders played in this turn, then
+        // the orders of the line.
+        let logged = self.config.baseline.weights.uses_turn_log();
+        if logged {
+            hard.set_turn_log(self.played);
+        }
         let mut plays = Vec::new();
         let mut root = None;
         let mut prefix = prefix.iter();
@@ -1534,6 +2136,20 @@ impl TurnPlanner<'_> {
                     || !matches!(state.match_state, Match::Active { .. })
                 {
                     break;
+                }
+                // The turn so far of the greedy policy is the orders played
+                // in this turn, then the orders of this line: in debug
+                // builds, one entry for each unit order of either.
+                if cfg!(debug_assertions) && logged {
+                    let unit_orders = plays
+                        .iter()
+                        .filter(|play: &&Play| is_unit_order(play.kind()))
+                        .count();
+                    debug_assert_eq!(
+                        hard.turn_log().len(),
+                        self.played.len() + unit_orders,
+                        "the turn so far of a line"
+                    );
                 }
                 let next = loop {
                     match prefix.next() {
@@ -1568,6 +2184,9 @@ impl TurnPlanner<'_> {
                         }
                     },
                 };
+                let entry = logged
+                    .then(|| LogEntry::of_order(session.state(), order))
+                    .flatten();
                 let mark = match session.apply(order, &mut entropy, &mut ()) {
                     Ok(mark) => mark,
                     // With the power first by default, a later power position
@@ -1577,6 +2196,9 @@ impl TurnPlanner<'_> {
                     Err(_) if from_prefix && lenient => continue,
                     Err(_) => return None,
                 };
+                if let Some(entry) = entry {
+                    hard.push_turn_log(entry);
+                }
                 plays.push(play);
                 root.get_or_insert(mark);
             }
@@ -1612,6 +2234,12 @@ impl TurnPlanner<'_> {
             penalty: 0.0,
         })
     }
+}
+
+/// Whether the turn so far keeps an order of this kind
+/// ([`crate::agents::move_policy2::ActionClass`]).
+fn is_unit_order(kind: OrderKind) -> bool {
+    crate::agents::move_policy2::ActionClass::of(kind).is_some()
 }
 
 /// The plays of an alternative: the opening plays, then the power of the
@@ -1677,6 +2305,34 @@ fn alternative_plays(
     }
     plays.extend(prefix);
     plays
+}
+
+/// Give each capturable property with no capture points in the position of
+/// `session` the points of an untouched property ([`PlannerConfig::fog_repair`]).
+///
+/// Only a fog view hides capture points, so a position without fog does not
+/// change, and the position is copied only when a property needs points.
+fn repair_fog_properties(session: &mut Session) {
+    let state = session.state();
+    let missing = |tile: &awvm::semantic::Tile| {
+        tile.capture_points.is_none()
+            && awvm::ruleset::terrain_has(tile.terrain, awvm::ruleset::TerrainTrait::Capturable)
+    };
+    if !state.settings.fog || !state.board.tiles().any(missing) {
+        return;
+    }
+    let mut repaired = state.clone();
+    let positions: Vec<awvm::semantic::Pos> = repaired
+        .board
+        .iter()
+        .filter(|(_, tile)| missing(tile))
+        .map(|(position, _)| position)
+        .collect();
+    for position in positions {
+        repaired.board.tile_mut(position).capture_points =
+            Some(awvm::semantic::CAPTURE_REQUIRED_POINTS);
+    }
+    session.reset(repaired);
 }
 
 /// The unit plays of `plays`, with only the first play of each unit.

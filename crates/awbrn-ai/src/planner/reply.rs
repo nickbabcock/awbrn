@@ -73,6 +73,7 @@ impl PropertyValues {
     };
 }
 
+#[derive(Clone)]
 struct Attack {
     attacker: UnitId,
     target: UnitId,
@@ -151,6 +152,30 @@ pub struct ReplyOptions {
     /// value. Each such property goes into [`ReplyEstimate::threatened`], so
     /// that a block plan can put a unit on it.
     pub march: bool,
+    /// When true ([`super::PlannerConfig::contest`]):
+    ///
+    /// - A decisive property ([`super::contest::decisive_tiles`]) has its
+    ///   share of the headquarters value. Our last lab on a map with no
+    ///   headquarters counts as our headquarters.
+    /// - A capture of a decisive property that starts in the reply and
+    ///   completes with the next capture of the same capturer costs at least
+    ///   [`super::contest::TWO_TURN_SHARE`] of the headquarters value.
+    /// - A unit of ours on a decisive property that focused fire destroys
+    ///   does not block it: the estimate counts the enemy captures of the
+    ///   property without that unit. A unit that attacks has ended its
+    ///   action, so a capture there by an enemy unit counts only when the
+    ///   attacks of the other enemy units on the blocker, each unit once,
+    ///   add up to its health. The damage is the forecast without an enemy
+    ///   power.
+    pub contest: bool,
+    /// When true, with [`ReplyOptions::march`]
+    /// ([`super::PlannerConfig::march_guard`]): the enemy meter can pay for
+    /// a decisive power when it lacks at most
+    /// [`super::march::METER_MARGIN`] of its cost, because attacks before
+    /// the power charge the meter. And a unit of ours on our decisive
+    /// property that focused fire destroys does not block it from the
+    /// powered captures, by the rule of [`ReplyOptions::contest`].
+    pub march_guard: bool,
 }
 
 /// Estimate the loss that the active enemy seat can cause to `ours`, with
@@ -166,6 +191,8 @@ pub fn estimate(
     let ReplyOptions {
         commander_effects,
         march,
+        contest,
+        march_guard,
     } = options;
     let state = session.state();
     let mut collector = Collector {
@@ -207,6 +234,30 @@ pub fn estimate(
         })
         .collect();
     let mut attacks = collector.attacks;
+    let opens_blockers = contest || (march && march_guard);
+    let decisive = if opens_blockers {
+        super::contest::decisive_tiles(state, ours)
+    } else {
+        Vec::new()
+    };
+    // The attacks on our units that block a decisive property, for the
+    // captures behind a destroyed blocker ([`ReplyOptions::contest`]).
+    let on_blockers: Vec<Attack> = if decisive.is_empty() {
+        Vec::new()
+    } else {
+        attacks
+            .iter()
+            .filter(|attack| {
+                state.units.at(attack.target_index).is_some_and(|unit| {
+                    let awvm::semantic::Location::Board { position } = unit.location else {
+                        return false;
+                    };
+                    super::contest::share_at(&decisive, position).is_some_and(|share| share >= 1.0)
+                })
+            })
+            .cloned()
+            .collect()
+    };
     let mut destroyed_units: Vec<(f64, UnitId)> = Vec::new();
     let mut exposed_units: Vec<(f64, UnitId)> = Vec::new();
     loop {
@@ -251,7 +302,90 @@ pub fn estimate(
     // Captures: the best capture for each of our or neutral properties.
     let dimensions = state.board.dimensions();
     let mut taken: Vec<(CellIdx, f64)> = Vec::new();
-    for order in collector.captures {
+    // A decisive property of ours whose blocker focused fire destroys is
+    // open without it ([`ReplyOptions::contest`]).
+    let captures = collector.captures;
+    let mut opened: Vec<awvm::semantic::State> = Vec::new();
+    if !on_blockers.is_empty() {
+        for &(_, id) in &destroyed_units {
+            let on_blocker = || on_blockers.iter().filter(move |attack| attack.target == id);
+            if on_blocker().next().is_none() {
+                continue;
+            }
+            let (Some(unit), Some(mut open)) =
+                (state.units.get(id), super::contest::without_unit(state, id))
+            else {
+                continue;
+            };
+            // An attacker that the others cannot destroy the blocker without
+            // has ended its action, so it does not capture.
+            let total: f64 = on_blocker().map(|attack| attack.damage).sum();
+            for attack in on_blocker() {
+                if total - attack.damage < f64::from(unit.hp)
+                    && let Some(spent) = open.units.get_mut(attack.attacker)
+                {
+                    spent.action = awvm::semantic::UnitAction::Spent;
+                }
+            }
+            opened.push(open);
+        }
+    }
+    let mut open_captures: Vec<(usize, Order)> = Vec::new();
+    if contest {
+        for (index, open) in opened.iter().enumerate() {
+            let session = Session::new(open.clone());
+            let capturers: Vec<UnitId> = open
+                .units
+                .iter()
+                .filter(|unit| unit.owner != ours && ruleset::profile(unit.kind).can_capture)
+                .map(|unit| unit.id)
+                .collect();
+            let mut found = Collector {
+                ours,
+                units: &open.units,
+                group_start: 0,
+                attacks: Vec::new(),
+                captures: Vec::new(),
+            };
+            session.legal().visit_scoped(
+                LegalScope {
+                    units: &capturers,
+                    unitless: false,
+                },
+                &mut found,
+            );
+            let cells: Vec<CellIdx> = state
+                .units
+                .iter()
+                .filter(|unit| !open.units.contains(unit.id))
+                .filter_map(|unit| match unit.location {
+                    awvm::semantic::Location::Board { position } => dimensions.cell_index(position),
+                    awvm::semantic::Location::Cargo { .. } => None,
+                })
+                .collect();
+            open_captures.extend(
+                found
+                    .captures
+                    .into_iter()
+                    .filter(|order| cells.contains(&order.destination()))
+                    .map(|order| (index, order)),
+            );
+        }
+    }
+    let all_captures: Vec<(Option<usize>, Order)> = captures
+        .into_iter()
+        .map(|order| (None, order))
+        .chain(
+            open_captures
+                .into_iter()
+                .map(|(index, order)| (Some(index), order)),
+        )
+        .collect();
+    for (source, order) in all_captures {
+        let state = match source {
+            Some(index) => &opened[index],
+            None => state,
+        };
         let Some(position) = dimensions.position_of(order.destination()) else {
             continue;
         };
@@ -274,14 +408,24 @@ pub fn estimate(
         };
         let left = tile.capture_points.unwrap_or(CAPTURE_REQUIRED_POINTS);
         let has = |value| ruleset::terrain_has(tile.terrain, value);
-        let headquarters = has(TerrainTrait::CaptureDefeatsOwner);
+        let share = if contest {
+            super::contest::share_at(&decisive, position)
+        } else {
+            None
+        };
+        let headquarters = match share {
+            Some(share) => share >= 1.0,
+            None => has(TerrainTrait::CaptureDefeatsOwner),
+        };
         let worth = if headquarters {
             values.headquarters
         } else {
             let produces = has(TerrainTrait::ProducesGround)
                 || has(TerrainTrait::ProducesAir)
                 || has(TerrainTrait::ProducesSea);
-            values.income + if produces { values.production } else { 0.0 }
+            values.income
+                + if produces { values.production } else { 0.0 }
+                + share.map_or(0.0, |share| share * values.headquarters)
         };
         let loss = if strength >= left {
             if headquarters {
@@ -293,7 +437,14 @@ pub fn estimate(
             // headquarters share is capped so that it does not read as a loss.
             let progress = f64::from(strength) / f64::from(CAPTURE_REQUIRED_POINTS);
             let base = if headquarters { 30_000.0 } else { worth };
-            values.capture_share * progress * base
+            let partial = values.capture_share * progress * base;
+            // With the contest switch, a decisive capture that completes with
+            // the next capture of the same capturer costs more.
+            if contest && headquarters && strength.saturating_mul(2) >= left {
+                partial.max(super::contest::TWO_TURN_SHARE * values.headquarters)
+            } else {
+                partial
+            }
         };
         let cell = order.destination();
         match taken.iter_mut().find(|(other, _)| *other == cell) {
@@ -302,7 +453,22 @@ pub fn estimate(
         }
     }
     if march {
-        for (cell, decisive) in super::march::powered_captures(state, ours) {
+        let margin = if march_guard {
+            super::march::METER_MARGIN
+        } else {
+            0.0
+        };
+        let mut powered = super::march::powered_captures_with(state, ours, margin);
+        if march_guard {
+            for open in &opened {
+                for found in super::march::powered_captures_with(open, ours, margin) {
+                    if !powered.contains(&found) {
+                        powered.push(found);
+                    }
+                }
+            }
+        }
+        for (cell, decisive) in powered {
             let worth = if decisive {
                 estimate.headquarters_lost = true;
                 values.headquarters

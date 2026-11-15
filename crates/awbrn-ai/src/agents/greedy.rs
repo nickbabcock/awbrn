@@ -60,6 +60,10 @@ use crate::threat::{self, ThreatMap};
 use crate::vision::{Needs, VisionMap};
 
 use super::move_policy::{self, ForecastValues, MoveCandidate, MoveContext, MoveModel, UnitBasis};
+use super::move_policy2::{
+    self, LogEntry, Move2Candidate, Move2Model, Policy2Context, Policy2Features, Policy2Outputs,
+    TurnLog, UnitFeatures, UnitModel,
+};
 
 /// The minimum funds that make saving the final production opportunity useful.
 const LATE_SAVE_MIN_FUNDS: u64 = 10_000;
@@ -402,9 +406,63 @@ pub struct Weights {
     /// ([`super::move_policy::fog_model`]) at the same strength.
     #[serde(skip_serializing_if = "is_zero")]
     pub move_policy: f64,
+    /// Whether the policy keeps playing on the last two days.
+    ///
+    /// The generic tactical policy otherwise ends the turn at once on the
+    /// day before the day limit and on the last day when the funds are at
+    /// least 10,000, to save them. A game that reaches the day limit is
+    /// decided by the properties held ([`awvm`] `day_limit_outcome`), so the
+    /// funds are worth nothing then, and the turns that the rule skips can
+    /// still capture, attack and defend. The field is left out of the
+    /// serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub play_last_days: bool,
+    /// Whether every lab counts as a headquarters on a map with no
+    /// headquarters.
+    ///
+    /// On such a map, a player who loses the last lab loses the match.
+    /// Without this switch, a lab counts as a property that neither pays nor
+    /// builds ([`Weights::other_property`]). With it, every lab on such a
+    /// map, of any owner and whether or not it is a last lab, gets the
+    /// headquarters weights wherever the scores weigh a property: the
+    /// capture of a lab and the denial of an enemy capture of one
+    /// ([`Weights::hq`]), the walk to one ([`Weights::hq_approach`]), and
+    /// the guard of an own lab that an enemy capturer nears. A map with a
+    /// headquarters does not change. The field is left out of the serialized
+    /// weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub decisive_labs: bool,
+    /// Whether the tree move model chooses the order of each unit: trees
+    /// over the move features, the unit group, the other orders of the unit,
+    /// the turn so far and the board near each destination
+    /// ([`super::move_policy2`]).
+    ///
+    /// When true, the order of a unit is the one with the highest tree
+    /// score, and the first model ([`Weights::move_policy`]) is not read. In
+    /// fog games, the policy uses the fog model. The field is left out of
+    /// the serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub move2: bool,
+    /// Whether the next-unit model chooses which unit acts next
+    /// ([`super::move_policy2::UnitModel`]).
+    ///
+    /// When true, the policy scores every ready unit at each decision. Of
+    /// the units whose best greedy score is above zero, the model takes the
+    /// unit with the highest utility. That unit plays the order that the
+    /// move model chooses ([`Weights::move2`]), with the highest greedy
+    /// score of those units, so the orders that belong to no unit compare
+    /// with it as before. Read only with [`Weights::move2`]. The field is left
+    /// out of the serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub move2_order: bool,
 }
 
 impl Weights {
+    /// Whether the policy reads the turn so far ([`super::move_policy2`]).
+    pub const fn uses_turn_log(&self) -> bool {
+        self.move2
+    }
+
     /// The ordering the agent was asked for.
     pub const DEFAULT: Self = Self {
         hq: 100_000.0,
@@ -451,6 +509,10 @@ impl Weights {
         power_policy: false,
         firing_positions: 0.0,
         move_policy: 0.0,
+        play_last_days: false,
+        decisive_labs: false,
+        move2: false,
+        move2_order: false,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -751,6 +813,23 @@ pub struct GreedyAgent {
     /// The buffers of the orders and the move features of one unit, kept
     /// across decisions so that a decision does not allocate them.
     move_buffers: (Vec<UnitOrder>, Vec<move_policy::MoveFeatures>),
+    /// The unit orders of the acting player in this turn so far, which the
+    /// second move model reads ([`super::move_policy2`]). The planner sets
+    /// it for each simulated line. A decision from an observation keeps it
+    /// itself ([`GreedyAgent::act`]).
+    turn_log: TurnLog,
+    /// The turn of the log that [`GreedyAgent::act`] keeps, and the entry of
+    /// the order that it played last, which joins the log when the host
+    /// reports it accepted ([`Agent::refresh`]).
+    auto_log: Option<(awvm::semantic::PlayerId, u64)>,
+    auto_pending: Option<LogEntry>,
+    /// The units of the position that the second model reads.
+    policy2_context: Policy2Context,
+    /// The buffers of the second model, kept across decisions.
+    policy2_buffers: Policy2Buffers,
+    /// Where the features of the second model go, when the extractor or a
+    /// check asks for them.
+    policy2_out: Option<Policy2Outputs>,
     /// Calculate the move features of every unit, also when the choice of
     /// the model cannot change the selection. A test compares this with the
     /// lazy calculation.
@@ -891,6 +970,9 @@ impl MovementBounds {
 #[derive(Debug)]
 struct Selection {
     position: Option<PositionKey>,
+    /// The key of the turn log of the selection ([`TurnLog`]), or zero for
+    /// a policy that does not read the log.
+    log: u64,
     ready: bool,
     units: Option<Vec<awvm::semantic::UnitId>>,
     unitless: bool,
@@ -906,6 +988,7 @@ impl Selection {
     const fn new() -> Self {
         Self {
             position: None,
+            log: 0,
             ready: false,
             units: None,
             unitless: true,
@@ -916,14 +999,16 @@ impl Selection {
         }
     }
 
-    fn matches(&self, position: PositionKey, scope: Option<LegalScope<'_>>) -> bool {
+    fn matches(&self, position: PositionKey, log: u64, scope: Option<LegalScope<'_>>) -> bool {
         self.position == Some(position)
+            && self.log == log
             && self.units.as_deref() == scope.map(|scope| scope.units)
             && self.unitless == scope.is_none_or(|scope| scope.unitless)
     }
 
-    fn begin(&mut self, position: PositionKey, scope: Option<LegalScope<'_>>) {
+    fn begin(&mut self, position: PositionKey, log: u64, scope: Option<LegalScope<'_>>) {
         self.position = Some(position);
+        self.log = log;
         self.ready = false;
         match scope {
             Some(scope) => {
@@ -1056,6 +1141,12 @@ impl GreedyAgent {
             move_context: MoveContext::new(),
             viewer: None,
             move_buffers: (Vec::new(), Vec::new()),
+            turn_log: TurnLog::new(),
+            auto_log: None,
+            auto_pending: None,
+            policy2_context: Policy2Context::new(),
+            policy2_buffers: Policy2Buffers::new(),
+            policy2_out: None,
             #[cfg(test)]
             eager_move_features: false,
         }
@@ -1147,6 +1238,68 @@ impl GreedyAgent {
             );
             moves
         })
+    }
+
+    /// Score each legal unit order of the view and calculate the features of
+    /// the second move model ([`super::move_policy2`]) with `log` as the
+    /// turn so far. The tie-break stream does not change.
+    pub fn policy2_candidates(
+        &mut self,
+        view: &Observation,
+        log: &TurnLog,
+    ) -> Option<(Vec<MoveCandidate>, Policy2Outputs)> {
+        self.turn_log.clone_from(log);
+        self.policy2_out = Some(Policy2Outputs::default());
+        let moves = self.with_observation(view, |agent, session| {
+            let mut candidates = Vec::new();
+            let mut moves = Vec::new();
+            agent.act_in_session_scoped::<true>(
+                session,
+                None,
+                Some(&mut candidates),
+                Some(&mut moves),
+            );
+            moves
+        });
+        let out = self.policy2_out.take().unwrap_or_default();
+        moves.map(|moves| (moves, out))
+    }
+
+    /// Set the turn so far of the next decisions ([`TurnLog`]).
+    pub fn set_turn_log(&mut self, log: &TurnLog) {
+        self.turn_log.clone_from(log);
+    }
+
+    /// Add one order to the turn so far.
+    pub fn push_turn_log(&mut self, entry: LogEntry) {
+        self.turn_log.push(entry);
+    }
+
+    /// Start an empty turn so far.
+    pub fn clear_turn_log(&mut self) {
+        self.turn_log.clear();
+    }
+
+    /// The turn so far of the next decision.
+    pub const fn turn_log(&self) -> &TurnLog {
+        &self.turn_log
+    }
+
+    /// Collect the features of the second model of each decision in play,
+    /// for every unit, until [`GreedyAgent::take_policy2_capture`]. The
+    /// selections do not change.
+    #[cfg(test)]
+    pub(crate) fn capture_policy2(&mut self) {
+        self.policy2_out = Some(Policy2Outputs::default());
+        self.selection.position = None;
+    }
+
+    /// The features that the decisions in play calculated since
+    /// [`GreedyAgent::capture_policy2`], and stop collecting.
+    #[cfg(test)]
+    pub(crate) fn take_policy2_capture(&mut self) -> Option<Policy2Outputs> {
+        self.selection.position = None;
+        self.policy2_out.take()
     }
 
     /// Score the visible legal orders without changing the tie-break stream.
@@ -1660,10 +1813,49 @@ fn neutral_strike(attacker: UnitKind, defender: UnitKind) -> f64 {
 
 impl Agent for GreedyAgent {
     fn act(&mut self, view: &Observation, _budget: NodeBudget) -> Option<Play> {
-        // A projection this player may not act on reports nothing legal, so
-        // the session answers the question rather than an error path.
-        self.with_observation(view, |agent, session| agent.act_in_session(session))
-            .flatten()
+        if !self.weights.uses_turn_log() {
+            // A projection this player may not act on reports nothing legal,
+            // so the session answers the question rather than an error path.
+            return self
+                .with_observation(view, |agent, session| agent.act_in_session(session))
+                .flatten();
+        }
+        // The policy keeps the log of its own orders in this turn. The order
+        // that it played last joins the log when the host reports it
+        // accepted; an order still pending here was not accepted.
+        let turn = (view.turn.active_player.clone(), view.turn.day);
+        if self.auto_log.as_ref() != Some(&turn) {
+            self.auto_log = Some(turn);
+            self.turn_log.clear();
+        }
+        self.auto_pending = None;
+        let result = self
+            .with_observation(view, |agent, session| {
+                let play = agent.act_in_session(session)?;
+                Some((play, LogEntry::of_play(session.state(), &play)))
+            })
+            .flatten();
+        self.auto_pending = result.and_then(|(_, entry)| entry);
+        result.map(|(play, _)| play)
+    }
+
+    fn start_match(&mut self) {
+        self.auto_log = None;
+        self.auto_pending = None;
+        self.turn_log.clear();
+    }
+
+    fn refresh(&mut self, view: &Observation) {
+        let turn = (view.turn.active_player.clone(), view.turn.day);
+        if self.auto_log.as_ref() == Some(&turn)
+            && let Some(entry) = self.auto_pending.take()
+        {
+            self.turn_log.push(entry);
+        }
+    }
+
+    fn reject(&mut self, _view: &Observation) {
+        self.auto_pending = None;
     }
 }
 
@@ -1750,14 +1942,26 @@ impl GreedyAgent {
             return None;
         }
         awvm::benchmark::record_greedy_action();
+        let log_key = if self.weights.uses_turn_log() {
+            self.turn_log.key()
+        } else {
+            0
+        };
         if !RECORD {
-            if self.selection.matches(session.position_key(), scope) {
+            if self.policy2_out.is_some() {
+                // A check reads the features of every decision.
+                self.selection.position = None;
+            }
+            if self
+                .selection
+                .matches(session.position_key(), log_key, scope)
+            {
                 if self.selection.ready {
                     return self.selection.choose(&mut self.rng);
                 }
                 self.selection.ready = true;
             } else {
-                self.selection.begin(session.position_key(), scope);
+                self.selection.begin(session.position_key(), log_key, scope);
             }
         }
         let state = session.state();
@@ -1814,6 +2018,10 @@ impl GreedyAgent {
             move_context,
             viewer,
             move_buffers,
+            turn_log,
+            policy2_context,
+            policy2_buffers,
+            policy2_out,
             ..
         } = self;
         let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
@@ -1863,7 +2071,9 @@ impl GreedyAgent {
         // measured at, and it is what makes the two a comparison of one term.
         // The move model reads the map for its threat features, so a weighting
         // with the model builds the map also when the threat term is zero.
-        if unit_fields_needed && (weights.threat != 0.0 || weights.move_policy != 0.0) {
+        if unit_fields_needed
+            && (weights.threat != 0.0 || weights.move_policy != 0.0 || weights.uses_turn_log())
+        {
             threat.set_commander_effects(weights.commander_effects);
             threat.set_overlay(fog.map(|estimate| Arc::clone(&estimate.threat)));
             threat.build(session, seat);
@@ -1930,7 +2140,25 @@ impl GreedyAgent {
         } else {
             build_sites.clear();
         }
-        let model = (!RECORD && weights.move_policy != 0.0).then(|| {
+        let fog_game = state.settings.fog;
+        let policy2_model = (!RECORD && weights.move2).then(|| {
+            if fog_game {
+                move_policy2::fog_tree_model()
+            } else {
+                move_policy2::tree_model()
+            }
+        });
+        // The next-unit model chooses among all units, so it plays only in a
+        // decision over the whole position.
+        let order_model = (!RECORD && weights.move2 && weights.move2_order && scope.is_none())
+            .then(|| {
+                if fog_game {
+                    move_policy2::fog_unit_model()
+                } else {
+                    move_policy2::unit_model()
+                }
+            });
+        let model = (!RECORD && weights.move_policy != 0.0 && policy2_model.is_none()).then(|| {
             let model = if state.settings.fog {
                 move_policy::fog_model()
             } else {
@@ -1939,6 +2167,24 @@ impl GreedyAgent {
             (model, weights.move_policy)
         });
         move_context.clear(*viewer == Some(seat));
+        policy2_context.clear();
+        let policy2 = (policy2_model.is_some() || order_model.is_some() || policy2_out.is_some())
+            .then(|| {
+                policy2_buffers.units.clear();
+                policy2_buffers.unit_orders.clear();
+                policy2_buffers.unit_moves.clear();
+                policy2_buffers.rows.clear();
+                policy2_buffers.ids.clear();
+                Policy2Run {
+                    model: policy2_model,
+                    order_model,
+                    context: policy2_context,
+                    log: turn_log,
+                    buffers: policy2_buffers,
+                    all_units: order_model.is_some() || policy2_out.is_some(),
+                    out: policy2_out.as_mut(),
+                }
+            });
         let scorer = Scorer {
             board: &board,
             movement_bounds,
@@ -1972,8 +2218,9 @@ impl GreedyAgent {
             preserve_denial_sacrifice: policy.preserve_denial_sacrifice,
             denial_sacrifice: None,
             selection,
-            features: model.is_some() || moves.is_some(),
+            features: model.is_some() || moves.is_some() || policy2.is_some(),
             model,
+            policy2,
             moves,
             context: move_context,
             unit_orders: std::mem::take(&mut move_buffers.0),
@@ -1986,6 +2233,7 @@ impl GreedyAgent {
             None => session.legal().visit_orders(&mut visitor),
         }
         visitor.flush();
+        visitor.finish_policy2();
         *move_buffers = (
             std::mem::take(&mut visitor.unit_orders),
             std::mem::take(&mut visitor.unit_features),
@@ -2005,6 +2253,39 @@ impl GreedyAgent {
             (None, None) => None,
         }
     }
+}
+
+/// The unit that acts next, from the best greedy score of each unit and its
+/// utility in the next-unit model: of the units whose best greedy score is
+/// above zero (the greedy policy would play each of them in this turn), the
+/// first with the highest utility. Also the highest best greedy score of
+/// those units, which the order of the unit gets, so that it compares with
+/// the orders that belong to no unit as the best unit order would. `None`
+/// when no best greedy score is above zero.
+fn next_unit(bests: impl Iterator<Item = f64>, utilities: &[f64]) -> Option<(usize, f64)> {
+    let mut pick: Option<(usize, f64)> = None;
+    let mut high = f64::NEG_INFINITY;
+    for (index, (best, utility)) in bests.zip(utilities).enumerate() {
+        if best <= 0.0 {
+            continue;
+        }
+        high = high.max(best);
+        if pick.is_none_or(|(_, value)| *utility > value) {
+            pick = Some((index, *utility));
+        }
+    }
+    pick.map(|(index, _)| (index, high))
+}
+
+/// The index of the first highest value, or `None` for no values.
+fn argmax(values: &[f64]) -> Option<usize> {
+    let mut chosen: Option<(usize, f64)> = None;
+    for (index, value) in values.iter().enumerate() {
+        if chosen.is_none_or(|(_, best)| *value > best) {
+            chosen = Some((index, *value));
+        }
+    }
+    chosen.map(|(index, _)| index)
 }
 
 /// Return the stable identity used for one scored order.
@@ -2041,13 +2322,24 @@ impl Board<'_> {
         threat::hostile(self.state, self.seat, other)
     }
 
+    /// Whether `terrain` is a lab that counts as a headquarters
+    /// ([`Weights::decisive_labs`]): the switch is on, and the map has no
+    /// headquarters.
+    fn decisive_lab(&self, terrain: Terrain) -> bool {
+        self.weights.decisive_labs
+            && ruleset::terrain_has(terrain, TerrainTrait::LabVictory)
+            && !has_headquarters(self.state)
+    }
+
     /// What one property is worth as a place to walk to.
     ///
     /// The same as [`Board::property_weight`] except for the headquarters,
     /// which is worth the match when it is captured and one more property
     /// while it is still being walked at.
     fn approach_weight(&self, terrain: Terrain) -> f64 {
-        if ruleset::terrain_has(terrain, TerrainTrait::CaptureDefeatsOwner) {
+        if ruleset::terrain_has(terrain, TerrainTrait::CaptureDefeatsOwner)
+            || self.decisive_lab(terrain)
+        {
             self.weights.hq_approach
         } else {
             self.property_weight(terrain)
@@ -2062,7 +2354,7 @@ impl Board<'_> {
     /// income one.
     fn property_weight(&self, terrain: Terrain) -> f64 {
         let has = |value| ruleset::terrain_has(terrain, value);
-        if has(TerrainTrait::CaptureDefeatsOwner) {
+        if has(TerrainTrait::CaptureDefeatsOwner) || self.decisive_lab(terrain) {
             self.weights.hq
         } else if has(TerrainTrait::ProducesGround) {
             self.weights.land
@@ -2521,6 +2813,14 @@ pub(crate) enum CaptureTurn {
     Next,
 }
 
+/// Whether the board has a headquarters.
+pub(crate) fn has_headquarters(state: &State) -> bool {
+    state
+        .board
+        .tiles()
+        .any(|tile| ruleset::terrain_has(tile.terrain, TerrainTrait::CaptureDefeatsOwner))
+}
+
 /// The capture points that `unit` takes off a property in one turn, at
 /// `visual_hp` visible health, with the capture bonus of its commander.
 ///
@@ -2597,6 +2897,9 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     /// The move model and its strength, when the model chooses the order of
     /// each unit.
     model: Option<(&'static MoveModel, f64)>,
+    /// The second move model, the next-unit model and their features, when
+    /// they play or their features are collected.
+    policy2: Option<Policy2Run<'a>>,
     /// Where the move candidates go when they are collected.
     moves: Option<&'a mut Vec<MoveCandidate>>,
     /// The board values of the move features. They are calculated when the
@@ -2610,6 +2913,73 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     /// [`GreedyAgent::eager_move_features`].
     #[cfg(test)]
     eager: bool,
+}
+
+/// Put the utility of each candidate order of a unit in `scores` and return
+/// the index of the highest.
+fn choose_order(
+    model: &Move2Model,
+    features: &[Policy2Features],
+    scores: &mut Vec<f64>,
+) -> Option<usize> {
+    model.utilities(features, scores);
+    argmax(scores)
+}
+
+/// The state of the second model in one decision.
+struct Policy2Run<'a> {
+    /// The tree move model ([`Weights::move2`]), or `None` when it is off.
+    model: Option<&'static Move2Model>,
+    /// The next-unit model, when it chooses the unit ([`Weights::move2_order`]).
+    order_model: Option<&'static UnitModel>,
+    context: &'a mut Policy2Context,
+    log: &'a TurnLog,
+    buffers: &'a mut Policy2Buffers,
+    /// Whether every unit gets its features: for the next-unit model, a
+    /// check or the extractor.
+    all_units: bool,
+    /// Where the features go, when they are collected.
+    out: Option<&'a mut Policy2Outputs>,
+}
+
+/// The buffers of the second model, kept across decisions so that a
+/// decision does not allocate them.
+#[derive(Debug, Default)]
+struct Policy2Buffers {
+    orders: Vec<Order>,
+    moves: Vec<move_policy::MoveFeatures>,
+    totals: Vec<f64>,
+    indices: Vec<usize>,
+    features: Vec<Policy2Features>,
+    /// The utility of each candidate order, or of each unit.
+    scores: Vec<f64>,
+    /// For the next-unit model, each unit with candidate orders: the range
+    /// of its candidate orders in `unit_orders` and `unit_moves`, its highest
+    /// greedy score and its identity.
+    units: Vec<(usize, usize, f64, awvm::semantic::UnitId)>,
+    unit_orders: Vec<UnitOrder>,
+    unit_moves: Vec<move_policy::MoveFeatures>,
+    /// The next-unit features of those units, and their identities.
+    rows: Vec<UnitFeatures>,
+    ids: Vec<awvm::semantic::UnitId>,
+}
+
+impl Policy2Buffers {
+    const fn new() -> Self {
+        Self {
+            orders: Vec::new(),
+            moves: Vec::new(),
+            totals: Vec::new(),
+            indices: Vec::new(),
+            features: Vec::new(),
+            scores: Vec::new(),
+            units: Vec::new(),
+            unit_orders: Vec::new(),
+            unit_moves: Vec::new(),
+            rows: Vec::new(),
+            ids: Vec::new(),
+        }
+    }
 }
 
 /// One scored order of the unit that [`GreedyVisitor`] holds back for the
@@ -2680,13 +3050,25 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
         let lazy = !self.eager;
         #[cfg(not(test))]
         let lazy = true;
-        if lazy && self.moves.is_none() && !self.model_can_change_selection(best, &orders) {
+        let all_units = self.policy2.as_ref().is_some_and(|run| run.all_units);
+        if lazy
+            && self.moves.is_none()
+            && !all_units
+            && !self.model_can_change_selection(best, &orders)
+        {
             // The model choice cannot change the selection, so the features
             // are not calculated. The orders of the unit change nothing.
             orders.clear();
             self.unit_orders = orders;
             return;
         }
+        self.evaluate(&mut orders, best);
+        self.unit_orders = orders;
+    }
+
+    /// Calculate the features of the orders of one unit, let the model
+    /// choose, and give the orders to the selection.
+    fn evaluate(&mut self, orders: &mut Vec<UnitOrder>, best: f64) {
         let first = orders[0].order;
         let basis = self.scorer.unit_basis(first);
         let unit = first.unit().and_then(|index| self.scorer.unit(index));
@@ -2714,18 +3096,130 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
                 });
             }
         }
+        let mut chosen = None;
         if let Some((model, strength)) = self.model
             && let Some(kind) = unit.map(|unit| unit.kind)
         {
-            let mut chosen = 0;
+            let mut index_chosen = 0;
             let mut chosen_utility = f64::NEG_INFINITY;
             for (index, features) in features.iter().enumerate() {
                 let utility = model.utility(kind, features, strength);
                 if utility > chosen_utility {
-                    chosen = index;
+                    index_chosen = index;
                     chosen_utility = utility;
                 }
             }
+            chosen = Some(index_chosen);
+        }
+        // The second model: the candidate orders of a unit on the board. The
+        // unloads of a transport are a group of their own, which the greedy
+        // scores decide.
+        let mut deferred = false;
+        if let Some(run) = self.policy2.as_mut()
+            && let Some(unit) = unit
+            && !matches!(first.kind(), OrderKind::Unload(_))
+            && let Location::Board { position: origin } = unit.location
+            && let Some(origin_cell) = self
+                .scorer
+                .board
+                .state
+                .board
+                .dimensions()
+                .cell_index(origin)
+        {
+            let state = self.scorer.board.state;
+            let seat = self.scorer.board.seat;
+            let buffers = &mut *run.buffers;
+            buffers.indices.clear();
+            buffers.orders.clear();
+            buffers.moves.clear();
+            buffers.totals.clear();
+            for (index, entry) in orders.iter().enumerate() {
+                if move_policy2::is_candidate(entry.order.kind()) {
+                    buffers.indices.push(index);
+                    buffers.orders.push(entry.order);
+                    buffers.moves.push(features[index]);
+                    buffers.totals.push(entry.breakdown.total);
+                }
+            }
+            if !buffers.indices.is_empty() {
+                // The greedy score features read the best of the candidate
+                // orders. The extractor sees the other orders of a unit too
+                // (a deletion, for one), which play does not visit.
+                let candidate_best = buffers
+                    .totals
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max);
+                for (features, total) in buffers.moves.iter_mut().zip(&buffers.totals) {
+                    move_policy::set_greedy_features(candidate_best, *total, features);
+                }
+                run.context.prepare(state, seat);
+                // With the next-unit model, the move model scores only the
+                // unit that it takes ([`Self::finish_policy2`]), unless the
+                // features of every unit are collected.
+                let scored = run.order_model.is_none() || run.out.is_some();
+                if scored {
+                    move_policy2::order_features(
+                        run.context,
+                        run.log,
+                        state,
+                        seat,
+                        unit,
+                        origin,
+                        &buffers.orders,
+                        &buffers.moves,
+                        &mut buffers.features,
+                    );
+                }
+                // With the next-unit model, the move model chooses only for
+                // the unit that it takes ([`Self::finish_policy2`]).
+                let model = run.model.filter(|_| run.order_model.is_none());
+                let choice = model
+                    .and_then(|model| choose_order(model, &buffers.features, &mut buffers.scores));
+                if let Some(choice) = choice {
+                    chosen = Some(buffers.indices[choice]);
+                }
+                let wants_rows = run.order_model.is_some() || run.out.is_some();
+                if wants_rows {
+                    buffers.rows.push(move_policy2::unit_row(
+                        run.context,
+                        run.log,
+                        unit,
+                        origin,
+                        &buffers.orders,
+                        &buffers.moves,
+                        &buffers.totals,
+                        origin_cell,
+                    ));
+                    buffers.ids.push(unit.id);
+                }
+                if let Some(out) = run.out.as_deref_mut() {
+                    for (order, x) in buffers.orders.iter().zip(&buffers.features) {
+                        out.orders.push(Move2Candidate {
+                            order: *order,
+                            unit: unit.id,
+                            features: *x,
+                        });
+                    }
+                }
+                if run.order_model.is_some() {
+                    // Keep the candidate orders and their move features for
+                    // the move model of the unit that the next-unit model
+                    // takes.
+                    let start = buffers.unit_orders.len();
+                    buffers
+                        .unit_orders
+                        .extend(buffers.indices.iter().map(|index| orders[*index].clone()));
+                    buffers.unit_moves.extend_from_slice(&buffers.moves);
+                    buffers
+                        .units
+                        .push((start, buffers.unit_orders.len(), best, unit.id));
+                    deferred = true;
+                }
+            }
+        }
+        if let Some(chosen) = chosen {
             for (index, entry) in orders.iter_mut().enumerate() {
                 if index == chosen {
                     entry.breakdown.total = best;
@@ -2736,10 +3230,95 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
             }
         }
         self.unit_features = features;
+        if deferred {
+            // The next-unit model takes the unit after all units are scored
+            // ([`Self::finish_policy2`]).
+            orders.clear();
+        }
         for entry in orders.drain(..) {
             self.take(entry.order, entry.breakdown);
         }
-        self.unit_orders = orders;
+    }
+
+    /// After the visit: let the next-unit model choose the unit, and give the
+    /// next-unit features to the extractor.
+    fn finish_policy2(&mut self) {
+        let Some(run) = self.policy2.as_mut() else {
+            return;
+        };
+        if run.buffers.rows.is_empty() {
+            return;
+        }
+        move_policy2::finish_unit_rows(run.context, run.log, &mut run.buffers.rows);
+        if let Some(out) = run.out.as_deref_mut() {
+            out.units.extend(
+                run.buffers
+                    .ids
+                    .iter()
+                    .copied()
+                    .zip(run.buffers.rows.iter().copied()),
+            );
+        }
+        let Some(model) = run.order_model else {
+            return;
+        };
+        let buffers = &mut *run.buffers;
+        model.utilities(&buffers.rows, &mut buffers.scores);
+        let Some((index, high)) = next_unit(
+            buffers.units.iter().map(|(_, _, best, _)| *best),
+            &buffers.scores,
+        ) else {
+            return;
+        };
+        // The move model chooses the order of that unit.
+        let (start, end, _, id) = buffers.units[index];
+        let state = self.scorer.board.state;
+        let seat = self.scorer.board.seat;
+        let Some(unit) = state.units.get(id) else {
+            return;
+        };
+        let Location::Board { position: origin } = unit.location else {
+            return;
+        };
+        buffers.orders.clear();
+        buffers.orders.extend(
+            buffers.unit_orders[start..end]
+                .iter()
+                .map(|entry| entry.order),
+        );
+        move_policy2::order_features(
+            run.context,
+            run.log,
+            state,
+            seat,
+            unit,
+            origin,
+            &buffers.orders,
+            &buffers.unit_moves[start..end],
+            &mut buffers.features,
+        );
+        let choice = run
+            .model
+            .and_then(|model| choose_order(model, &buffers.features, &mut buffers.scores));
+        // Without a choice, the order with the best greedy score.
+        let chosen = choice.unwrap_or_else(|| {
+            buffers.unit_orders[start..end]
+                .iter()
+                .enumerate()
+                .fold((0, f64::NEG_INFINITY), |(at, high), (index, entry)| {
+                    if entry.breakdown.total > high {
+                        (index, entry.breakdown.total)
+                    } else {
+                        (at, high)
+                    }
+                })
+                .0
+        });
+        let entry = &buffers.unit_orders[start + chosen];
+        let order = entry.order;
+        let mut breakdown = entry.breakdown;
+        breakdown.total = high;
+        self.take(order, breakdown);
     }
 
     fn move_features(
@@ -2847,7 +3426,8 @@ impl<const RECORD: bool> LegalVisitor for GreedyVisitor<'_, RECORD> {
 
     fn visit_unit(&mut self, unit: UnitIdx) -> bool {
         self.flush();
-        if RECORD || self.chosen.is_none() {
+        if RECORD || self.chosen.is_none() || self.policy2.as_ref().is_some_and(|run| run.all_units)
+        {
             return true;
         }
         let Some(bound) = self.scorer.unit_score_bound(unit, self.best) else {
@@ -3171,6 +3751,7 @@ impl Scorer<'_> {
             return 0.0;
         };
         if self.policy.preserve_late_save
+            && !self.weights().play_last_days
             && self.board.state.turn.day.saturating_add(1) >= day_limit
             && player.funds >= LATE_SAVE_MIN_FUNDS
         {
@@ -5154,6 +5735,22 @@ mod tests {
         for fog in [false, true] {
             assert_eq!(game(true, fog), game(false, fog), "fog {fog}");
         }
+    }
+
+    /// The next-unit model takes the first unit with the highest utility of
+    /// those whose best greedy score is above zero, and its order gets the
+    /// highest best greedy score of those units.
+    #[test]
+    fn the_next_unit_is_the_best_unit_with_a_positive_score() {
+        let next = |bests: &[f64], utilities: &[f64]| next_unit(bests.iter().copied(), utilities);
+        // The unit with the highest utility has a best score of zero.
+        assert_eq!(next(&[5.0, 0.0, 3.0], &[0.1, 9.0, 0.4]), Some((2, 5.0)));
+        // A tie of utilities keeps the first unit.
+        assert_eq!(next(&[2.0, 7.0], &[1.0, 1.0]), Some((0, 7.0)));
+        // A negative best score never acts, nor counts for the high score.
+        assert_eq!(next(&[-4.0, 1.0], &[5.0, 0.0]), Some((1, 1.0)));
+        assert_eq!(next(&[0.0, -1.0], &[1.0, 2.0]), None);
+        assert_eq!(next(&[], &[]), None);
     }
 
     #[test]

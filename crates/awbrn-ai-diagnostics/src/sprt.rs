@@ -1529,6 +1529,46 @@ mod tests {
         assert_eq!(pairs, 280 + 7 * 56 + 56 + 280 + 56);
     }
 
+    /// The plans of planner-v9 against planner-v8-move resolve their agents
+    /// and maps.
+    #[test]
+    fn planner_v9_plans_resolve_their_agents_and_maps() {
+        let directory =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ai-diagnostics/sprt");
+        let mut plans = 0;
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
+            if !name.starts_with("planner-v9-vs-v8-move-") {
+                continue;
+            }
+            let plan = read_sprt_plan(&path).unwrap();
+            assert_eq!(plan.run_id, name);
+            assert_eq!(plan.maps.len(), 14);
+            assert_eq!(plan.max_pairs, 280);
+            assert_eq!(plan.fog == Some(true), name.contains("-fog-"));
+            assert_eq!(plan.limits.day_limit, 35);
+            assert_eq!(plan.limits.node_budget, 256);
+            assert_eq!(plan.agent_seed_protocol, AgentSeedProtocol::SeatSeeded);
+            let registry = plan_registry(&plan, &path).unwrap();
+            assert!(plan.maps.iter().all(|map| registry.get(*map).is_some()));
+            let (factory, _) = plan.candidate.materialize(&path).unwrap();
+            assert_eq!(factory.identity().identifier, "planner-v9");
+            assert_eq!(
+                factory.identity().configuration_fingerprint,
+                "0509d77ac4aaf179"
+            );
+            let (factory, _) = plan.baseline.materialize(&path).unwrap();
+            assert_eq!(
+                factory.identity().configuration_fingerprint,
+                "5ff8c2c6aa41cc2f"
+            );
+            plans += 1;
+        }
+        // Andy without fog and in fog.
+        assert_eq!(plans, 2);
+    }
+
     #[test]
     fn old_sprt_plans_keep_role_seeded_json() {
         let directory =

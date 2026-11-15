@@ -21,6 +21,10 @@
 //!   The `offset` of a row is the index of its first order.
 //!
 //! `fit_move_policy.py` fits the move model to these files.
+//!
+//! `extract-policy2` extracts the decisions of the second move model
+//! ([`awbrn_ai::agents::move_policy2`]); see `policy2/extract.rs`.
+//! `policy2/fit.py` fits that model.
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -35,6 +39,9 @@ use awvm::semantic::{AwbwVisibility, Location, Match, Pos, State, UnitAction, Un
 use awvm::session::OrderKind;
 use awvm_awbw::RecordedAdapter;
 use serde::Serialize;
+
+#[path = "policy2/extract.rs"]
+mod policy2;
 
 #[derive(Serialize)]
 struct Row {
@@ -85,14 +92,17 @@ fn main() -> Result<()> {
         ["extract", maps, output, divisions @ ..] if !divisions.is_empty() => {
             extract(divisions, Path::new(maps), Path::new(output))
         }
+        ["extract-policy2", maps, output, divisions @ ..] if !divisions.is_empty() => {
+            policy2::run(divisions, Path::new(maps), Path::new(output))
+        }
         ["score", strength, prefix] => score(strength.parse()?, prefix),
         ["names", output] => Ok(fs::write(
             output,
             serde_json::to_vec_pretty(&MOVE_FEATURES.as_slice())?,
         )?),
         _ => bail!(
-            "usage: move_policy extract <maps> <output> <division>... | names <output> \
-             | score <strength> <prefix>"
+            "usage: move_policy extract|extract-policy2 <maps> <output> <division>... \
+             | names <output> | score <strength> <prefix>"
         ),
     }
 }

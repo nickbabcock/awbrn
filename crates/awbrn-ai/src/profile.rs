@@ -42,12 +42,11 @@ pub const HARD_V3_CONFIG: BaselineConfig = BaselineConfig {
     ..HARD_V2_CONFIG
 };
 
-/// The scoring configuration of `ai-medium-v1`, the greedy policy of
-/// `planner-v8`: the [`HARD_V3_CONFIG`] scoring with the build model and its
-/// range term, the commander effects, the power policy and the firing
-/// positions of indirect units.
+/// The greedy policy of `planner-v8`: the [`HARD_V3_CONFIG`] scoring with
+/// the build model and its range term, the commander effects, the power
+/// policy and the firing positions of indirect units.
 ///
-/// The planner of `ai-medium-v1` uses it for its seed plan and its fallback.
+/// [`PlannerConfig::V8`] uses it for its seed plan and its fallback.
 pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8",
     weights: Weights {
@@ -65,12 +64,34 @@ pub const V8_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
 /// orders at strength 0.5 ([`crate::agents::Weights::move_policy`]). In fog
 /// games, the policy uses the fog model with the known map.
 ///
-/// [`PlannerConfig::V8_MOVE`], the planner of `ai-hard-v4`, uses it for its
+/// [`PlannerConfig::V8_MOVE`], the planner of `ai-medium-v2`, uses it for its
 /// seed plan, its fallback and its simulated replies.
 pub const V8_MOVE_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v8-move-v2",
     weights: Weights {
         move_policy: 0.5,
+        ..V8_GREEDY_CONFIG.weights
+    },
+    ..V8_GREEDY_CONFIG
+};
+
+/// The [`V8_GREEDY_CONFIG`] scoring with the tree move model and the
+/// next-unit model ([`crate::agents::Weights::move2`] and
+/// [`crate::agents::Weights::move2_order`]), which keeps playing on the last
+/// two days ([`crate::agents::Weights::play_last_days`]) and, on a map with
+/// no headquarters, gives every lab the headquarters weights
+/// ([`crate::agents::Weights::decisive_labs`]). In fog games, the models are
+/// the fog models.
+///
+/// [`PlannerConfig::V9`], the planner of `ai-hard-v5`, uses it for its seed
+/// plan, its fallback, its simulated replies and both sides of its rollouts.
+pub const V9_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v9",
+    weights: Weights {
+        play_last_days: true,
+        decisive_labs: true,
+        move2: true,
+        move2_order: true,
         ..V8_GREEDY_CONFIG.weights
     },
     ..V8_GREEDY_CONFIG
@@ -131,27 +152,27 @@ pub const EASY: AiProfile = AiProfile {
 };
 
 /// The opponent seated for [`AiTier::Medium`]: the planner of
-/// [`PlannerConfig::V8`].
+/// [`PlannerConfig::V8_MOVE`].
 pub const MEDIUM: AiProfile = AiProfile {
-    id: "ai-medium-v1",
+    id: "ai-medium-v2",
     tier: AiTier::Medium,
     label: "Medium",
-    blurb: "Plans its whole turn. It sets up kills, guards its bases, and keeps units out of focused fire.",
-    implementation: AiImplementation::Planner,
-    config: V8_GREEDY_CONFIG,
-    planner: Some(PlannerConfig::V8),
-};
-
-/// The opponent seated for [`AiTier::Hard`]: the planner of
-/// [`PlannerConfig::V8_MOVE`].
-pub const HARD: AiProfile = AiProfile {
-    id: "ai-hard-v4",
-    tier: AiTier::Hard,
-    label: "Hard",
     blurb: "Plans its whole turn, and moves its units the way strong human players do.",
     implementation: AiImplementation::Planner,
     config: V8_MOVE_GREEDY_CONFIG,
     planner: Some(PlannerConfig::V8_MOVE),
+};
+
+/// The opponent seated for [`AiTier::Hard`]: the planner of
+/// [`PlannerConfig::V9`].
+pub const HARD: AiProfile = AiProfile {
+    id: "ai-hard-v5",
+    tier: AiTier::Hard,
+    label: "Hard",
+    blurb: "Plays its best plans a few turns ahead before it moves, fights for its headquarters, and moves like strong human players.",
+    implementation: AiImplementation::Planner,
+    config: V9_GREEDY_CONFIG,
+    planner: Some(PlannerConfig::V9),
 };
 
 /// A retired Hard opponent. It scores one order at a time.
@@ -294,7 +315,7 @@ mod tests {
     #[test]
     fn a_stored_identifier_resolves() {
         assert_eq!(profile("ai-hard-v2"), Some(&HARD_V2));
-        assert_eq!(profile("ai-hard-v4"), Some(&HARD));
+        assert_eq!(profile("ai-hard-v5"), Some(&HARD));
         assert_eq!(profile("ai-nonesuch"), None);
     }
 
@@ -304,7 +325,7 @@ mod tests {
     fn identifiers_are_locked() {
         assert_eq!(
             PROFILES.map(|profile| profile.id),
-            ["ai-easy-v2", "ai-medium-v1", "ai-hard-v4", "ai-hard-v2"]
+            ["ai-easy-v2", "ai-medium-v2", "ai-hard-v5", "ai-hard-v2"]
         );
     }
 
@@ -419,22 +440,22 @@ mod tests {
     }
 
     #[test]
-    fn medium_tier_seats_the_v8_planner() {
+    fn medium_tier_seats_the_v8_move_planner() {
         assert_eq!(profile_for_tier(AiTier::Medium), &MEDIUM);
-        assert_eq!(MEDIUM.id, "ai-medium-v1");
+        assert_eq!(MEDIUM.id, "ai-medium-v2");
         assert_eq!(MEDIUM.implementation, AiImplementation::Planner);
-        assert_eq!(MEDIUM.config, V8_GREEDY_CONFIG);
-        assert_eq!(MEDIUM.planner, Some(PlannerConfig::V8));
+        assert_eq!(MEDIUM.config, V8_MOVE_GREEDY_CONFIG);
+        assert_eq!(MEDIUM.planner, Some(PlannerConfig::V8_MOVE));
         assert_eq!(MEDIUM.node_budget(), NodeBudget::TWO_HUNDRED_FIFTY_SIX);
     }
 
     #[test]
-    fn hard_tier_seats_the_v8_move_planner() {
+    fn hard_tier_seats_the_v9_planner() {
         assert_eq!(profile_for_tier(AiTier::Hard), &HARD);
-        assert_eq!(HARD.id, "ai-hard-v4");
+        assert_eq!(HARD.id, "ai-hard-v5");
         assert_eq!(HARD.implementation, AiImplementation::Planner);
-        assert_eq!(HARD.config, V8_MOVE_GREEDY_CONFIG);
-        assert_eq!(HARD.planner, Some(PlannerConfig::V8_MOVE));
+        assert_eq!(HARD.config, V9_GREEDY_CONFIG);
+        assert_eq!(HARD.planner, Some(PlannerConfig::V9));
         assert_eq!(HARD.node_budget(), NodeBudget::TWO_HUNDRED_FIFTY_SIX);
     }
 
@@ -463,8 +484,8 @@ mod tests {
     #[test]
     fn current_profile_fingerprints_are_locked() {
         assert_eq!(EASY.configuration_fingerprint(), "1f129fffc6556ade");
-        assert_eq!(MEDIUM.configuration_fingerprint(), "bcd58e5b9055256f");
-        assert_eq!(HARD.configuration_fingerprint(), "59e0ddef0dc4cfcb");
+        assert_eq!(MEDIUM.configuration_fingerprint(), "118f27a898d39767");
+        assert_eq!(HARD.configuration_fingerprint(), "19f1aab4bf5537bf");
     }
 
     #[test]

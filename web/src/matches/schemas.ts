@@ -65,7 +65,7 @@ export const defaultMatchClock: MatchClock = {
  * means, so a finished match always says which opponent it was against.
  * `ai_profiles.test.ts` holds this list to the engine roster.
  */
-export const aiProfileIds = ["ai-easy-v2", "ai-medium-v1", "ai-hard-v4"] as const;
+export const aiProfileIds = ["ai-easy-v2", "ai-medium-v2", "ai-hard-v5"] as const;
 
 export const aiProfileIdSchema = z.enum(aiProfileIds);
 
