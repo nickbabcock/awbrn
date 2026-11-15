@@ -1012,8 +1012,10 @@ impl TreeEnsemble {
     /// The raw score of each row, the same values as [`TreeEnsemble::score`].
     pub fn score_rows<const N: usize>(&self, rows: &[[f32; N]], out: &mut Vec<f64>) {
         debug_assert_eq!(N, self.features);
-        // A split sends NaN to the right, where LightGBM, with a missing value
-        // rule, could send it left. The features are always finite.
+        // The two walks disagree on NaN: the walk of the nodes sends it to the
+        // right and the complete trees send it to the left, and LightGBM, with
+        // a missing value rule, could send it either way. The features are
+        // always finite.
         debug_assert!(
             rows.iter().flatten().all(|value| value.is_finite()),
             "a feature is not finite"
@@ -1046,7 +1048,9 @@ impl TreeEnsemble {
 
 impl Complete {
     /// Add the score of each tree to each row, tree by tree, so that one
-    /// tree stays in the cache for all rows. Four rows walk together.
+    /// tree stays in the cache for all rows. Eight rows walk together, then
+    /// four, then one: the walk of one row is a chain of dependent loads,
+    /// and eight chains hide more of the latency than four.
     fn score_rows<const N: usize>(&self, rows: &[[f32; N]], out: &mut [f64]) {
         let depth = self.depth;
         let inner = (1 << depth) - 1;
@@ -1058,8 +1062,32 @@ impl Complete {
             let step = |x: &[f32; N], at: usize| {
                 2 * at + 1 + usize::from(x[usize::from(features[at])] > thresholds[at])
             };
-            let (chunks, rest) = rows.as_chunks::<4>();
-            let (sums, rest_sums) = out.as_chunks_mut::<4>();
+            let (chunks, rest) = rows.as_chunks::<8>();
+            let (sums, rest_sums) = out.as_chunks_mut::<8>();
+            for (x, sum) in chunks.iter().zip(sums) {
+                let (mut a, mut b, mut c, mut d) = (0, 0, 0, 0);
+                let (mut e, mut f, mut g, mut h) = (0, 0, 0, 0);
+                for _ in 0..depth {
+                    a = step(&x[0], a);
+                    b = step(&x[1], b);
+                    c = step(&x[2], c);
+                    d = step(&x[3], d);
+                    e = step(&x[4], e);
+                    f = step(&x[5], f);
+                    g = step(&x[6], g);
+                    h = step(&x[7], h);
+                }
+                sum[0] += leaves[a - inner];
+                sum[1] += leaves[b - inner];
+                sum[2] += leaves[c - inner];
+                sum[3] += leaves[d - inner];
+                sum[4] += leaves[e - inner];
+                sum[5] += leaves[f - inner];
+                sum[6] += leaves[g - inner];
+                sum[7] += leaves[h - inner];
+            }
+            let (chunks, rest) = rest.as_chunks::<4>();
+            let (sums, rest_sums) = rest_sums.as_chunks_mut::<4>();
             for (x, sum) in chunks.iter().zip(sums) {
                 let (mut a, mut b, mut c, mut d) = (0, 0, 0, 0);
                 for _ in 0..depth {
@@ -1386,6 +1414,63 @@ mod tests {
         assert_scores(&fog_tree_model().trees, "move2-fog.rows");
         assert_scores(&unit_model().trees, "unit2-nofog.rows");
         assert_scores(&fog_unit_model().trees, "unit2-fog.rows");
+    }
+
+    /// Rows from the fixture rows with some values replaced by a threshold
+    /// of the model, the value just below or just above it, so that many
+    /// splits are decided by the smallest margin, in batches of 1 to 37 rows
+    /// (every path of eight, four and one row together).
+    fn assert_random_rows<const N: usize>(trees: &TreeEnsemble, name: &str, seed: u64) {
+        assert!(trees.complete.is_some(), "{name} has complete trees");
+        let (columns, x, _) = fixture(name);
+        assert_eq!(columns, N);
+        let base: Vec<[f32; N]> = x.chunks(N).map(|row| row.try_into().unwrap()).collect();
+        let mut thresholds = vec![Vec::new(); N];
+        for node in &trees.nodes {
+            thresholds[usize::from(node.feature)].push(node.threshold);
+        }
+        let mut rng = Rng::from_seed(seed);
+        let mut rows = Vec::new();
+        for _ in 0..4_000 {
+            let mut row = base[rng.below(base.len() as u64) as usize];
+            for (feature, value) in row.iter_mut().enumerate() {
+                let near = &thresholds[feature];
+                if near.is_empty() || rng.below(4) != 0 {
+                    continue;
+                }
+                let threshold = near[rng.below(near.len() as u64) as usize];
+                *value = match rng.below(3) {
+                    0 => threshold.next_down(),
+                    1 => threshold,
+                    _ => threshold.next_up(),
+                };
+            }
+            rows.push(row);
+        }
+        let mut scores = Vec::new();
+        let mut at = 0;
+        while at < rows.len() {
+            let batch = &rows[at..(at + 1 + rng.below(37) as usize).min(rows.len())];
+            trees.score_rows(batch, &mut scores);
+            for (row, score) in batch.iter().zip(&scores) {
+                assert_eq!(
+                    trees.score(row).to_bits(),
+                    score.to_bits(),
+                    "{name}: the complete trees score as the nodes"
+                );
+            }
+            at += batch.len();
+        }
+    }
+
+    /// The batch scoring of the complete trees gives the bits of the walk of
+    /// the nodes on rows near the thresholds.
+    #[test]
+    fn the_complete_trees_score_as_the_nodes() {
+        assert_random_rows::<POLICY2_FEATURE_COUNT>(&tree_model().trees, "move2-nofog.rows", 1);
+        assert_random_rows::<POLICY2_FEATURE_COUNT>(&fog_tree_model().trees, "move2-fog.rows", 2);
+        assert_random_rows::<UNIT_FEATURE_COUNT>(&unit_model().trees, "unit2-nofog.rows", 3);
+        assert_random_rows::<UNIT_FEATURE_COUNT>(&fog_unit_model().trees, "unit2-fog.rows", 4);
     }
 
     #[test]
