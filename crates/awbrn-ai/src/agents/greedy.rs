@@ -3643,12 +3643,12 @@ impl<const RECORD: bool> LegalVisitor for GreedyVisitor<'_, RECORD> {
         let Some(bound) = self.scorer.unit_score_bound(unit, self.best) else {
             return true;
         };
-        if bound >= self.best {
-            return true;
-        }
+        let visit = bound >= self.best;
         #[cfg(debug_assertions)]
-        self.scorer.check_unit_score_bound(unit, bound);
-        false
+        if !visit {
+            self.scorer.check_unit_score_bound(unit, bound);
+        }
+        visit
     }
 
     fn order(&mut self, order: Order) {
