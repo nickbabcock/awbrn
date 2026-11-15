@@ -644,7 +644,8 @@ Corroborated implementation:
   Sidewinder, with movement-only hooks.
 - WarsWorld's Andy AW1/AW2/AWDS profiles assign three stars to Hyper Repair and
   heal every owned unit by two visual HP. Its shared unit `heal` operation
-  rounds current exact HP up to visual HP before adding the requested bars.
+  rounds current exact HP up to visual HP before adding the requested bars;
+  archived AWBW replays contradict that rounding (2.3 heals to 4.3).
 - AWBW Replay Player's Colin profile and WarsWorld's AW2 Colin implementation
   agree that Gold Rush costs two stars and multiplies the activating player's
   current funds by one and one half.
@@ -674,8 +675,7 @@ Corroborated implementation:
 - WarsWorld's Hawke AW2/AWDS profile and AWBW Replay Player's `COs.json` agree
   that Black Wave costs five stars, heals owned units by 10 exact HP, and
   damages enemy units by 10 exact HP without killing them; Black Storm costs
-  nine stars and uses 20 exact HP. WarsWorld additionally identifies these as
-  the exceptional heals that do not round up to visual HP.
+  nine stars and uses 20 exact HP.
 - AWBW Replay Player's `COs.json` and the AWBW Wiki CO kit data agree that
   Olaf's Blizzard costs three stars, Winter Fury costs seven total stars,
   both create snow for one day, and Winter Fury first damages enemy units by

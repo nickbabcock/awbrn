@@ -318,8 +318,9 @@ Corroborated implementation:
   `fuel_per_turn`. `propertyRepairAndResupply` heals
   `min(2, floor(funds / (buildCost/10)), 10 - visualHP)` bars and deducts
   `bars * buildCost/10`, matching the two-bar cap, the `cost/10` per-bar price,
-  and the sequential affordability used here. Its Rachel `+1` bar is a commander
-  effect and is excluded.
+  and the sequential affordability used here. It rounds the fraction up and
+  never tops up a 9.x unit, which the archived replays above contradict. Its
+  Rachel `+1` bar is a commander effect and is excluded.
 - The AWBW replay `End`/`NextTurn` action itself
   (`AWBW-Replay-Player/AWBWApp.Game/API/Replay/Actions/EndTurnAction.cs`) carries
   `nextFunds`, `supplied` (a set of unit IDs set to max fuel and ammo), and

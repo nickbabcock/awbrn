@@ -302,24 +302,19 @@ pub(super) fn execute_prepared_repair(
             reason: KnownReason::UnitRepair.into(),
         });
     }
+    // One heal of exact HP, keeping the fraction (7.4 becomes 8.4), priced by
+    // the bars the board gains. A unit already showing 10 bars gains none, so
+    // it is topped up for free, but only when the visit also refilled its fuel
+    // or ammo.
     let hp_before = target.hp;
-    // One bar of exact HP, keeping the fraction (7.4 becomes 8.4). A unit
-    // already showing 10 bars gains no bar, so it is topped up for free, and
-    // only when the visit also refilled its fuel or ammo.
-    let heal = if hp_before.div_ceil(exact_hp) < 10 {
-        Some(heal_cost)
-    } else if hp_before < 10 * exact_hp && resupplied {
-        Some(0)
-    } else {
-        None
-    };
-    if let Some(cost) = heal {
+    let hp_after = hp_before.saturating_add(exact_hp).min(100);
+    let cost = u64::from(hp_after.div_ceil(10) - hp_before.div_ceil(10)) * heal_cost;
+    if hp_after > hp_before && (cost > 0 || resupplied) {
         let player_index = outcome.state.player_index(player).ok_or_else(|| {
             ExecuteError::InvalidState(format!("unknown active player {player}").into())
         })?;
         let funds_before = outcome.state.player_mut(player_index).funds;
         if cost <= funds_before {
-            let hp_after = hp_before.saturating_add(exact_hp).min(10 * exact_hp);
             if cost > 0 {
                 outcome.state.player_mut(player_index).funds -= cost;
                 outcome.events.push(Event::FundsChanged {

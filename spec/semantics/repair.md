@@ -115,7 +115,7 @@ order:
    `unit-resourced { unit: t, fuel_before, fuel_after, ammo_before, ammo_after,
    reason: "unit-repair" }`.
 3. **Heal (conditional, paid).**
-   - If `t.hp < 90`, the heal costs `heal-cost(t)`. If `t.hp` is 91 to 99, it
+   - If `t.hp <= 90`, the heal costs `heal-cost(t)`. If `t.hp` is 91 to 99, it
      shows 10 bars already and gains none, so the heal is free, but it happens
      only when step 2 actually changed the target's fuel or ammo. Otherwise
      (`t.hp = 100`, or a fully supplied target at 91 to 99) there is no heal,
@@ -163,6 +163,7 @@ Corroborated implementation:
 - WarsWorld's repair handler (`src/shared/match-logic/events/handlers/repair.ts`)
   requires the acting unit to be a Black Boat and the adjacent target to be owned
   by the same player, resupplies the target unconditionally, heals one visual bar
+  (rounding the fraction up, which the archived replays above contradict)
   for `buildCost / 10` only when the target is below full visual HP and the
   player can afford it, and otherwise (its tested case) resupplies without
   repairing.
