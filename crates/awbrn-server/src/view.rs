@@ -15,9 +15,9 @@ use awvm::event::Event;
 use awvm::ruleset::Terrain;
 use awvm::semantic::{
     AwbwVisibility, CAPTURE_REQUIRED_POINTS, Concealment, Location, Match, Observation,
-    ObservedEvent, ObservedPlayer, ObservedTransition, ObservedUnit, ObservedUnitHp,
-    ObservedUnitRef, Outcome, Phase, PlayerId as VmPlayerId, Pos, State, TileVisibility, UnitId,
-    Viewpoint, Visibility, observe, observe_transition,
+    ObservedEvent, ObservedTransition, ObservedUnit, ObservedUnitHp, ObservedUnitRef, Outcome,
+    Phase, PlayerId as VmPlayerId, Pos, State, TileVisibility, UnitId, Viewpoint, Visibility,
+    observe, observe_transition,
 };
 
 use crate::state::TurnPhase;
@@ -912,12 +912,9 @@ fn observed_player_states(observation: &Observation) -> Vec<PublicPlayerState> {
     observation
         .players
         .iter()
-        .map(|player| {
-            let (ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. }) = player;
-            PublicPlayerState {
-                slot_index: server_player_id(id).0,
-                funds: player.funds().map(narrow_u32),
-            }
+        .map(|player| PublicPlayerState {
+            slot_index: server_player_id(player.id()).0,
+            funds: player.funds().map(narrow_u32),
         })
         .collect()
 }

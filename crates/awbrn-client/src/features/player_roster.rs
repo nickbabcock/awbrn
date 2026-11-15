@@ -167,9 +167,10 @@ pub fn player_roster_seed_from_live_match(
             continue;
         };
         let player_id = awbrn_types::AwbwGamePlayerId::new(player.player_id);
-        let observed = observation.players.iter().find(|candidate| {
-            observed_player_id(candidate).as_str() == player.player_id.to_string()
-        });
+        let observed = observation
+            .players
+            .iter()
+            .find(|candidate| candidate.id().as_str() == player.player_id.to_string());
 
         let commanders = observed.map(observed_player_commanders).unwrap_or_default();
         let co = commanders
@@ -224,12 +225,6 @@ pub fn player_roster_seed_from_live_match(
         PlayerUnitCosts::default(),
         power_meters,
     )
-}
-
-fn observed_player_id(player: &ObservedPlayer) -> &awvm::semantic::PlayerId {
-    match player {
-        ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => id,
-    }
 }
 
 fn observed_player_team(player: &ObservedPlayer) -> &str {
@@ -319,7 +314,7 @@ pub fn power_meters_from_observation(observation: &Observation) -> PlayerPowerMe
             .players
             .iter()
             .filter_map(|player| {
-                let player_id = observed_player_id(player).as_str().parse().ok()?;
+                let player_id = player.id().as_str().parse().ok()?;
                 Some((
                     awbrn_types::AwbwGamePlayerId::new(player_id),
                     active_power_meter(player)?,

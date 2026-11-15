@@ -428,6 +428,12 @@ pub enum ObservedPlayer {
 }
 
 impl ObservedPlayer {
+    pub fn id(&self) -> &PlayerId {
+        match self {
+            ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => id,
+        }
+    }
+
     /// The player's funds, when the recipient may know them.
     pub fn funds(&self) -> Option<u64> {
         match self {

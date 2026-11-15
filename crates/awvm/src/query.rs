@@ -2449,8 +2449,9 @@ pub fn by_position(state: &State, actions: ActionSet) -> ObservedActionSet {
 /// Rebuild a provisional [`State`] from one recipient's [`Observation`].
 ///
 /// Every censored fact is replaced by the reading that cannot invent a
-/// capability: an opponent's treasury becomes zero, because funds only ever
-/// unlock commands, and an enemy the projection did not report simply is not
+/// capability: an opponent's treasury becomes zero, even when fog is off and
+/// it is known, because funds only ever unlock commands, and an enemy the
+/// projection did not report simply is not
 /// there. Enemy units carry no identity in a projection, so they are given
 /// synthetic ids above every real one, which keeps them distinguishable to the
 /// reducer without colliding with a friendly unit's id.
@@ -2573,9 +2574,9 @@ fn board_tiles(
     Ok(tiles)
 }
 
-/// An opponent's private state is unknown, so it is filled with the reading
-/// that grants nothing: no funds, and their powers described only as far as the
-/// projection describes them.
+/// An opponent's private state is filled with the reading that grants nothing:
+/// no funds, even when fog is off and they are known, and their powers
+/// described only as far as the projection describes them.
 fn reified_player(player: &ObservedPlayer) -> crate::semantic::Player {
     match player {
         ObservedPlayer::Private {
