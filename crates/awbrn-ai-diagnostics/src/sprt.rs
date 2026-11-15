@@ -1556,7 +1556,7 @@ mod tests {
             assert_eq!(factory.identity().identifier, "planner-v9");
             assert_eq!(
                 factory.identity().configuration_fingerprint,
-                "5f66d922728e7e26"
+                "0509d77ac4aaf179"
             );
             let (factory, _) = plan.baseline.materialize(&path).unwrap();
             assert_eq!(

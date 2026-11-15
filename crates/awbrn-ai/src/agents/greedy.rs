@@ -440,10 +440,8 @@ pub struct Weights {
     /// When true, the order of a unit is the one with the highest tree
     /// score, and the first model ([`Weights::move_policy`]) is not read. In
     /// fog games, the policy uses the fog model. The field is left out of
-    /// the serialized weights when it is false, and is written as the number
-    /// 1 when it is true, so that the fingerprint of `planner-v9` keeps the
-    /// value of the model strength that it replaced.
-    #[serde(skip_serializing_if = "is_false", with = "one_if_true")]
+    /// the serialized weights when it is false.
+    #[serde(skip_serializing_if = "is_false")]
     pub move2: bool,
     /// Whether the next-unit model chooses which unit acts next
     /// ([`super::move_policy2::UnitModel`]).
@@ -2766,27 +2764,6 @@ fn is_zero(value: &f64) -> bool {
 #[allow(clippy::trivially_copy_pass_by_ref)]
 const fn is_false(value: &bool) -> bool {
     !*value
-}
-
-/// The serialized form of [`Weights::move2`]: the number 1 for true and 0
-/// for false.
-mod one_if_true {
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub(super) fn serialize<S: serde::Serializer>(value: &bool, out: S) -> Result<S::Ok, S::Error> {
-        out.serialize_f64(if *value { 1.0 } else { 0.0 })
-    }
-
-    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
-        input: D,
-    ) -> Result<bool, D::Error> {
-        match <f64 as serde::Deserialize>::deserialize(input)? {
-            0.0 => Ok(false),
-            1.0 => Ok(true),
-            other => Err(serde::de::Error::custom(format!(
-                "move2 is 0 or 1, not {other}"
-            ))),
-        }
-    }
 }
 
 /// `score`, or a value between zero and `floor` when `score` is below

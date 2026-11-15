@@ -872,7 +872,7 @@ const MARCH_ONLY: PlannerConfig = PlannerConfig {
 };
 
 /// The new fields and configurations do not change the fingerprints of the
-/// earlier configurations.
+/// earlier configurations. The fingerprints of planner-v9 are pinned too.
 #[test]
 fn the_earlier_fingerprints_do_not_change() {
     use crate::baseline::BaselineConfig;
@@ -890,6 +890,7 @@ fn the_earlier_fingerprints_do_not_change() {
         // The value of origin/master before the move model.
         (PlannerConfig::V8, "6534db27e716693b"),
         (PlannerConfig::V8_MOVE, "879c2d92802bcffb"),
+        (PlannerConfig::V9, "28d8ff58a45920e7"),
     ] {
         assert_eq!(config.fingerprint(), expected, "{}", config.identifier);
     }
@@ -901,6 +902,7 @@ fn the_earlier_fingerprints_do_not_change() {
         // The value of origin/master before the move model.
         (crate::profile::V8_GREEDY_CONFIG, "16c3ec8e4b5cca64"),
         (crate::profile::V8_MOVE_GREEDY_CONFIG, "c11e04679320dc84"),
+        (crate::profile::V9_GREEDY_CONFIG, "903d4f1a3070229a"),
     ] {
         assert_eq!(config.fingerprint(), expected, "{}", config.identifier);
     }
