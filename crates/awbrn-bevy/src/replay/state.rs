@@ -11,9 +11,21 @@ pub struct NewDay {
     pub day: u32,
 }
 
-#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Component,
+    Reflect,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[component(immutable, on_add = on_awbw_unit_id_add, on_remove = on_awbw_unit_id_remove)]
-#[reflect(Component)]
+#[reflect(opaque)]
+#[reflect(Component, Serialize, Deserialize)]
 pub struct AwbwUnitId(pub awbrn_types::AwbwUnitId);
 
 fn on_awbw_unit_id_add(mut world: DeferredWorld, context: HookContext) {

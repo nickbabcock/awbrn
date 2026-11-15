@@ -1,7 +1,7 @@
 use crate::de::{bool_ynstr, deserialize_sub_dive, non_negative_u32, values_only};
-use awbrn_types::{
+use awbw_types::{
     AwbwCoId, AwbwDate, AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId,
-    AwbwTerrain, AwbwUnitId, Co, CoExt, PlayerFaction, Unit,
+    AwbwTerrain, AwbwUnitId, AwbwUnitKind, PlayerFaction,
 };
 use serde::{Deserialize, Serialize};
 
@@ -95,16 +95,6 @@ pub struct AwbwPlayer {
     pub interface: bool,
 }
 
-impl AwbwPlayer {
-    pub fn co(&self) -> Option<Co> {
-        Co::from_awbw_id(self.co_id)
-    }
-
-    pub fn tag_co(&self) -> Option<Co> {
-        self.tags_co_id.and_then(Co::from_awbw_id)
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AwbwBuilding {
     pub id: u32,
@@ -127,7 +117,7 @@ pub struct AwbwUnit {
     pub games_id: AwbwGameId,
     pub players_id: AwbwGamePlayerId,
     #[serde(with = "crate::de::awbw_unit_name")]
-    pub name: Unit,
+    pub name: AwbwUnitKind,
     pub movement_points: u32,
     pub vision: u32,
     pub fuel: u32,
@@ -165,7 +155,7 @@ pub enum CoPower {
 }
 
 mod player_faction_id {
-    use awbrn_types::PlayerFaction;
+    use awbw_types::PlayerFaction;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(x: &PlayerFaction, s: S) -> Result<S::Ok, S::Error>

@@ -1,0 +1,15 @@
+[package]
+name = "awbw-types"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+jiff.workspace = true
+serde.workspace = true
+strum.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

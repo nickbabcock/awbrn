@@ -577,12 +577,10 @@ dependencies = [
 name = "awbrn-types"
 version = "0.1.0"
 dependencies = [
+ "awbw-types",
  "awvm",
  "bevy",
- "jiff",
  "serde",
- "serde_json",
- "strum",
 ]
 
 [[package]]
@@ -610,7 +608,7 @@ dependencies = [
 name = "awbw-replay"
 version = "0.1.0"
 dependencies = [
- "awbrn-types",
+ "awbw-types",
  "flate2",
  "highway",
  "indexmap",
@@ -621,6 +619,16 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
+]
+
+[[package]]
+name = "awbw-types"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "serde",
+ "serde_json",
+ "strum",
 ]
 
 [[package]]
@@ -6959,6 +6967,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "awbrn-types",
+ "awvm-awbw",
  "image",
  "indexmap",
  "oxipng",

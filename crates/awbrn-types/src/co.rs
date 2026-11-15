@@ -45,25 +45,6 @@ impl CoExt for Co {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnknownAwbwCoId(pub AwbwCoId);
-
-impl std::fmt::Display for UnknownAwbwCoId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "unknown AWBW CO ID {}", self.0.as_u32())
-    }
-}
-
-impl std::error::Error for UnknownAwbwCoId {}
-
-impl TryFrom<AwbwCoId> for Co {
-    type Error = UnknownAwbwCoId;
-
-    fn try_from(value: AwbwCoId) -> Result<Self, Self::Error> {
-        Co::from_awbw_id(value).ok_or(UnknownAwbwCoId(value))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

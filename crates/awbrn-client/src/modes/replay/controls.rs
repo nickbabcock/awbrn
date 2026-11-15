@@ -608,7 +608,7 @@ mod tests {
                     units_id: awbrn_types::AwbwUnitId::new(1),
                     units_games_id: Some(1),
                     units_players_id: AwbwGamePlayerId::new(1),
-                    units_name: awbrn_types::Unit::Infantry,
+                    units_name: awbrn_types::AwbwUnitKind::Infantry,
                     units_movement_points: Some(3),
                     units_vision: Some(2),
                     units_fuel: Some(99),

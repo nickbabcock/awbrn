@@ -10,11 +10,12 @@ use std::collections::{HashMap, HashSet};
 
 use awbrn_map::{AwbwMap, AwbwMapData};
 use awbrn_types::{
-    AwbwGamePlayerId, AwbwTerrain, Faction, MissileSiloStatus, PlayerFaction, Property,
+    AwbwGamePlayerId, AwbwTerrain, AwbwUnitKind, Co, CoExt, Faction, MissileSiloStatus,
+    PlayerFaction, Property,
 };
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::{AwbwGame, AwbwPlayer, AwbwUnit, CoPower, MatchType};
-use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind};
+use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, UnitKind, WeatherKind};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
     PlayerIdx, PlayerStatus, Pos, PowerState, Roster, RulesetId, RulesetRef, RulesetRevision,
@@ -213,7 +214,7 @@ fn ensure_unique_players(players: &[&AwbwPlayer]) -> Result<(), AdapterError> {
 }
 
 fn lower_player(game: &AwbwGame, player: &AwbwPlayer) -> Result<Player, AdapterError> {
-    let lead = player.co().ok_or(AdapterError::UnknownCommander {
+    let lead = Co::from_awbw_id(player.co_id).ok_or(AdapterError::UnknownCommander {
         player: player.id.as_u32(),
         commander: player.co_id.as_u32(),
     })?;
@@ -224,7 +225,7 @@ fn lower_player(game: &AwbwGame, player: &AwbwPlayer) -> Result<Player, AdapterE
         power_uses: 0,
     }];
     if let Some(tag_id) = player.tags_co_id {
-        let tag = player.tag_co().ok_or(AdapterError::UnknownCommander {
+        let tag = Co::from_awbw_id(tag_id).ok_or(AdapterError::UnknownCommander {
             player: player.id.as_u32(),
             commander: tag_id.as_u32(),
         })?;
@@ -446,7 +447,7 @@ fn lower_unit(
 
     Ok(Unit {
         id: UnitId::new(unit.id.as_u32()),
-        kind: unit.name,
+        kind: unit_kind(unit.name),
         owner,
         hp: exact_hp(unit)?,
         fuel: u64::from(unit.fuel),
@@ -507,6 +508,37 @@ fn weather_kind(value: &str) -> Result<WeatherKind, AdapterError> {
         "r" | "rain" => Ok(WeatherKind::Rain),
         "s" | "snow" => Ok(WeatherKind::Snow),
         _ => Err(AdapterError::UnknownWeatherCode(value.into())),
+    }
+}
+
+/// The ruleset unit kind of an AWBW unit name.
+pub fn unit_kind(unit: AwbwUnitKind) -> UnitKind {
+    match unit {
+        AwbwUnitKind::AntiAir => UnitKind::AntiAir,
+        AwbwUnitKind::Apc => UnitKind::Apc,
+        AwbwUnitKind::Artillery => UnitKind::Artillery,
+        AwbwUnitKind::BCopter => UnitKind::BCopter,
+        AwbwUnitKind::Battleship => UnitKind::Battleship,
+        AwbwUnitKind::BlackBoat => UnitKind::BlackBoat,
+        AwbwUnitKind::BlackBomb => UnitKind::BlackBomb,
+        AwbwUnitKind::Bomber => UnitKind::Bomber,
+        AwbwUnitKind::Carrier => UnitKind::Carrier,
+        AwbwUnitKind::Cruiser => UnitKind::Cruiser,
+        AwbwUnitKind::Fighter => UnitKind::Fighter,
+        AwbwUnitKind::Infantry => UnitKind::Infantry,
+        AwbwUnitKind::Lander => UnitKind::Lander,
+        AwbwUnitKind::MdTank => UnitKind::MdTank,
+        AwbwUnitKind::Mech => UnitKind::Mech,
+        AwbwUnitKind::MegaTank => UnitKind::MegaTank,
+        AwbwUnitKind::Missile => UnitKind::Missile,
+        AwbwUnitKind::NeoTank => UnitKind::NeoTank,
+        AwbwUnitKind::Piperunner => UnitKind::Piperunner,
+        AwbwUnitKind::Recon => UnitKind::Recon,
+        AwbwUnitKind::Rocket => UnitKind::Rocket,
+        AwbwUnitKind::Stealth => UnitKind::Stealth,
+        AwbwUnitKind::Sub => UnitKind::Sub,
+        AwbwUnitKind::TCopter => UnitKind::TCopter,
+        AwbwUnitKind::Tank => UnitKind::Tank,
     }
 }
 

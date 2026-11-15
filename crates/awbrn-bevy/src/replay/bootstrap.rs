@@ -78,7 +78,7 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
                         MapPosition::new(unit.x as u8, unit.y as u8),
                         Faction(faction),
                         AwbwUnitId(unit.id),
-                        Unit(unit.name),
+                        Unit(awvm_awbw::unit_kind(unit.name)),
                         Fuel(unit.fuel),
                         Ammo(unit.ammo),
                         GraphicalHp::Visible(awbrn_types::VisualHp::new(initial_graphical_hp(

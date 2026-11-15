@@ -6,6 +6,7 @@
 
 use awbw_replay::turn_models::Action;
 use awvm::semantic::{ObservedEvent, ObservedTransition, ObservedUnitRef, PlayerId};
+use awvm_awbw::unit_kind;
 use bevy::{log, prelude::*};
 
 use crate::features::event_bus::{EventSink, NewDay as ExternalNewDay};
@@ -493,7 +494,8 @@ fn collect_player_roster_unit_cost_updates(action: &Action) -> Vec<(AwbwUnitId, 
             .map(|unit| {
                 vec![(
                     AwbwUnitId(unit.units_id),
-                    unit.units_cost.unwrap_or(unit.units_name.base_cost()),
+                    unit.units_cost
+                        .unwrap_or(unit_kind(unit.units_name).base_cost()),
                 )]
             })
             .unwrap_or_default(),
@@ -503,10 +505,12 @@ fn collect_player_roster_unit_cost_updates(action: &Action) -> Vec<(AwbwUnitId, 
             .into_iter()
             .flat_map(|groups| groups.values())
             .flat_map(|group| {
-                group
-                    .units
-                    .iter()
-                    .map(|unit| (AwbwUnitId(unit.units_id), group.unit_name.base_cost()))
+                group.units.iter().map(|unit| {
+                    (
+                        AwbwUnitId(unit.units_id),
+                        unit_kind(group.unit_name).base_cost(),
+                    )
+                })
             })
             .collect(),
         _ => Vec::new(),
