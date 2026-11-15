@@ -2983,9 +2983,13 @@ fn a_blocker_that_enemy_fire_destroys_does_not_hold() {
 }
 
 /// A board with our headquarters at (2, 2), our infantry with `blocker_hp`
-/// on it, and an enemy infantry on each of `enemies`. The enemy turn is
-/// active, and one full enemy infantry completes the capture.
-fn blocked_headquarters(blocker_hp: u8, enemies: &[awvm::semantic::Pos]) -> (State, PlayerIdx) {
+/// on it, and an enemy unit of each kind on each position of `enemies`, in
+/// that order in the unit store. The enemy turn is active, and one full
+/// enemy infantry completes the capture.
+fn blocked_headquarters(
+    blocker_hp: u8,
+    enemies: &[(awvm::ruleset::UnitKind, awvm::semantic::Pos)],
+) -> (State, PlayerIdx) {
     use awvm::ruleset::{Terrain, UnitKind};
     use awvm::semantic::{Pos, TileOwner};
     let (mut state, ours, theirs) = empty_board(5);
@@ -3000,19 +3004,25 @@ fn blocked_headquarters(blocker_hp: u8, enemies: &[awvm::semantic::Pos]) -> (Sta
     );
     blocker.hp = blocker_hp;
     state.units.push(blocker);
-    for (id, position) in (2..).zip(enemies) {
-        state.units.push(board_unit(
-            id,
-            UnitKind::Infantry,
-            theirs,
-            Location::Board {
-                position: *position,
-            },
-        ));
+    state.next_unit_id = Some(2);
+    for (kind, position) in enemies {
+        add_unit(&mut state, *kind, theirs, *position);
     }
-    state.next_unit_id = Some(2 + enemies.len() as u32);
     state.turn.active_player = state.player(theirs).id().clone();
     (state, ours)
+}
+
+/// Whether the contest estimate of a board of [`blocked_headquarters`] loses
+/// the headquarters. Focused fire must destroy the blocker.
+fn blocked_headquarters_lost(state: State, ours: PlayerIdx) -> bool {
+    let estimate = reply::estimate(
+        &Session::new(state),
+        ours,
+        PropertyValues::STANDARD,
+        contest_options(true),
+    );
+    assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
+    estimate.headquarters_lost
 }
 
 /// An enemy unit that attacks our blocker has ended its action, so it
@@ -3020,78 +3030,143 @@ fn blocked_headquarters(blocker_hp: u8, enemies: &[awvm::semantic::Pos]) -> (Sta
 /// capturer still can.
 #[test]
 fn the_units_that_destroy_a_blocker_do_not_capture_behind_it() {
+    use awvm::ruleset::UnitKind::Infantry;
     use awvm::semantic::Pos;
-    let values = PropertyValues::STANDARD;
-    let options = [
-        contest_options(true),
-        reply::ReplyOptions {
-            march_guard: true,
-            ..contest_options(true)
-        },
-    ];
+    let [a, b, c] = [Pos::new(2, 3), Pos::new(3, 2), Pos::new(1, 2)].map(|at| (Infantry, at));
     // One infantry destroys the blocker of one health.
-    let (state, ours) = blocked_headquarters(10, &[Pos::new(2, 3)]);
-    let session = Session::new(state);
-    for options in options {
-        let estimate = reply::estimate(&session, ours, values, options);
-        assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
-        assert!(!estimate.headquarters_lost, "{options:?}");
-    }
+    let (state, ours) = blocked_headquarters(10, &[a]);
+    assert!(!blocked_headquarters_lost(state, ours));
     // It takes two infantry to destroy the blocker of six health.
-    let two = [Pos::new(2, 3), Pos::new(3, 2)];
-    let (state, ours) = blocked_headquarters(60, &two[..1]);
-    let estimate = reply::estimate(&Session::new(state), ours, values, options[0]);
+    let (state, ours) = blocked_headquarters(60, &[a]);
+    let estimate = reply::estimate(
+        &Session::new(state),
+        ours,
+        PropertyValues::STANDARD,
+        contest_options(true),
+    );
     assert!(estimate.destroyed.is_empty());
-    let (state, ours) = blocked_headquarters(60, &two);
-    let session = Session::new(state);
-    for options in options {
-        let estimate = reply::estimate(&session, ours, values, options);
-        assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
-        assert!(!estimate.headquarters_lost, "{options:?}");
-    }
+    let (state, ours) = blocked_headquarters(60, &[a, b]);
+    assert!(!blocked_headquarters_lost(state, ours));
     // A third infantry is left to capture.
-    let (state, ours) = blocked_headquarters(60, &[two[0], two[1], Pos::new(1, 2)]);
-    let session = Session::new(state);
-    for options in options {
-        let estimate = reply::estimate(&session, ours, values, options);
-        assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
-        assert!(estimate.headquarters_lost, "{options:?}");
+    let (state, ours) = blocked_headquarters(60, &[a, b, c]);
+    assert!(blocked_headquarters_lost(state, ours));
+}
+
+/// The enemy units that cannot capture attack our blocker first: a tank
+/// that destroys it alone, or two tanks that destroy it together, leave the
+/// enemy infantry free to capture, in any order of the enemy units.
+#[test]
+fn a_blocker_that_non_capturers_destroy_leaves_the_capturer_free() {
+    use awvm::ruleset::UnitKind::{Infantry, Tank};
+    use awvm::semantic::Pos;
+    let infantry = (Infantry, Pos::new(2, 3));
+    let tank = (Tank, Pos::new(3, 2));
+    for enemies in [[infantry, tank], [tank, infantry]] {
+        let (state, ours) = blocked_headquarters(10, &enemies);
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+    // One tank does not destroy the blocker of seven health; two do.
+    let second = (Tank, Pos::new(1, 2));
+    for enemies in [[tank, second, infantry], [infantry, tank, second]] {
+        let (state, ours) = blocked_headquarters(70, &enemies);
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
     }
 }
 
-/// When an enemy unit that cannot capture can destroy our blocker alone, the
-/// enemy capturer next to it still captures, whichever of the two the
-/// focused fire gives the blocker: the estimate does not depend on the order
-/// of the enemy units.
+/// Our blocker of seven health on the headquarters, an enemy tank, mech and
+/// infantry next to it, and our artillery that only the tank reaches. Focused
+/// fire sends the tank to the artillery and the mech and infantry to the
+/// blocker, but the enemy can destroy the blocker with the tank and one
+/// capturer and capture with the other.
 #[test]
-fn a_blocker_that_a_non_capturer_destroys_leaves_the_capturer_free() {
-    use awvm::ruleset::UnitKind;
+fn a_blocker_that_a_non_capturer_and_one_capturer_destroy_leaves_a_capturer_free() {
+    use awvm::ruleset::UnitKind::{Artillery, Infantry, Mech, Tank};
     use awvm::semantic::Pos;
-    let values = PropertyValues::STANDARD;
-    let options = [
+    let (mut state, ours) = blocked_headquarters(
+        70,
+        &[
+            (Tank, Pos::new(3, 2)),
+            (Mech, Pos::new(2, 3)),
+            (Infantry, Pos::new(1, 2)),
+        ],
+    );
+    let artillery = add_unit(&mut state, Artillery, ours, Pos::new(8, 2));
+    let estimate = reply::estimate(
+        &Session::new(state),
+        ours,
+        PropertyValues::STANDARD,
         contest_options(true),
-        reply::ReplyOptions {
-            march_guard: true,
-            ..contest_options(true)
-        },
-    ];
-    let infantry = (UnitKind::Infantry, Pos::new(2, 3));
-    let tank = (UnitKind::Tank, Pos::new(3, 2));
-    for enemies in [[infantry, tank], [tank, infantry]] {
-        let (mut state, ours) = blocked_headquarters(10, &[]);
-        let theirs = state.players.seat(&state.turn.active_player).unwrap();
-        for (id, (kind, position)) in (2..).zip(enemies) {
-            state
-                .units
-                .push(board_unit(id, kind, theirs, Location::Board { position }));
+    );
+    assert!(estimate.exposed.contains(&artillery));
+    assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
+    assert!(estimate.headquarters_lost);
+}
+
+/// Our blocker of six health, an enemy tank of seven health that does a
+/// little less damage to it than an enemy infantry, and two enemy infantry.
+/// Once one infantry has attacked, the tank and the other infantry each
+/// destroy the blocker, a tie of focused fire; the enemy keeps an infantry
+/// to capture in every order of its units.
+#[test]
+fn a_tie_of_focused_fire_on_a_blocker_does_not_spend_both_capturers() {
+    use awvm::ruleset::UnitKind::{Infantry, Tank};
+    use awvm::semantic::Pos;
+    let tank = (Tank, Pos::new(3, 2));
+    let infantry = [(Infantry, Pos::new(2, 3)), (Infantry, Pos::new(1, 2))];
+    for enemies in [
+        [tank, infantry[0], infantry[1]],
+        [infantry[0], tank, infantry[1]],
+        [infantry[0], infantry[1], tank],
+    ] {
+        let (mut state, ours) = blocked_headquarters(60, &enemies);
+        let tank_id = state
+            .units
+            .iter()
+            .find(|unit| unit.kind == Tank)
+            .map(|unit| unit.id)
+            .unwrap();
+        state.units.get_mut(tank_id).unwrap().hp = 70;
+        assert!(blocked_headquarters_lost(state, ours), "{enemies:?}");
+    }
+}
+
+/// With the march guard and no contest switch, an enemy Sami infantry that
+/// destroys our blocker on the headquarters has ended its action and does
+/// not take the headquarters with Victory March; another Sami infantry in
+/// reach of the power does. Without the guard, the blocker holds.
+#[test]
+fn the_march_guard_spends_the_attackers_of_a_blocker() {
+    use awvm::commander::PowerLevel;
+    use awvm::ruleset::{CommanderKind, UnitKind};
+    use awvm::semantic::Pos;
+    let guard = reply::ReplyOptions {
+        commander_effects: true,
+        march: true,
+        contest: false,
+        march_guard: true,
+    };
+    let unguarded = reply::ReplyOptions {
+        march_guard: false,
+        ..guard
+    };
+    for far in [false, true] {
+        let (mut state, ours, theirs) = march_board(CommanderKind::Andy, CommanderKind::Sami);
+        let blocker = add_unit(&mut state, UnitKind::Infantry, ours, Pos::new(0, 0));
+        state.units.get_mut(blocker).unwrap().hp = 10;
+        add_unit(&mut state, UnitKind::Infantry, theirs, Pos::new(1, 0));
+        if far {
+            add_unit(&mut state, UnitKind::Infantry, theirs, Pos::new(5, 0));
         }
-        state.next_unit_id = Some(4);
+        charge_power(&mut state, theirs, PowerLevel::Scop);
+        state.turn.active_player = state.player(theirs).id().clone();
         let session = Session::new(state);
-        for options in options {
-            let estimate = reply::estimate(&session, ours, values, options);
-            assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
-            assert!(estimate.headquarters_lost, "{enemies:?} {options:?}");
-        }
+        let values = PropertyValues::STANDARD;
+        let estimate = reply::estimate(&session, ours, values, guard);
+        assert_eq!(estimate.destroyed, vec![blocker]);
+        assert_eq!(estimate.headquarters_lost, far, "far {far}");
+        let estimate = reply::estimate(&session, ours, values, unguarded);
+        assert_eq!(estimate.destroyed, vec![blocker]);
+        assert!(!estimate.headquarters_lost, "far {far}");
     }
 }
 
