@@ -308,6 +308,7 @@
       --color-ink-700: #283d78;
       --color-ink-600: #3b5299;
       --color-ink-300: #9eacd6;
+      --color-ink-200: #c9d2ef;
       --color-ink-100: #e4e9f8;
       --color-paper: #e6edf7;
       --color-paper-well: #d9e3f1;
@@ -322,6 +323,7 @@
       --color-airmail-red-wash: #fbe3e6;
       --color-airmail-blue: #2747b0;
       --color-airmail-blue-on-ink: #9db2ff;
+      --color-airmail-blue-wash: #e8edfa;
       --color-stamp-violet: #5a43b5;
       --color-stamp-violet-on-ink: #b9abff;
       --color-ok: #17784b;
@@ -352,6 +354,7 @@
       --color-ink-hairline: rgba(16, 27, 58, 0.14);
       --color-well-hairline: rgba(255, 255, 255, 0.06);
       --shadow-pennant: drop-shadow(0 2px 2px rgba(6, 10, 26, 0.45));
+      --shadow-flag: drop-shadow(0 1px 1.5px rgba(10, 17, 40, 0.28));
       --shadow-slot: 0 10px 24px -16px rgba(16, 27, 58, 0.45);
       --shadow-dock: 0 -12px 24px -16px rgba(16, 27, 58, 0.5);
       --shadow-stamp: drop-shadow(0 0 0.75px rgba(10, 17, 40, 0.55))

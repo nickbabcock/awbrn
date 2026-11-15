@@ -136,6 +136,8 @@ export function ReplayPage() {
           hasLiveStats: true,
           isActive: !player.eliminated && playerRoster?.activePlayerId === player.playerId,
           name: playerNames[player.userId] ?? `Player ${player.turnOrder + 1}`,
+          // An AWBW player, with no profile here.
+          userId: null,
         },
         isViewer: false,
         clock: null,

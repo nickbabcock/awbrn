@@ -42,6 +42,7 @@ import {
 } from "#/play/setup.tsx";
 import { TaskDock } from "#/play/TaskDock.tsx";
 import { TierPicker } from "#/play/TierPicker.tsx";
+import { playerKeys } from "#/players/players.keys.ts";
 import { Button } from "#/ui/Button.tsx";
 import { RouterButton } from "#/ui/astryx-links.tsx";
 import { BackLink } from "#/ui/BackKey.tsx";
@@ -147,6 +148,7 @@ export function RankedPendingPage({
         queryClient.invalidateQueries({ queryKey: rankedKeys.overview() }),
         queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
         queryClient.invalidateQueries({ queryKey: matchKeys.awaiting() }),
+        queryClient.invalidateQueries({ queryKey: playerKeys.all }),
       ]);
       if (actions.some((action) => action.action === "refuse")) {
         await navigate({ to: "/ranked" });

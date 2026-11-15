@@ -11,6 +11,7 @@ import { MapPicture } from "#/maps/components/MapPicture.tsx";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
+import { playerKeys } from "#/players/players.keys.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
@@ -57,6 +58,7 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
 
       queryClient.removeQueries({ queryKey: matchKeys.mine() });
       queryClient.removeQueries({ queryKey: matchKeys.completed() });
+      queryClient.removeQueries({ queryKey: playerKeys.all });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: authKeys.all }),
         queryClient.invalidateQueries({ queryKey: matchKeys.details() }),

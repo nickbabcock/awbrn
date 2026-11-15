@@ -153,11 +153,86 @@ export function formatMatchDuration(startedAt: string | null, completedAt: strin
   return `${Math.round(hours / 24)} days`;
 }
 
-/** The seats the viewer did not hold, in slot order. */
+/** The seats the reported player did not hold, in slot order. */
 export function opposingSeats(
   seats: readonly MatchHistorySeat[],
-  viewerSlotIndexes: readonly number[],
+  playerSlotIndexes: readonly number[],
 ): MatchHistorySeat[] {
-  const held = new Set(viewerSlotIndexes);
+  const held = new Set(playerSlotIndexes);
   return seats.filter((seat) => !held.has(seat.slotIndex));
+}
+
+/**
+ * The reason every seat shares (an agreed draw, the day limit), which a report
+ * says once rather than on each seat. Null when the seats ended differently.
+ */
+export function sharedSeatReason(seats: readonly MatchHistorySeat[]): SeatResultReason | null {
+  const first = seats[0]?.reason ?? null;
+  if (first === null || seats.length < 2) return null;
+  return seats.every((seat) => seat.reason === first) ? first : null;
+}
+
+/**
+ * What a report says on one seat. A seat with no recorded reason says
+ * nothing, except a hotseat's winner: its tag says "Hotseat", so the seat
+ * says who won. A reason every seat shares is said once, not on each seat.
+ */
+export function seatReason(
+  seat: MatchHistorySeat,
+  { isHotseat, shared }: { isHotseat: boolean; shared: SeatResultReason | null },
+): string | null {
+  if (seat.reason !== null) {
+    return shared === null ? formatSeatResultReason(seat.outcome, seat.reason) : null;
+  }
+  return isHotseat && seat.outcome === "win" ? "Won" : null;
+}
+
+/**
+ * A report's result tag. A loss among more than two armies is the place the
+ * player finished (`2nd`); otherwise the outcome, said to the viewer on their
+ * own report (`You won`) and about the player on anyone else's (`Won`).
+ */
+export function formatReportResult({
+  isHotseat,
+  isViewer,
+  outcome,
+  placement,
+  seatCount,
+}: {
+  isHotseat: boolean;
+  isViewer: boolean;
+  outcome: MatchOutcome | null;
+  placement: number | null;
+  seatCount: number;
+}): { label: string; tone: "win" | "plain" | "place" } {
+  if (isHotseat) return { label: "Hotseat", tone: "plain" };
+  if (outcome === "loss" && seatCount > 2 && placement !== null && placement > 1) {
+    return { label: ordinal(placement), tone: "place" };
+  }
+  switch (outcome) {
+    case "win":
+      return { label: isViewer ? "You won" : "Won", tone: "win" };
+    case "loss":
+      return { label: isViewer ? "You lost" : "Lost", tone: "plain" };
+    case "draw":
+      return { label: isViewer ? "A draw" : "Draw", tone: "plain" };
+    case null:
+      return { label: "No result", tone: "plain" };
+  }
+}
+
+/** `1st`, `2nd`, `11th`, `22nd`. */
+export function ordinal(place: number): string {
+  const tens = place % 100;
+  if (tens >= 11 && tens <= 13) return `${place}th`;
+  switch (place % 10) {
+    case 1:
+      return `${place}st`;
+    case 2:
+      return `${place}nd`;
+    case 3:
+      return `${place}rd`;
+    default:
+      return `${place}th`;
+  }
 }

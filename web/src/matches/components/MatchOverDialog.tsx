@@ -13,6 +13,7 @@ import { PaperDialog } from "#/matches/components/EndTurn.tsx";
 import type { MatchArmy } from "#/matches/match_armies.ts";
 import type { MatchResults, SeatResult } from "#/matches/match_protocol.ts";
 import { seatStatus } from "#/matches/match_results.ts";
+import { PlayerLink } from "#/players/components/PlayerLink.tsx";
 import { useRatingChange } from "#/players/rating_changes.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
@@ -106,7 +107,13 @@ export function MatchOverDialog({
                 state={seat.outcome === "loss" ? "canceled" : "default"}
               />
               <HStack as="span" xstyle={styles.seatName}>
-                <b>{name}</b>
+                {army?.userId ? (
+                  <PlayerLink userId={army.userId}>
+                    <b>{name}</b>
+                  </PlayerLink>
+                ) : (
+                  <b>{name}</b>
+                )}
                 {seat.slotIndex === viewerSlotIndex ? (
                   <HStack as="span" xstyle={styles.you}>
                     YOU

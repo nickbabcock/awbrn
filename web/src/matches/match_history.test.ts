@@ -4,9 +4,11 @@ import {
   encodeMatchHistoryCursor,
   formatMatchDuration,
   formatRatingChange,
+  formatReportResult,
   formatSeatResultReason,
   formatVerdict,
   opposingSeats,
+  sharedSeatReason,
   viewerOutcome,
 } from "./match_history";
 import type { MatchHistorySeat } from "./schemas";
@@ -159,5 +161,49 @@ describe("formatRatingChange", () => {
   it("waits for a ranked match the rating writer has not reached", () => {
     expect(formatRatingChange(seat(), "async")).toBe("Rating pending");
     expect(formatRatingChange(undefined, "async")).toBe("Rating pending");
+  });
+});
+
+describe("sharedSeatReason", () => {
+  it("names a reason every seat shares, to say it once", () => {
+    expect(
+      sharedSeatReason([
+        seat({ outcome: "draw", reason: "agreement" }),
+        seat({ slotIndex: 1, outcome: "draw", reason: "agreement" }),
+      ]),
+    ).toBe("agreement");
+  });
+
+  it("is null when the seats ended differently or one has none", () => {
+    expect(
+      sharedSeatReason([
+        seat({ outcome: "win" }),
+        seat({ slotIndex: 1, outcome: "loss", reason: "rout" }),
+      ]),
+    ).toBeNull();
+  });
+});
+
+describe("formatReportResult", () => {
+  const result = { isHotseat: false, isViewer: false, placement: 1, seatCount: 2 };
+
+  it("speaks to the viewer on their own report and about the player elsewhere", () => {
+    expect(formatReportResult({ ...result, outcome: "win", isViewer: true }).label).toBe("You won");
+    expect(formatReportResult({ ...result, outcome: "win" })).toEqual({
+      label: "Won",
+      tone: "win",
+    });
+    expect(formatReportResult({ ...result, outcome: "draw" }).label).toBe("Draw");
+  });
+
+  it("gives a loss among more than two armies as the place finished", () => {
+    expect(formatReportResult({ ...result, outcome: "loss", placement: 2, seatCount: 4 })).toEqual({
+      label: "2nd",
+      tone: "place",
+    });
+    expect(
+      formatReportResult({ ...result, outcome: "loss", placement: 13, seatCount: 16 }).label,
+    ).toBe("13th");
+    expect(formatReportResult({ ...result, outcome: "loss", placement: 2 }).label).toBe("Lost");
   });
 });

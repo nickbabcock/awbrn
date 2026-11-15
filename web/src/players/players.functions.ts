@@ -2,8 +2,15 @@ import { createServerFn } from "@tanstack/react-start";
 import { env } from "cloudflare:workers";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
 import { requireFnRateLimit } from "#/rate_limit.ts";
+import { listCompletedMatches } from "#/matches/matches.server.ts";
 import { getPlayerStub } from "./player_service.ts";
-import { pushSubscriptionSchema, pushUnsubscribeSchema } from "./schemas.ts";
+import { readPlayerProfile } from "./players.server.ts";
+import {
+  playerHistoryRequestSchema,
+  playerProfileRequestSchema,
+  pushSubscriptionSchema,
+  pushUnsubscribeSchema,
+} from "./schemas.ts";
 import { readVapidKeys, type VapidEnvironment } from "./web_push.ts";
 
 /**
@@ -34,4 +41,24 @@ export const unsubscribePushFn = createServerFn({ method: "POST" })
     if (!context.session) throw new Response("Unauthorized", { status: 401 });
     await getPlayerStub(context.session.user.id).removePushSubscription(data.endpoint);
     return { subscribed: false };
+  });
+
+/** A player's profile. Public: a visitor who is not signed in reads it too. */
+export const getPlayerProfileFn = createServerFn({ method: "GET" })
+  .middleware([sessionMiddleware])
+  .validator(playerProfileRequestSchema)
+  .handler(({ data, context }) => readPlayerProfile(data.userId, context.session?.user.id ?? null));
+
+/** A player's finished matches, a page at a time; invite-only ones only to the player. */
+export const listPlayerCompletedMatchesFn = createServerFn({ method: "GET" })
+  .middleware([sessionMiddleware])
+  .validator(playerHistoryRequestSchema)
+  .handler(async ({ data, context }) => {
+    const result = await listCompletedMatches(
+      data.userId,
+      { cursor: data.cursor },
+      { includePrivate: context.session?.user.id === data.userId },
+    );
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
   });

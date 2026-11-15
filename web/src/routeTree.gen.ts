@@ -22,6 +22,7 @@ import { Route as MatchesMatchIdRouteImport } from './routes/matches/$matchId'
 import { Route as MatchesNewRouteImport } from './routes/matches/new'
 import { Route as MyHistoryRouteImport } from './routes/my/history'
 import { Route as MyMatchesRouteImport } from './routes/my/matches'
+import { Route as PlayersPlayerIdRouteImport } from './routes/players/$playerId'
 import { Route as ReplaysChar123matchIdChar125DotjsonRouteImport } from './routes/replays/{$matchId}[.]json'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
@@ -94,6 +95,11 @@ const MyMatchesRoute = MyMatchesRouteImport.update({
   path: '/my/matches',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlayersPlayerIdRoute = PlayersPlayerIdRouteImport.update({
+  id: '/players/$playerId',
+  path: '/players/$playerId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReplaysChar123matchIdChar125DotjsonRoute =
   ReplaysChar123matchIdChar125DotjsonRouteImport.update({
     id: '/replays/{$matchId}.json',
@@ -139,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/matches/new': typeof MatchesNewRoute
   '/my/history': typeof MyHistoryRoute
   '/my/matches': typeof MyMatchesRoute
+  '/players/$playerId': typeof PlayersPlayerIdRoute
   '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/maps/': typeof MapsIndexRoute
   '/matches/': typeof MatchesIndexRoute
@@ -160,6 +167,7 @@ export interface FileRoutesByTo {
   '/matches/new': typeof MatchesNewRoute
   '/my/history': typeof MyHistoryRoute
   '/my/matches': typeof MyMatchesRoute
+  '/players/$playerId': typeof PlayersPlayerIdRoute
   '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/maps': typeof MapsIndexRoute
   '/matches': typeof MatchesIndexRoute
@@ -182,6 +190,7 @@ export interface FileRoutesById {
   '/matches/new': typeof MatchesNewRoute
   '/my/history': typeof MyHistoryRoute
   '/my/matches': typeof MyMatchesRoute
+  '/players/$playerId': typeof PlayersPlayerIdRoute
   '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/maps/': typeof MapsIndexRoute
   '/matches/': typeof MatchesIndexRoute
@@ -205,6 +214,7 @@ export interface FileRouteTypes {
     | '/matches/new'
     | '/my/history'
     | '/my/matches'
+    | '/players/$playerId'
     | '/replays/{$matchId}.json'
     | '/maps/'
     | '/matches/'
@@ -226,6 +236,7 @@ export interface FileRouteTypes {
     | '/matches/new'
     | '/my/history'
     | '/my/matches'
+    | '/players/$playerId'
     | '/replays/{$matchId}.json'
     | '/maps'
     | '/matches'
@@ -247,6 +258,7 @@ export interface FileRouteTypes {
     | '/matches/new'
     | '/my/history'
     | '/my/matches'
+    | '/players/$playerId'
     | '/replays/{$matchId}.json'
     | '/maps/'
     | '/matches/'
@@ -269,6 +281,7 @@ export interface RootRouteChildren {
   MatchesNewRoute: typeof MatchesNewRoute
   MyHistoryRoute: typeof MyHistoryRoute
   MyMatchesRoute: typeof MyMatchesRoute
+  PlayersPlayerIdRoute: typeof PlayersPlayerIdRoute
   ReplaysChar123matchIdChar125DotjsonRoute: typeof ReplaysChar123matchIdChar125DotjsonRoute
   MapsIndexRoute: typeof MapsIndexRoute
   MatchesIndexRoute: typeof MatchesIndexRoute
@@ -372,6 +385,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MyMatchesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/players/$playerId': {
+      id: '/players/$playerId'
+      path: '/players/$playerId'
+      fullPath: '/players/$playerId'
+      preLoaderRoute: typeof PlayersPlayerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/replays/{$matchId}.json': {
       id: '/replays/{$matchId}.json'
       path: '/replays/{$matchId}.json'
@@ -429,6 +449,7 @@ const rootRouteChildren: RootRouteChildren = {
   MatchesNewRoute: MatchesNewRoute,
   MyHistoryRoute: MyHistoryRoute,
   MyMatchesRoute: MyMatchesRoute,
+  PlayersPlayerIdRoute: PlayersPlayerIdRoute,
   ReplaysChar123matchIdChar125DotjsonRoute:
     ReplaysChar123matchIdChar125DotjsonRoute,
   MapsIndexRoute: MapsIndexRoute,

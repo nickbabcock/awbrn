@@ -12,6 +12,7 @@ export const awbrnVars = stylex.defineConsts({
   ink700: "var(--color-ink-700)",
   ink600: "var(--color-ink-600)",
   ink300: "var(--color-ink-300)",
+  ink200: "var(--color-ink-200)",
   ink100: "var(--color-ink-100)",
   paper: "var(--color-paper)",
   paperWell: "var(--color-paper-well)",
@@ -26,6 +27,7 @@ export const awbrnVars = stylex.defineConsts({
   redWash: "var(--color-airmail-red-wash)",
   blue: "var(--color-airmail-blue)",
   blueOnInk: "var(--color-airmail-blue-on-ink)",
+  blueWash: "var(--color-airmail-blue-wash)",
   violet: "var(--color-stamp-violet)",
   violetOnInk: "var(--color-stamp-violet-on-ink)",
   ok: "var(--color-ok)",
@@ -47,6 +49,8 @@ export const awbrnVars = stylex.defineConsts({
   shadowStamp: "var(--shadow-stamp)",
   /** A `filter`. */
   shadowPennant: "var(--shadow-pennant)",
+  /** A `filter`. */
+  shadowFlag: "var(--shadow-flag)",
   shadowSlot: "var(--shadow-slot)",
   shadowDock: "var(--shadow-dock)",
   stampWhite: "var(--color-stamp-white)",

@@ -23,6 +23,7 @@ import { FactionCrest } from "#/components/FactionCrest.tsx";
 import { UiSprite } from "#/components/UiSprite.tsx";
 import { getCoAbilities } from "#/co_abilities.ts";
 import type { MatchArmy } from "#/matches/match_armies.ts";
+import { PlayerLink } from "#/players/components/PlayerLink.tsx";
 import type { ArmyFall } from "#/matches/components/army_falls.ts";
 import { matchLayout, matchType } from "#/matches/components/matchLayout.stylex.ts";
 import { StatIcon } from "#/replay/RosterRow.tsx";
@@ -36,7 +37,7 @@ import { AirmailBand } from "#/ui/AirmailBand.tsx";
 import { Button } from "#/ui/Button.tsx";
 import { figureStyles } from "#/ui/Figure.tsx";
 import { factionColorVar } from "#/ui/faction_colors.ts";
-import { IconClose } from "#/ui/icons.tsx";
+import { IconClose, IconNext } from "#/ui/icons.tsx";
 import { ModalSheet } from "#/ui/ModalSheet.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
@@ -912,6 +913,18 @@ export function ArmySheet({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       title={view.isViewer ? `${view.army.name} (you)` : view.army.name}
+      titleContent={
+        view.army.userId ? (
+          <PlayerLink
+            onClick={() => onOpenChange(false)}
+            userId={view.army.userId}
+            xstyle={sheetStyles.nameLink}
+          >
+            {view.isViewer ? `${view.army.name} (you)` : view.army.name}
+            <Icon icon={IconNext} size="sm" xstyle={sheetStyles.nameChevron} />
+          </PlayerLink>
+        ) : undefined
+      }
     >
       <HStack as="span" xstyle={sheetStyles.who}>
         <FactionCrest
@@ -1679,6 +1692,24 @@ const orderStyles = stylex.create({
 });
 
 const sheetStyles = stylex.create({
+  // On the sheet's ink head: the name, a chevron, and a 44px target.
+  nameLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-1"],
+    maxInlineSize: "100%",
+    minBlockSize: "44px",
+    color: {
+      default: "inherit",
+      ":hover": { default: null, [pageLayout.hoverMedia]: awbrnVars.blueOnInk },
+    },
+    textDecorationColor: awbrnVars.blueOnInk,
+    outlineColor: awbrnVars.blueOnInk,
+  },
+  nameChevron: {
+    flexShrink: 0,
+    color: awbrnVars.textOnInkSecondary,
+  },
   who: {
     display: "flex",
     alignItems: "center",

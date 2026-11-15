@@ -8,7 +8,12 @@
 
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { applyPendingRatings, captureClosedSeasons, readLadder } from "./ratings.server.ts";
+import {
+  applyPendingRatings,
+  captureClosedSeasons,
+  readLadder,
+  readLadderPlace,
+} from "./ratings.server.ts";
 
 const NOW = new Date("2026-08-28T18:00:00.000Z");
 const OPENED_AT = new Date(NOW.getTime() - 3 * 60 * 60 * 1000);
@@ -300,6 +305,37 @@ describe("readLadder", () => {
     expect(ladder.map((row) => row.userId)).toEqual(["bravo", "alpha"]);
     // The idle player keeps a place, and the deviation reports why they slid.
     expect(ladder[1]!.deviation).toBeGreaterThan(50);
+  });
+
+  it("places one player as the whole ladder does, reading only the ratings that may lead them", async () => {
+    await env.DB.batch([
+      insertUser("charlie", "Charlie"),
+      env.DB.prepare(
+        "INSERT INTO ratings (userId, pool, rating, deviation, volatility, lastRatedAt, ratedMatches) VALUES ('alpha', 'async', 1720, 50, 0.06, ?, 30)",
+      ).bind(seconds(new Date(NOW.getTime() - 70 * 24 * 60 * 60 * 1000))),
+      env.DB.prepare(
+        "INSERT INTO ratings (userId, pool, rating, deviation, volatility, lastRatedAt, ratedMatches) VALUES ('bravo', 'async', 1700, 50, 0.06, ?, 30)",
+      ).bind(seconds(NOW)),
+      env.DB.prepare(
+        "INSERT INTO ratings (userId, pool, rating, deviation, volatility, lastRatedAt, ratedMatches) VALUES ('charlie', 'async', 1500, 60, 0.06, ?, 30)",
+      ).bind(seconds(NOW)),
+    ]);
+
+    const ladder = await readLadder(env.DB, "async", NOW);
+    const places = await Promise.all(
+      ladder.map((row) => readLadderPlace(env.DB, "async", row, NOW)),
+    );
+
+    expect(ladder.map((row) => row.userId)).toEqual(["bravo", "alpha", "charlie"]);
+    expect(places).toEqual([1, 2, 3]);
+    expect(
+      await readLadderPlace(
+        env.DB,
+        "async",
+        { userId: "alpha", rating: 1720, deviation: 300 },
+        NOW,
+      ),
+    ).toBeNull();
   });
 
   it("keeps a player far above the field at the top while they slide", async () => {

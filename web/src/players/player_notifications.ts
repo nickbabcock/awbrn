@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import { matchKeys } from "#/matches/matches.keys.ts";
+import { playerKeys } from "./players.keys.ts";
 import { useRatingChanges } from "./rating_changes.ts";
 import { usePlayerSocket, type PlayerSocketStatus } from "./player_websocket.ts";
 import { faviconDataUrl, tabTitle } from "./tab_badge.ts";
@@ -26,6 +27,7 @@ export function usePlayerNotifications(enabled: boolean): PlayerSocketStatus {
           // together, so the two can never disagree about the same match.
           void queryClient.invalidateQueries({ queryKey: matchKeys.awaiting() });
           void queryClient.invalidateQueries({ queryKey: matchKeys.mine() });
+          void queryClient.invalidateQueries({ queryKey: playerKeys.all });
           return;
         }
         case "ratingChanged": {
@@ -33,6 +35,7 @@ export function usePlayerNotifications(enabled: boolean): PlayerSocketStatus {
           // The history list holds the same figure, so it is re-read too.
           useRatingChanges.getState().record(message);
           void queryClient.invalidateQueries({ queryKey: matchKeys.completed() });
+          void queryClient.invalidateQueries({ queryKey: playerKeys.all });
           return;
         }
         default: {

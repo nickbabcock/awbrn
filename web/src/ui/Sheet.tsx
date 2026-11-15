@@ -75,8 +75,14 @@ export function SheetRows({
   return <ul {...stylex.props(styles.rows, hasTopRule && styles.rowsTopRule)}>{children}</ul>;
 }
 
-export function SheetRow({ children }: { children: ReactNode }) {
-  return <li {...stylex.props(styles.row)}>{children}</li>;
+export function SheetRow({
+  children,
+  xstyle,
+}: {
+  children: ReactNode;
+  xstyle?: stylex.StyleXStyles;
+}) {
+  return <li {...stylex.props(styles.row, xstyle)}>{children}</li>;
 }
 
 export function SheetFoot({ children }: { children: ReactNode }) {
