@@ -922,7 +922,8 @@ pub struct MatchGameState {
 #[serde(rename_all = "camelCase")]
 pub struct PublicPlayerState {
     pub slot_index: u8,
-    pub funds: u32,
+    #[tsify(type = "number | null")]
+    pub funds: Option<u32>,
 }
 
 #[derive(Debug, Tsify, Serialize)]

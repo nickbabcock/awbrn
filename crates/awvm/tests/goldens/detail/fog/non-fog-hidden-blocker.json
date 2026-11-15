@@ -53,6 +53,7 @@
               "power_uses": 0
             }
           ],
+          "funds": 0,
           "id": "p2",
           "power_state": {
             "type": "none"
@@ -166,6 +167,7 @@
               "power_uses": 0
             }
           ],
+          "funds": 0,
           "id": "p1",
           "power_state": {
             "type": "none"
@@ -343,6 +345,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "p2",
               "power_state": {
                 "type": "none"
@@ -479,6 +482,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "p1",
               "power_state": {
                 "type": "none"

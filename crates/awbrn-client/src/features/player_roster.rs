@@ -180,8 +180,8 @@ pub fn player_roster_seed_from_live_match(
             .and_then(|kind| co_portrait_for_commander(*kind));
 
         if let Some(observed) = observed {
-            if let ObservedPlayer::Private { funds: value, .. } = observed {
-                funds.set(player_id, u32::try_from(*value).unwrap_or(u32::MAX));
+            if let Some(value) = observed.funds() {
+                funds.set(player_id, u32::try_from(value).unwrap_or(u32::MAX));
             }
             if let Some(meter) = active_power_meter(observed) {
                 power_meters.set(player_id, meter);

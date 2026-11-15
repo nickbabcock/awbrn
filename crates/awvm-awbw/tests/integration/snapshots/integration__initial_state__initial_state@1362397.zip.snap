@@ -3,4 +3,4 @@ source: crates/awvm-awbw/tests/integration/initial_state.rs
 expression: snapshot
 input_file: assets/replays/1362397.zip
 ---
-map=162795 size=27x21 players=5 units=4 state=2bc2a28e30cef779 observations=635e223085d00fa3
+map=162795 size=27x21 players=5 units=4 state=2bc2a28e30cef779 observations=5ca1f636f89a1dd0

@@ -1897,13 +1897,13 @@ function ActiveMatchScreen({
  */
 function withOpeningFunds(
   armies: MatchArmy[],
-  players: readonly { slotIndex: number; funds: number }[] | undefined,
+  players: readonly { slotIndex: number; funds: number | null }[] | undefined,
 ): MatchArmy[] {
   if (!players) return armies;
   return armies.map((army) => {
     if (army.hasLiveStats || army.entry.stats.funds !== undefined) return army;
     const funds = players.find((player) => player.slotIndex === army.entry.playerId)?.funds;
-    if (funds === undefined) return army;
+    if (funds == null) return army;
     return { ...army, entry: { ...army.entry, stats: { ...army.entry.stats, funds } } };
   });
 }
