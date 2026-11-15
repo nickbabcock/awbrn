@@ -2,7 +2,7 @@ use awvm::ruleset::profile;
 
 /// Canonical unit vocabulary generated from the AWBW ruleset.
 ///
-/// Presentation and replay helpers live in [`UnitExt`]; the identity and wire
+/// Presentation helpers live in [`UnitExt`]; the identity and wire
 /// spelling come directly from AWVM so the workspace has only one unit enum.
 pub use awvm::ruleset::UnitKind as Unit;
 
