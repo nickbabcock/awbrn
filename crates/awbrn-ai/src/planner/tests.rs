@@ -1261,6 +1261,9 @@ fn the_ferry_carries_a_spare_capturer_to_an_island() {
     use awvm::ruleset::UnitKind;
     use awvm::semantic::Pos;
     let (mut state, ours, _) = island_board(5);
+    // A beach beside the city: cargo leaves from the transport's tile, so the
+    // copter needs land under it to put the capturer down.
+    state.board.tile_mut(Pos::new(6, 1)).terrain = awvm::ruleset::Terrain::Plain;
     let board = |position| Location::Board { position };
     state.units.push(board_unit(
         1,

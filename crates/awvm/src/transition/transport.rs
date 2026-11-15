@@ -557,17 +557,26 @@ pub(super) fn prepare_unload(
     let unit = &state.units[cargo.cargo_index];
     let movement_class = ruleset::profile(unit.kind).movement_class;
     let weather = commander::effective_weather(state, unit);
-    let destination_tile = state.board.get(destination);
-    let passable = destination_tile.is_some_and(|tile| {
-        !ruleset::terrain_has(tile.terrain, TerrainTrait::Teleporter)
-            && commander::effective_movement_cost(
-                state,
-                unit,
-                ruleset::movement_cost(tile.terrain, weather, movement_class),
-            )
-            .is_some()
-    });
-    if !passable {
+    let can_stand = |position: Pos| {
+        state.board.get(position).is_some_and(|tile| {
+            !ruleset::terrain_has(tile.terrain, TerrainTrait::Teleporter)
+                && commander::effective_movement_cost(
+                    state,
+                    unit,
+                    ruleset::movement_cost(tile.terrain, weather, movement_class),
+                )
+                .is_some()
+        })
+    };
+    // Cargo leaves from the transport's own tile, so a Lander or Black Boat on
+    // sea, or a T-Copter over sea or reef, cannot put foot soldiers down.
+    if !can_stand(transport_position) {
+        return Err(violation(Violation::TerrainImpassable {
+            index: None,
+            position: transport_position,
+        }));
+    }
+    if !can_stand(destination) {
         return Err(violation(Violation::TerrainImpassable {
             index: None,
             position: destination,

@@ -257,17 +257,24 @@ when its Manhattan distance from the candidate is at most `radius`. Units owned
 by the activating player's team contribute negatively; every other unit
 contributes positively.
 
-Let `h = clamp(exact-hp, 1, 30)` and let `cost` be the unit owner's effective
-build cost for that kind. The three policies score a unit as follows:
+Let `h` be the HP a missile would take from the unit, read from the bars it
+shows: `h = 1` when `visual-hp(exact-hp) <= 1` (a unit is never left below one
+point), otherwise `h = 10 * min(visual-hp(exact-hp) - 1, 3)`. Let `cost` be the
+unit owner's effective build cost for that kind. The three policies score a
+unit as follows:
 
 - `infantry-hp`: start with `h`. If the unit is Infantry or Mech and has more
   than ten exact HP, multiply by four; multiply by another two when it occupies
   a tile with an in-progress capture. This policy has no numeric secondary
   tiebreak.
-- `unit-value`: use `2` when exact HP is below ten; otherwise use `h * cost`.
-  Its secondary tiebreak is the sum of `exact-hp * cost` for enemy units only.
-- `unit-hp`: use `h`. Its secondary tiebreak is the sum of uncapped exact HP
-  for enemy units only.
+- `unit-value`: use `h * cost`. Its secondary tiebreak is the sum of
+  `exact-hp * cost` for enemy units only.
+- `unit-hp`: use `h`. Its secondary tiebreak is the sum of exact HP for enemy
+  units only.
+
+Scoring by displayed bars matches every Rachel and Von Bolt missile recorded in
+archived AWBW games from late 2024 on; scoring by exact HP misplaces some.
+Earlier recordings fit neither, so AWBW appears to have changed its aim.
 
 For each policy, choose the greatest signed primary score, then its greatest
 secondary score where applicable, then the smallest `y`, then the smallest
@@ -361,9 +368,10 @@ unit within Manhattan distance `radius`, calculate the primary contribution
 used by the AWBW unit-value policy:
 
 ```text
-contribution = 2                              when exact HP < 10
-contribution = min(exact HP, 30) * base cost  otherwise
+contribution = h * base cost
 ```
+
+where `h` is the displayed-bar HP loss defined for `fire-area-strikes`.
 
 A unit owned by the activating player's team contributes negatively; a unit
 owned by any other team contributes positively. Choose the greatest signed

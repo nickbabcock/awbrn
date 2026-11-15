@@ -255,12 +255,15 @@ impl<'a> Ferry<'a> {
             + usize::from(position.x)
     }
 
-    /// Cells where a transport of `class` can stand and put a capturer down
-    /// on a target landmass.
-    fn drop_cells(&self, class: MovementClass) -> Vec<Pos> {
+    /// Cells where a transport of `class` can stand and put a capturer of
+    /// class `foot` down on a target landmass. Cargo leaves from the
+    /// transport's tile, so the capturer must be able to stand there too.
+    fn drop_cells(&self, class: MovementClass, foot: MovementClass) -> Vec<Pos> {
         let mut cells = Vec::new();
         for (position, tile) in self.state.board.iter() {
-            if ruleset::movement_cost(tile.terrain, WeatherKind::Clear, class).is_none() {
+            if ruleset::movement_cost(tile.terrain, WeatherKind::Clear, class).is_none()
+                || ruleset::movement_cost(tile.terrain, WeatherKind::Clear, foot).is_none()
+            {
                 continue;
             }
             if position.orthogonal().any(|next| self.is_target(next)) {
@@ -396,17 +399,19 @@ pub(crate) fn ferry_plays(session: &Session) -> Vec<Play> {
                 .iter()
                 .any(|other| board_position(other) == Some(position) && other.id != unit.id)
         };
+        let footing = |position: Pos| {
+            state.board.get(position).is_some_and(|tile| {
+                ruleset::movement_cost(tile.terrain, WeatherKind::Clear, foot).is_some()
+            })
+        };
         let drop = waits
             .iter()
+            .filter(|(at, _)| footing(*at))
             .filter_map(|(at, order)| {
                 let landing = at
                     .orthogonal()
                     .filter(|next| ferry.is_target(*next) && !occupied(*next))
-                    .filter(|next| {
-                        state.board.get(*next).is_some_and(|tile| {
-                            ruleset::movement_cost(tile.terrain, WeatherKind::Clear, foot).is_some()
-                        })
-                    })
+                    .filter(|next| footing(*next))
                     .min_by_key(|next| {
                         (
                             !ferry.target_cells.contains(next),
@@ -435,7 +440,7 @@ pub(crate) fn ferry_plays(session: &Session) -> Vec<Play> {
             continue;
         }
         // Move closer to a cell where it can put the capturer down.
-        let distance = ferry.distances(class, &ferry.drop_cells(class));
+        let distance = ferry.distances(class, &ferry.drop_cells(class, foot));
         let here = board_position(unit).map_or(FAR, |at| distance[ferry.index(at)]);
         let step = waits
             .iter()
