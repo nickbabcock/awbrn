@@ -92,8 +92,10 @@ opt-level = 0
 [profile.release]
 opt-level = 's'
 lto = "thin"
-# Keep the target_features section wasm-bindgen reads. wasm-opt drops the
-# symbol names this leaves behind.
+# Stripping symbols would also drop the wasm `target_features` section, which
+# lists the wasm features rustc enabled. wasm-bindgen reads it to decide
+# whether its JS glue can use multivalue returns. wasm-opt removes the symbol
+# names left in the wasm.
 strip = "debuginfo"
 
 # Optimize benchmarks for execution speed.
