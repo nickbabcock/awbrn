@@ -8,7 +8,7 @@ import {
   spacingVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { FactionCrest } from "#/components/FactionCrest.tsx";
 import { unitSpriteSize, unitSpriteStyle } from "#/components/game_sprites.ts";
 import type { MatchArmy } from "#/matches/match_armies.ts";
@@ -18,6 +18,7 @@ import { figureStyles } from "#/ui/Figure.tsx";
 import { IconBack, IconNext } from "#/ui/icons.tsx";
 import { ModalSheet } from "#/ui/ModalSheet.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import type { UnitKind } from "#/wasm/awbrn_wasm.js";
 import { actionDay, dayLines, logDays, type LogBoundary, type LogLine } from "./turn_log.ts";
 
 /**
@@ -156,7 +157,10 @@ export function LogMoment({
       <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.momentNumber]}>
         {line.number}
       </Text>
-      <LineArt army={army} line={line} />
+      <LineArt
+        factionCode={army?.entry.displayFactionCode ?? null}
+        unit={line.summary?.unit ?? null}
+      />
       <Text color="inherit" type="inherit" xstyle={styles.verb}>
         {lineVerb(line, army)}
       </Text>
@@ -187,63 +191,104 @@ function LogList({
     row?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [currentIndex]);
 
+  // Rows are kept from one moment to the next, so a drag redraws only the
+  // rows it lifts or dims, not the whole day.
+  const onSeekRef = useRef(onSeek);
+  onSeekRef.current = onSeek;
+  const [seek] = useState(() => (index: number) => onSeekRef.current(index));
+
   const isPaper = tone === "paper";
   return (
     <ol ref={listRef} {...stylex.props(styles.list, isPaper && styles.listPaper)}>
       {lines.map((line) => {
         const army = armyFor(armies, line.actingSlot);
-        const verb = lineVerb(line, army);
-        const isNow = line.index === currentIndex;
-        const isLater = line.index > currentIndex;
-        const place = line.summary?.tile ?? null;
-        const tile = place ? `${place.x + 1},${place.y + 1}` : null;
         return (
-          <li key={line.index}>
-            <button
-              aria-current={isNow ? "step" : undefined}
-              aria-label={`${line.number}. ${verb}${tile ? ` at ${tile}` : ""}`}
-              disabled={isDisabled}
-              onClick={() => onSeek(line.index)}
-              type="button"
-              {...stylex.props(
-                styles.row,
-                isPaper && styles.rowPaper,
-                isLater && (isPaper ? styles.laterPaper : styles.later),
-                isNow && (isPaper ? styles.nowPaper : styles.now),
-              )}
-            >
-              <Text
-                color="inherit"
-                type="inherit"
-                xstyle={[figureStyles.figure, styles.small, isPaper && styles.smallPaper]}
-              >
-                {line.number}
-              </Text>
-              <HStack as="span" xstyle={[styles.art, isLater && styles.artLater]}>
-                <LineArt army={army} line={line} />
-              </HStack>
-              <Text color="inherit" type="inherit" xstyle={styles.verb}>
-                {verb}
-              </Text>
-              <Text
-                color="inherit"
-                type="inherit"
-                xstyle={[figureStyles.figure, styles.small, isPaper && styles.smallPaper]}
-              >
-                {tile}
-              </Text>
-            </button>
-          </li>
+          <LogRow
+            factionCode={army?.entry.displayFactionCode ?? null}
+            index={line.index}
+            isDisabled={isDisabled}
+            isLater={line.index > currentIndex}
+            isNow={line.index === currentIndex}
+            isPaper={isPaper}
+            key={line.index}
+            number={line.number}
+            onSeek={seek}
+            summary={line.summary}
+            verb={lineVerb(line, army)}
+          />
         );
       })}
     </ol>
   );
 }
 
+const LogRow = memo(function LogRow({
+  factionCode,
+  index,
+  isDisabled,
+  isLater,
+  isNow,
+  isPaper,
+  number,
+  onSeek,
+  summary,
+  verb,
+}: {
+  factionCode: string | null;
+  index: number;
+  isDisabled: boolean;
+  isLater: boolean;
+  isNow: boolean;
+  isPaper: boolean;
+  number: number;
+  onSeek: (index: number) => void;
+  summary: LogLine["summary"];
+  verb: string;
+}) {
+  const place = summary?.tile ?? null;
+  const tile = place ? `${place.x + 1},${place.y + 1}` : null;
+  return (
+    <li>
+      <button
+        aria-current={isNow ? "step" : undefined}
+        aria-label={`${number}. ${verb}${tile ? ` at ${tile}` : ""}`}
+        disabled={isDisabled}
+        onClick={() => onSeek(index)}
+        type="button"
+        {...stylex.props(
+          styles.row,
+          isPaper && styles.rowPaper,
+          isLater && (isPaper ? styles.laterPaper : styles.later),
+          isNow && (isPaper ? styles.nowPaper : styles.now),
+        )}
+      >
+        <Text
+          color="inherit"
+          type="inherit"
+          xstyle={[figureStyles.figure, styles.small, isPaper && styles.smallPaper]}
+        >
+          {number}
+        </Text>
+        <HStack as="span" xstyle={[styles.art, isLater && styles.artLater]}>
+          <LineArt factionCode={factionCode} unit={summary?.unit ?? null} />
+        </HStack>
+        <Text color="inherit" type="inherit" xstyle={styles.verb}>
+          {verb}
+        </Text>
+        <Text
+          color="inherit"
+          type="inherit"
+          xstyle={[figureStyles.figure, styles.small, isPaper && styles.smallPaper]}
+        >
+          {tile}
+        </Text>
+      </button>
+    </li>
+  );
+});
+
 /** The unit that acted where the outline names it, else the army's crest. */
-function LineArt({ army, line }: { army: MatchArmy | null; line: LogLine }) {
-  const factionCode = army?.entry.displayFactionCode ?? null;
-  const unit = line.summary?.unit ?? null;
+function LineArt({ factionCode, unit }: { factionCode: string | null; unit: UnitKind | null }) {
   if (unit !== null && factionCode !== null) {
     const sprite = unitSpriteStyle(unit, factionCode, 1);
     if (sprite) {

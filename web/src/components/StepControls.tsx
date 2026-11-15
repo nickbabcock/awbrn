@@ -3,7 +3,7 @@ import { HStack, Stack } from "@astryxdesign/core/Stack";
 import { Icon } from "@astryxdesign/core/Icon";
 import { borderVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { matchLayout } from "#/matches/components/matchLayout.stylex.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
@@ -37,75 +37,109 @@ export interface ReviewModel {
   onStep: (delta: number) => void;
   onTurnStep: (delta: number) => void;
   onSeekLatest: () => void;
-  /** Jump to one moment; absent until the game has said how long it is. */
+  /**
+   * Jump to one moment; absent until the game has said how long it is. A
+   * dragged scrubber calls this as the thumb moves, so the host keeps only
+   * the newest of these in flight.
+   */
   onSeek?: (index: number) => void;
+  /** The scrubber was let go at this moment, after every move was asked for. */
+  onSeekRelease?: (index: number) => void;
+  /** True while seeks the scrubber asked for are still on their way to the board. */
+  isSeeking: boolean;
   /** Where each day begins, as action indexes. */
   dayStarts?: number[];
   /** An archive has an end to jump to; a live match ends at Live. */
   hasLastKey: boolean;
 }
 
-function positionLabel(review: ReviewModel): ReactNode {
-  if (review.isAtLatest || review.position === null) return <b>{review.latestLabel}</b>;
+function positionLabel(review: ReviewModel, held: number | null): ReactNode {
+  if (review.position === null || (review.isAtLatest && held === null)) {
+    return <b>{review.latestLabel}</b>;
+  }
   return (
     <>
-      <b>{review.position.index}</b> / {review.position.total}
+      <b>{held ?? review.position.index}</b> / {review.position.total}
     </>
   );
 }
 
-function Position({ review }: { review: ReviewModel }) {
+function Position({ held, review }: { held: number | null; review: ReviewModel }) {
+  // Room for the widest label this total can show, so crossing 9 to 10 does
+  // not narrow the scrubber beside it and shift the thumb.
+  const total = String(review.position?.total ?? "");
   return (
-    <Text color="inherit" type="inherit" xstyle={[figureStyles.figure, styles.position]}>
-      {positionLabel(review)}
+    <Text
+      color="inherit"
+      type="inherit"
+      xstyle={[figureStyles.figure, styles.position, styles.positionFits(total.length * 2 + 3)]}
+    >
+      {positionLabel(review, held)}
     </Text>
   );
+}
+
+type Draft = { value: number; isDragging: boolean } | null;
+
+/**
+ * Where the scrubber's thumb is held instead of on the board's position:
+ * under the pointer while it is dragged, and where it was let go until the
+ * seeks it asked for stop. A seek that fails or is dropped ends the hold too,
+ * so the thumb falls back to the board.
+ */
+function useScrubDraft(review: ReviewModel) {
+  const [draft, setDraft] = useState<Draft>(null);
+  // Let go and caught up with: a later move through the game is not this
+  // drag's, so the thumb must not jump back to where it was let go.
+  if (draft !== null && !draft.isDragging && !review.isSeeking) setDraft(null);
+  const held = draft !== null && (draft.isDragging || review.isSeeking) ? draft.value : null;
+  return { held, isDragging: draft?.isDragging ?? false, setDraft };
 }
 
 /** A range input over a track with a tick for each day. */
 function Scrubber({
   review,
+  scrub: { held, isDragging, setDraft },
   size = "desktop",
 }: {
   review: ReviewModel;
+  scrub: ReturnType<typeof useScrubDraft>;
   size?: "desktop" | "phone";
 }) {
-  // The thumb follows a drag at once; the moment is asked for when it lands,
-  // so a drag across a hundred actions is one question rather than a hundred.
-  const [draft, setDraft] = useState<number | null>(null);
   const total = review.position?.total ?? 0;
   const index = review.isAtLatest ? total : (review.position?.index ?? total);
-  const shown = draft ?? index;
+  const shown = held ?? index;
   const percent = total === 0 ? 100 : (shown / total) * 100;
   const isLive = review.onSeek === undefined || total === 0;
-  const commit = () => {
-    if (draft === null) return;
-    setDraft(null);
-    if (draft !== index) review.onSeek?.(draft);
+  // The board follows the thumb, catching up as fast as the host answers.
+  const move = (value: number) => {
+    setDraft({ value, isDragging: true });
+    review.onSeek?.(value);
+  };
+  const release = () => {
+    if (!isDragging || held === null) return;
+    setDraft({ value: held, isDragging: false });
+    review.onSeekRelease?.(held);
   };
 
   return (
     <HStack as="span" align="center" xstyle={[styles.scrub, size === "phone" && styles.scrubPhone]}>
       <Text color="inherit" type="inherit" aria-hidden="true" xstyle={styles.track}>
         <i {...stylex.props(styles.played, styles.playedTo(percent))} />
-        {total === 0
-          ? null
-          : (review.dayStarts ?? []).map((start) => (
-              <s key={start} {...stylex.props(styles.tick, styles.tickAt((start / total) * 100))} />
-            ))}
+        {total === 0 ? null : <DayTicks starts={review.dayStarts} total={total} />}
       </Text>
       <input
         aria-label="Moment of the match"
         aria-valuetext={
-          review.isAtLatest && draft === null ? review.latestLabel : `${shown} of ${total}`
+          review.isAtLatest && held === null ? review.latestLabel : `${shown} of ${total}`
         }
         disabled={isLive}
         max={Math.max(total, 1)}
         min={0}
-        onBlur={commit}
-        onChange={(event) => setDraft(Number(event.currentTarget.value))}
-        onKeyUp={commit}
-        onPointerUp={commit}
+        onBlur={release}
+        onChange={(event) => move(Number(event.currentTarget.value))}
+        onKeyUp={release}
+        onPointerUp={release}
         step={1}
         type="range"
         value={total === 0 ? 1 : shown}
@@ -115,7 +149,20 @@ function Scrubber({
   );
 }
 
-function StepKey({
+/** A tick where each day begins, kept while the thumb is dragged over them. */
+const DayTicks = memo(function DayTicks({
+  starts = [],
+  total,
+}: {
+  starts?: number[];
+  total: number;
+}) {
+  return starts.map((start) => (
+    <s key={start} {...stylex.props(styles.tick, styles.tickAt((start / total) * 100))} />
+  ));
+});
+
+const StepKey = memo(function StepKey({
   icon,
   isDisabled,
   label,
@@ -142,10 +189,20 @@ function StepKey({
       xstyle={[size === "foot" ? styles.footKey : styles.dockKey, isLit && styles.litKey]}
     />
   );
-}
+});
 
-/** Previous and next, by turn and by action. */
-function TurnAndActionKeys({ review, size }: { review: ReviewModel; size: "foot" | "dock" }) {
+/**
+ * Previous and next, by turn and by action. A drag redraws the bar for every
+ * moment the thumb crosses while the review itself stays the same, so the
+ * keys are kept until it changes.
+ */
+const TurnAndActionKeys = memo(function TurnAndActionKeys({
+  review,
+  size,
+}: {
+  review: ReviewModel;
+  size: "foot" | "dock";
+}) {
   const busy = review.isBusy;
   return (
     <>
@@ -180,7 +237,7 @@ function TurnAndActionKeys({ review, size }: { review: ReviewModel; size: "foot"
       />
     </>
   );
-}
+});
 
 /** An icon key for the phone review bar, filling its cell (log, calculator). */
 export function ReviewBarKey({
@@ -202,6 +259,7 @@ export function ReviewBarKey({
 /** The desktop stage foot: step keys, the scrubber, the position. */
 export function ReviewFoot({ review }: { review: ReviewModel }) {
   const busy = review.isBusy;
+  const scrub = useScrubDraft(review);
   return (
     <section aria-label="Review" {...stylex.props(styles.foot)}>
       <HStack
@@ -229,8 +287,8 @@ export function ReviewFoot({ review }: { review: ReviewModel }) {
           />
         ) : null}
       </HStack>
-      <Scrubber review={review} />
-      <Position review={review} />
+      <Scrubber review={review} scrub={scrub} />
+      <Position held={scrub.held} review={review} />
       {review.isAtLatest || review.hasLastKey ? null : (
         <Button
           isDisabled={busy}
@@ -255,13 +313,14 @@ function PhoneBar({
   review: ReviewModel;
   top?: ReactNode;
 }) {
+  const scrub = useScrubDraft(review);
   return (
     <section aria-label="Review" {...stylex.props(styles.phoneBar)}>
       <HStack as="span" align="center" justify="between" xstyle={styles.phoneTop}>
         {top}
-        <Position review={review} />
+        <Position held={scrub.held} review={review} />
       </HStack>
-      <Scrubber review={review} size="phone" />
+      <Scrubber review={review} scrub={scrub} size="phone" />
       <Stack as="span" xstyle={[styles.phoneKeys, keysXstyle]}>
         <TurnAndActionKeys review={review} size="dock" />
         {children}
@@ -436,8 +495,12 @@ const styles = stylex.create({
     color: awbrnVars.textOnInkSecondary,
     fontSize: awbrnVars.text13,
     fontWeight: 500,
+    textAlign: "end",
     whiteSpace: "nowrap",
   },
+  positionFits: (chars: number) => ({
+    minInlineSize: `${chars}ch`,
+  }),
   phoneBar: {
     display: "grid",
     gap: spacingVars["--spacing-1"],

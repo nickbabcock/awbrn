@@ -26,7 +26,10 @@ impl Plugin for ReplayPlugin {
                 Update,
                 (
                     controls::handle_replay_controls,
-                    timeline::handle_replay_navigation,
+                    // A jump that cuts a walk short has its transitions
+                    // applied before the walk is ended, so the unit's
+                    // projected state is synced once the walk is gone.
+                    timeline::handle_replay_navigation.before(navigation::animate_unit_paths),
                 )
                     .chain()
                     .run_if(in_state(GameMode::Replay).and_then(in_state(AppState::InGame))),
@@ -36,6 +39,7 @@ impl Plugin for ReplayPlugin {
             .add_systems(
                 Update,
                 timeline::emit_replay_position
+                    .after(timeline::handle_replay_navigation)
                     .run_if(resource_exists::<EventSink<ReplayPositionChanged>>)
                     .run_if(
                         resource_exists_and_changed::<awbrn_bevy::replay::ReplayState>

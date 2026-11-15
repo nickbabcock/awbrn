@@ -858,6 +858,20 @@ impl BevyApp {
         self.navigate_replay(awbrn_client::modes::replay::timeline::ReplayTarget::Boundary(index));
     }
 
+    /// Stand at one boundary of the loaded archive without watching the
+    /// action that reaches it, which is how a dragged scrubber moves.
+    ///
+    /// The jump waits for the next frame rather than running one of its own.
+    /// A drag sends many between two frames, and the frame shows the newest.
+    #[wasm_bindgen]
+    pub fn replay_jump(&mut self, index: u32) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::replay::timeline::ReplayNavigate {
+                target: awbrn_client::modes::replay::timeline::ReplayTarget::Jump(index),
+            });
+    }
+
     /// Stand at the end of the loaded archive.
     #[wasm_bindgen]
     pub fn replay_seek_end(&mut self) {

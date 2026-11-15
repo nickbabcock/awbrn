@@ -43,19 +43,20 @@ pub(crate) fn on_map_position_insert(
         &mut Transform,
         &SpriteSize,
         &MapPosition,
-        Has<crate::render::animation::UnitPathAnimation>,
+        Option<&crate::render::animation::UnitPathAnimation>,
     )>,
     game_map: Res<GameMap>,
 ) {
     let entity = trigger.entity;
 
-    let Ok((mut transform, sprite_size, map_position, has_path_animation)) = query.get_mut(entity)
-    else {
+    let Ok((mut transform, sprite_size, map_position, walk)) = query.get_mut(entity) else {
         warn!("Entity {:?} not found in query for MapPosition", entity);
         return;
     };
 
-    if has_path_animation {
+    // A walk still under way owns the transform. One cut to a single tile is
+    // over, so the unit goes where its position says.
+    if walk.is_some_and(|walk| walk.path.len() >= 2) {
         return;
     }
 
@@ -64,7 +65,7 @@ pub(crate) fn on_map_position_insert(
 
     transform.translation = final_world_pos;
 
-    info!(
+    debug!(
         "Observer: Updated Transform for entity {:?} to position ({}, {}) -> {:?}",
         entity,
         map_position.x(),

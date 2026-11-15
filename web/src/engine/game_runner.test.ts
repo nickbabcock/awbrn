@@ -76,7 +76,7 @@ describe("GameRunner surface lifecycle", () => {
     expect(createGame.mock.calls[0]![3]).toBe(transport.inputConfig);
 
     runner.dispose();
-    createGame.mock.calls[0]![4]!({ type: "NewDay", day: 7 });
+    createGame.mock.calls[0]![4]!([{ type: "NewDay", day: 7 }]);
     resolve(bareGame());
     await pending;
 

@@ -14,6 +14,7 @@ import {
   ReviewFoot,
   type ReviewModel,
 } from "#/components/StepControls.tsx";
+import { useLatestSeek } from "#/components/latest_seek.ts";
 import { TileDetails, TileLine, TileWindow } from "#/components/TileInfoBar.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
 import { useGameStore } from "#/engine/store.ts";
@@ -60,6 +61,9 @@ import { IconCalculator, IconLog, IconRefresh } from "#/ui/icons.tsx";
 import { ModalSheet } from "#/ui/ModalSheet.tsx";
 
 const PHONE_MEDIA = "(max-width: 720px)";
+
+/** Where a dragged scrubber's thumb is, or any other move through the archive. */
+type ReplayMove = number | ((runner: GameRunner) => Promise<void>);
 
 /**
  * A replay, read back: a finished match at its own address, or an archive
@@ -133,17 +137,50 @@ export function ReplayScreen({
   };
   const [stepError, setStepError] = useState<string | null>(null);
 
-  const lastStepRef = useRef<((runner: GameRunner) => Promise<void>) | null>(null);
-  function stepReplay(step: (runner: GameRunner) => Promise<void>) {
+  const lastStepRef = useRef<ReplayMove | null>(null);
+  const failed = (stepFailure: unknown) => {
+    setStepError(
+      stepFailure instanceof Error ? stepFailure.message : "The replay could not be stepped.",
+    );
+    console.error("Error stepping the replay:", stepFailure);
+  };
+  // Dragged moments the engine has not yet drawn a frame for. Counted outside
+  // React, so a drag does not redraw the screen for each one it sends.
+  const scrubsShowingRef = useRef(0);
+  // A drag let go before the engine drew its last moment, which the thumb
+  // waits for.
+  const isLandingRef = useRef(false);
+  const [isLanding, setIsLanding] = useState(false);
+  // Every move through the archive takes its turn in one queue, so a key and
+  // a drag never race: one move is out, and only the newest waits behind it.
+  // A dragged moment is not waited on. The engine draws the newest one it has
+  // each frame, so the next can go at once. A key that follows waits for that
+  // moment to be drawn, so it steps from where the drag landed.
+  const [moves, isMoving] = useLatestSeek<ReplayMove>((step) => {
     lastStepRef.current = step;
-    setStepError(null);
-    void step(runner).catch((stepFailure: unknown) => {
-      setStepError(
-        stepFailure instanceof Error ? stepFailure.message : "The replay could not be stepped.",
-      );
-      console.error("Error stepping the replay:", stepFailure);
-    });
-  }
+    // Only when there is one to clear: an update here redraws the whole
+    // screen, and a drag sends a move for every moment the thumb crosses.
+    if (stepError !== null) setStepError(null);
+    if (typeof step === "number") {
+      scrubsShowingRef.current += 1;
+      void runner
+        .replayJump(step)
+        .catch(failed)
+        .finally(() => {
+          scrubsShowingRef.current -= 1;
+          if (scrubsShowingRef.current === 0 && isLandingRef.current) {
+            isLandingRef.current = false;
+            setIsLanding(false);
+          }
+        });
+      return false;
+    }
+    void step(runner)
+      .catch(failed)
+      .finally(() => moves.settle());
+    return true;
+  });
+  const stepReplay = (step: ReplayMove) => moves.request(step);
 
   // The outline is read from the file in the page; one that does not count
   // the engine's actions describes some other reading of the archive.
@@ -180,7 +217,13 @@ export function ReplayScreen({
           onStep: (delta) => stepReplay((game) => game.replayStep(delta)),
           onTurnStep: (delta) => stepReplay((game) => game.replayStepTurn(delta)),
           onSeekLatest: () => stepReplay((game) => game.replaySeekEnd()),
-          onSeek: (index) => stepReplay((game) => game.replaySeek(index)),
+          onSeek: stepReplay,
+          isSeeking: isMoving || isLanding,
+          onSeekRelease: () => {
+            if (scrubsShowingRef.current === 0) return;
+            isLandingRef.current = true;
+            setIsLanding(true);
+          },
           dayStarts: boundaries === null ? undefined : dayStarts(boundaries),
           hasLastKey: true,
         };
@@ -200,7 +243,7 @@ export function ReplayScreen({
       ? onRetry
       : () => {
           const step = lastStepRef.current;
-          if (step) stepReplay(step);
+          if (step !== null) stepReplay(step);
         };
   const notice = shownError ? (
     <MatchNotice

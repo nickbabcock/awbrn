@@ -6,6 +6,7 @@ import init, {
   type BattleForecastResponse,
   type BattleRequestWire,
   type CanvasDisplay,
+  type GameEvent,
   type MovePlannerSetup,
   type MovePlannerSummary,
   BevyApp,
@@ -88,6 +89,7 @@ export interface GameInstance {
   replayStep: (delta: number) => Promise<void>;
   replayStepTurn: (delta: number) => Promise<void>;
   replaySeek: (index: number) => Promise<void>;
+  replayJump: (index: number) => Promise<void>;
   replaySeekEnd: () => Promise<void>;
   zoomBy: (factor: number, anchor?: CanvasPoint) => Promise<void>;
   fitBoard: () => Promise<void>;
@@ -245,21 +247,46 @@ export const createGame = async (
   display: CanvasDisplay,
   assetPaths: ReadonlyMap<string, string>,
   inputConfig: SharedCanvasInputConfig,
-  eventCallback: ConstructorParameters<typeof BevyApp>[3],
+  onEvents: (events: GameEvent[]) => void,
 ) => {
   await initialized;
   // The engine needs absolute URLs. Vite gives the assets root-relative paths,
   // so resolving them against this module uses only its origin.
   const assetConfig = resolveGameAssets(assetPaths, import.meta.url);
-  const app = new BevyApp(canvas, display, assetConfig, eventCallback);
+  // One update reports its position, roster and day separately. Sent as one
+  // message, the page redraws once for them rather than once for each, which
+  // is what keeps it free to read a drag while the board follows it.
+  let pending: GameEvent[] | null = null;
+  const app = new BevyApp(canvas, display, assetConfig, (event) => {
+    if (pending === null) {
+      pending = [];
+      queueMicrotask(() => {
+        const events = pending!;
+        pending = null;
+        onEvents(events);
+      });
+    }
+    pending.push(event);
+  });
   const inputBridge = new WorkerInputBridge(inputConfig, app);
 
+  // Calls answered by the next frame the engine draws, once it has shown them.
+  let awaitingFrame: (() => void)[] = [];
+  function drawFrame() {
+    app.update();
+    const shown = awaitingFrame;
+    awaitingFrame = [];
+    for (const resolve of shown) resolve();
+  }
   function update() {
     inputBridge.drain();
-    if (inputBridge.shouldUpdate()) {
-      app.update();
-    }
+    if (inputBridge.shouldUpdate()) drawFrame();
     requestAnimationFrame(update);
+  }
+  // A jump still waiting for its frame was asked for before the move asked
+  // for now, so it is shown first and the move goes from where it landed.
+  function showWaitingJumps() {
+    if (awaitingFrame.length > 0) drawFrame();
   }
   requestAnimationFrame(update);
 
@@ -343,15 +370,23 @@ export const createGame = async (
       app.apply_review_state(transition);
     },
     replayStep: async (delta: number) => {
+      showWaitingJumps();
       app.replay_step(delta);
     },
     replayStepTurn: async (delta: number) => {
+      showWaitingJumps();
       app.replay_step_turn(delta);
     },
     replaySeek: async (index: number) => {
+      showWaitingJumps();
       app.replay_seek(index);
     },
+    replayJump: (index: number) => {
+      app.replay_jump(index);
+      return new Promise<void>((resolve) => awaitingFrame.push(resolve));
+    },
     replaySeekEnd: async () => {
+      showWaitingJumps();
       app.replay_seek_end();
     },
     zoomBy: async (factor: number, anchor?: CanvasPoint) => {

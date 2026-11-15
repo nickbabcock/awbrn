@@ -144,6 +144,12 @@ impl ReplayArchive {
     }
 }
 
+/// How many actions separate the positions a seek may start from.
+///
+/// A seek replays at most this many actions, which is what keeps a dragged
+/// scrubber inside a frame.
+pub const CHECKPOINT_INTERVAL: usize = 64;
+
 pub enum ReplayTimeline {
     Awbw {
         initial: Box<awvm_awbw::RecordedAdapter>,
@@ -153,6 +159,7 @@ pub enum ReplayTimeline {
     Awbrn {
         setup: GameSetup,
         current: Box<Authority>,
+        checkpoints: BTreeMap<usize, Authority>,
     },
 }
 
@@ -189,31 +196,44 @@ impl ReplayTimeline {
     /// in.
     ///
     /// The pass runs on a timeline of its own, so the position the viewer is
-    /// reading never moves. Days and seats come from the projections AWVM
-    /// produces rather than from reading the archived actions, because what
-    /// counts as a turn is a rule and the archive does not hold the rules.
-    pub fn outline(&self, archive: &ReplayArchive) -> Result<Vec<ReplayBoundary>, String> {
+    /// reading never moves. Days and seats come from the state AWVM reaches
+    /// rather than from reading the archived actions, because what counts as
+    /// a turn is a rule and the archive does not hold the rules. The turn is
+    /// public, so the pass reads it off the state and projects nothing.
+    ///
+    /// The pass keeps the checkpoints it passes, so a seek anywhere in the
+    /// archive replays at most one checkpoint interval.
+    pub fn outline(&mut self, archive: &ReplayArchive) -> Result<Vec<ReplayBoundary>, String> {
         let mut scratch = self.rewound()?;
-        let opening = scratch
-            .initial_observations()?
-            .first()
-            .map(|observation| boundary(&observation.turn))
-            .unwrap_or(ReplayBoundary {
-                day: 1,
-                active_player: None,
-            });
-
         let mut boundaries = Vec::with_capacity(archive.len() + 1);
-        boundaries.push(opening);
+        boundaries.push(boundary(scratch.turn()));
         for index in 0..archive.len() {
-            let observed = scratch.advance(archive, index)?;
-            let boundary = observed
-                .first()
-                .map(|transition| boundary(&transition.post.turn))
-                .unwrap_or(opening);
-            boundaries.push(boundary);
+            scratch.apply(archive, index, false)?;
+            boundaries.push(boundary(scratch.turn()));
+        }
+        match (self, scratch) {
+            (
+                Self::Awbw { checkpoints, .. },
+                Self::Awbw {
+                    checkpoints: kept, ..
+                },
+            ) => *checkpoints = kept,
+            (
+                Self::Awbrn { checkpoints, .. },
+                Self::Awbrn {
+                    checkpoints: kept, ..
+                },
+            ) => *checkpoints = kept,
+            _ => unreachable!("a rewound timeline keeps its format"),
         }
         Ok(boundaries)
+    }
+
+    fn turn(&self) -> &awvm::semantic::Turn {
+        match self {
+            Self::Awbw { current, .. } => &current.state().turn,
+            Self::Awbrn { current, .. } => &current.state().turn,
+        }
     }
 
     /// A copy of this timeline standing before its first action.
@@ -227,6 +247,7 @@ impl ReplayTimeline {
             Self::Awbrn { setup, .. } => Ok(Self::Awbrn {
                 setup: setup.clone(),
                 current: Box::new(Authority::new(setup).map_err(|error| error.to_string())?),
+                checkpoints: BTreeMap::new(),
             }),
         }
     }
@@ -245,18 +266,7 @@ impl ReplayTimeline {
         match self {
             Self::Awbw { initial, .. } => observe_awbw_state(initial),
             Self::Awbrn { setup, .. } => {
-                let initial = Authority::new(setup).map_err(|error| error.to_string())?;
-                initial
-                    .players()
-                    .map(|player| {
-                        awvm::semantic::observe(
-                            &awvm::semantic::AwbwVisibility,
-                            initial.state(),
-                            &initial.player(player),
-                        )
-                        .map_err(|error| error.to_string())
-                    })
-                    .collect()
+                observe_authority(&Authority::new(setup).map_err(|error| error.to_string())?)
             }
         }
     }
@@ -266,6 +276,19 @@ impl ReplayTimeline {
         archive: &ReplayArchive,
         index: usize,
     ) -> Result<Vec<ObservedTransition>, String> {
+        self.apply(archive, index, true)
+    }
+
+    /// Apply one action, projecting it for every player only when `observe`
+    /// is set. A seek passes through actions nobody is shown, and projecting
+    /// them is most of what replaying them costs.
+    fn apply(
+        &mut self,
+        archive: &ReplayArchive,
+        index: usize,
+        observe: bool,
+    ) -> Result<Vec<ObservedTransition>, String> {
+        let completed = index + 1;
         match (self, archive) {
             (
                 Self::Awbw {
@@ -280,24 +303,35 @@ impl ReplayTimeline {
                     .get(index)
                     .ok_or_else(|| format!("Missing AWBW action {index}"))?;
                 let transition = current.advance(action).map_err(|error| error.to_string())?;
-                let players = transition.post_state().players.clone();
-                let observations = players
-                    .iter()
-                    .map(|player| {
-                        transition
-                            .observe(player.id())
-                            .map_err(|error| error.to_string())
-                    })
-                    .collect();
-                let completed = index + 1;
-                if completed.is_multiple_of(64) {
+                let observations = if observe {
+                    transition
+                        .post_state()
+                        .players
+                        .iter()
+                        .map(|player| {
+                            transition
+                                .observe(player.id())
+                                .map_err(|error| error.to_string())
+                        })
+                        .collect::<Result<_, _>>()?
+                } else {
+                    Vec::new()
+                };
+                if completed.is_multiple_of(CHECKPOINT_INTERVAL) {
                     checkpoints
                         .entry(completed)
                         .or_insert_with(|| (**current).clone());
                 }
-                observations
+                Ok(observations)
             }
-            (Self::Awbrn { current, .. }, ReplayArchive::Awbrn(replay)) => {
+            (
+                Self::Awbrn {
+                    current,
+                    checkpoints,
+                    ..
+                },
+                ReplayArchive::Awbrn(replay),
+            ) => {
                 let event = replay
                     .actions
                     .get(index)
@@ -305,64 +339,81 @@ impl ReplayTimeline {
                 let transition = current
                     .execute_recorded(event.player, &event.command, &event.random)
                     .map_err(|error| format!("Could not replay AWBRN action {index}: {error}"))?;
-                current
-                    .players()
-                    .map(|player| {
-                        transition
-                            .observe(current, &current.player(player))
-                            .map_err(|error| error.to_string())
-                    })
-                    .collect()
+                let observations = if observe {
+                    current
+                        .players()
+                        .map(|player| {
+                            transition
+                                .observe(current, &current.player(player))
+                                .map_err(|error| error.to_string())
+                        })
+                        .collect::<Result<_, _>>()?
+                } else {
+                    Vec::new()
+                };
+                if completed.is_multiple_of(CHECKPOINT_INTERVAL) {
+                    checkpoints
+                        .entry(completed)
+                        .or_insert_with(|| (**current).clone());
+                }
+                Ok(observations)
             }
             _ => Err("Replay archive and timeline formats do not match".to_string()),
         }
     }
 
+    /// Stand at `target`, replaying from the nearest checkpoint before it.
+    ///
+    /// The projections are of the position arrived at, with no events: a
+    /// seek shows where it landed rather than how it got there.
     pub fn rebuild(
         &mut self,
         archive: &ReplayArchive,
         target: usize,
     ) -> Result<Vec<ObservedTransition>, String> {
-        match self {
+        let start = match self {
             Self::Awbw {
                 initial,
                 current,
                 checkpoints,
             } => {
-                let (checkpoint_index, checkpoint) = checkpoints
+                let (start, checkpoint) = checkpoints
                     .range(..=target)
                     .next_back()
-                    .map(|(index, adapter)| (*index, adapter.clone()))
-                    .unwrap_or_else(|| (0, (**initial).clone()));
-                **current = checkpoint;
-                let mut observations = observe_awbw_state(current)?
-                    .into_iter()
-                    .map(|post| ObservedTransition {
-                        post,
-                        events: Vec::new(),
-                    })
-                    .collect();
-                for index in checkpoint_index..target {
-                    observations = self.advance(archive, index)?;
+                    .map(|(index, adapter)| (*index, adapter))
+                    .unwrap_or((0, initial));
+                **current = checkpoint.clone();
+                start
+            }
+            Self::Awbrn {
+                setup,
+                current,
+                checkpoints,
+            } => match checkpoints.range(..=target).next_back() {
+                Some((index, authority)) => {
+                    **current = authority.clone();
+                    *index
                 }
-                return Ok(observations);
-            }
-            Self::Awbrn { setup, current } => {
-                **current = Authority::new(setup).map_err(|error| error.to_string())?
-            }
+                None => {
+                    **current = Authority::new(setup).map_err(|error| error.to_string())?;
+                    0
+                }
+            },
+        };
+        for index in start..target {
+            self.apply(archive, index, false)?;
         }
-        let mut observations = self
-            .initial_observations()?
+        let observations = match self {
+            Self::Awbw { current, .. } => observe_awbw_state(current)?,
+            Self::Awbrn { current, .. } => observe_authority(current)?,
+        };
+        Ok(observations
             .into_iter()
             .map(|post| ObservedTransition {
                 post,
                 events: Vec::new(),
             })
-            .collect();
-        for index in 0..target {
-            observations = self.advance(archive, index)?;
-        }
-        Ok(observations)
+            .collect())
     }
 }
 
@@ -371,6 +422,20 @@ fn boundary(turn: &awvm::semantic::Turn) -> ReplayBoundary {
         day: u32::try_from(turn.day).unwrap_or(u32::MAX),
         active_player: turn.active_player.as_str().parse().ok(),
     }
+}
+
+fn observe_authority(authority: &Authority) -> Result<Vec<Observation>, String> {
+    authority
+        .players()
+        .map(|player| {
+            awvm::semantic::observe(
+                &awvm::semantic::AwbwVisibility,
+                authority.state(),
+                &authority.player(player),
+            )
+            .map_err(|error| error.to_string())
+        })
+        .collect()
 }
 
 fn observe_awbw_state(adapter: &awvm_awbw::RecordedAdapter) -> Result<Vec<Observation>, String> {
@@ -471,5 +536,100 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.contains("Unsupported AWBRN replay version 2"));
+    }
+
+    /// Land on boundaries through the checkpoints an outline keeps, and check
+    /// each against the board reached by stepping every action from the
+    /// opening.
+    fn assert_seeks_match_stepping(
+        archive: &ReplayArchive,
+        mut outlined: ReplayTimeline,
+        mut stepped: ReplayTimeline,
+    ) {
+        let outline = outlined.outline(archive).unwrap();
+        let kept = match &outlined {
+            ReplayTimeline::Awbw { checkpoints, .. } => checkpoints.len(),
+            ReplayTimeline::Awbrn { checkpoints, .. } => checkpoints.len(),
+        };
+        assert_eq!(kept, archive.len() / CHECKPOINT_INTERVAL);
+        assert!(kept >= 2, "the archive has to cross two checkpoints");
+
+        let mut expected = stepped.initial_observations().unwrap();
+        for (target, outlined_at) in outline.iter().enumerate() {
+            if target > 0 {
+                expected = stepped
+                    .advance(archive, target - 1)
+                    .unwrap()
+                    .into_iter()
+                    .map(|transition| transition.post)
+                    .collect();
+            }
+            assert_eq!(
+                *outlined_at,
+                boundary(&expected[0].turn),
+                "the outline at {target} names the turn a projection does"
+            );
+            if target > 3 * CHECKPOINT_INTERVAL && target < archive.len() {
+                continue;
+            }
+            let landed: Vec<_> = outlined
+                .rebuild(archive, target)
+                .unwrap()
+                .into_iter()
+                .map(|transition| transition.post)
+                .collect();
+            assert_eq!(landed, expected, "boundary {target}");
+        }
+    }
+
+    #[test]
+    fn an_awbw_seek_from_a_kept_checkpoint_lands_where_stepping_does() {
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+        let archive =
+            ReplayArchive::parse(&std::fs::read(assets.join("replays/1362397.zip")).unwrap())
+                .unwrap();
+        let map: AwbwMapData =
+            serde_json::from_slice(&std::fs::read(assets.join("maps/162795.json")).unwrap())
+                .unwrap();
+        let adapter = awvm_awbw::RecordedAdapter::new(archive.awbw().unwrap(), &map).unwrap();
+
+        assert_seeks_match_stepping(
+            &archive,
+            ReplayTimeline::from(adapter.clone()),
+            ReplayTimeline::from(adapter),
+        );
+    }
+
+    #[test]
+    fn an_awbrn_seek_from_a_kept_checkpoint_lands_where_stepping_does() {
+        let archive = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../assets/replays/awbrn-replay-3zceh5a97b31o.json"),
+        )
+        .unwrap();
+        let ReplayArchive::Awbrn(mut replay) = ReplayArchive::parse(&archive).unwrap() else {
+            panic!("JSON replay should use the AWBRN adapter");
+        };
+        let setup = replay.game_setup().unwrap();
+        let mut authority = Authority::new(&setup).unwrap();
+        replay.actions = (0..150)
+            .map(|turn| {
+                let player = awbrn_game::PlayerId(turn % 2);
+                let command = awbrn_game::GameCommand::EndTurn;
+                authority.execute(player, &command).unwrap();
+                StoredActionEvent {
+                    player,
+                    command,
+                    random: authority.last_random_tokens().to_vec(),
+                }
+            })
+            .collect();
+        let timeline = || ReplayTimeline::Awbrn {
+            setup: setup.clone(),
+            current: Box::new(Authority::new(&setup).unwrap()),
+            checkpoints: BTreeMap::new(),
+        };
+
+        assert_seeks_match_stepping(&ReplayArchive::Awbrn(replay), timeline(), timeline());
     }
 }

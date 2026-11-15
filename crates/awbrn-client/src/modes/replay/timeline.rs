@@ -14,7 +14,10 @@ use bevy::prelude::*;
 use crate::features::event_bus::{EventSink, ReplayPositionChanged};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::controls::advance_replay_action;
-use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplaySeekCommand};
+use crate::modes::replay::presentation::{
+    ReplayAdvanceLock, ReplayFollowupCommand, ReplaySeekCommand,
+};
+use crate::render::animation::UnitPathAnimation;
 use crate::replay_archive::ReplayBoundary;
 use awbrn_bevy::replay::ReplayState;
 
@@ -72,6 +75,11 @@ pub enum ReplayTarget {
     Turn(i32),
     /// One named boundary.
     Boundary(u32),
+    /// One named boundary, arrived at without watching the action that
+    /// reaches it, even when it is the next one. A dragged scrubber asks for
+    /// these, and a step being watched would hold the board against the rest
+    /// of the drag.
+    Jump(u32),
     Start,
     End,
 }
@@ -88,27 +96,49 @@ pub(crate) fn handle_replay_navigation(
     mut replay_state: ResMut<ReplayState>,
     outline: Res<ReplayOutline>,
     loaded_replay: Res<LoadedReplay>,
-    replay_lock: Res<ReplayAdvanceLock>,
+    mut replay_lock: ResMut<ReplayAdvanceLock>,
+    mut paths: Query<&mut UnitPathAnimation>,
 ) {
     let total = loaded_replay.0.len();
     let mut blocked = replay_lock.is_active();
 
-    for request in requests.read() {
+    let requested: Vec<_> = requests.read().map(|request| request.target).collect();
+    for (index, &target) in requested.iter().enumerate() {
+        // A drag sends a jump for every moment the thumb crosses, and the
+        // frame shows only the newest thing asked for.
+        if matches!(target, ReplayTarget::Jump(_)) && index + 1 < requested.len() {
+            continue;
+        }
+        // A dragged scrubber does not wait for a step being watched: the step
+        // is finished on the spot, so the jump lands in the update that asked
+        // for it. A walk cut to one tile is over: the step's transitions put
+        // the unit on its tile, and the walk system restores its idle pose.
+        if let (ReplayTarget::Jump(_), Some(entity)) = (target, replay_lock.active_entity()) {
+            if let Ok(mut animation) = paths.get_mut(entity) {
+                animation.path.truncate(1);
+            }
+            if let Some(followup) = replay_lock.release_for(entity) {
+                commands.queue(ReplayFollowupCommand {
+                    transitions: followup.transitions,
+                });
+            }
+            blocked = false;
+        }
         if blocked {
             continue;
         }
         let current = replay_state.next_action_index as usize;
-        let Some(target) = resolve_target(request.target, current, total, &outline) else {
+        let Some(resolved) = resolve_target(target, current, total, &outline) else {
             continue;
         };
-        if target == current {
+        if resolved == current {
             continue;
         }
 
         // One step forward is the step the archive is presented by: the move
         // is animated and the action is watched. Anything else is a jump, and
         // a jump shows where it arrived rather than how it got there.
-        if target == current + 1 {
+        if resolved == current + 1 && !matches!(target, ReplayTarget::Jump(_)) {
             if advance_replay_action(&mut commands, &mut replay_state, &loaded_replay).is_locked() {
                 blocked = true;
             }
@@ -116,7 +146,7 @@ pub(crate) fn handle_replay_navigation(
         }
 
         commands.queue(ReplaySeekCommand {
-            target_index: target as u32,
+            target_index: resolved as u32,
         });
         blocked = true;
     }
@@ -131,7 +161,7 @@ fn resolve_target(
     let resolved = match target {
         ReplayTarget::Start => 0,
         ReplayTarget::End => total,
-        ReplayTarget::Boundary(index) => index as usize,
+        ReplayTarget::Boundary(index) | ReplayTarget::Jump(index) => index as usize,
         ReplayTarget::Action(delta) => current.saturating_add_signed(delta as isize),
         ReplayTarget::Turn(delta) => {
             let mut index = current;

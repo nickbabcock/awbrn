@@ -462,8 +462,9 @@ fn sync_units(
             .resource::<StrongIdMap<AwbwUnitId>>()
             .get(&AwbwUnitId(*id))
             .unwrap_or_else(|| {
-                let mut spawned =
-                    world.spawn((AwbwUnitId(*id), Unit(unit.kind), MapPosition::new(0, 0)));
+                // No tile until it is placed below with the others: a stand-in
+                // tile would index it over whatever stands there.
+                let mut spawned = world.spawn((AwbwUnitId(*id), Unit(unit.kind)));
                 if let Some(root) = board_root {
                     spawned.insert(BoardOf(root));
                 }
@@ -480,6 +481,24 @@ fn sync_units(
             .get(&AwbwUnitId(*id))
             .ok_or(TransitionApplyError::MissingUnit(id.as_u32()))?;
         world.entity_mut(entity).remove::<CarriedBy>();
+    }
+    // A unit moving onto a tile another unit has yet to leave would be indexed
+    // over it, so every unit that moves leaves its tile before any arrives.
+    for (id, unit) in units {
+        let entity = world
+            .resource::<StrongIdMap<AwbwUnitId>>()
+            .get(&AwbwUnitId(*id))
+            .ok_or(TransitionApplyError::MissingUnit(id.as_u32()))?;
+        let target = match unit.location {
+            Location::Board { position } => Some(MapPosition::from(position)),
+            Location::Cargo { .. } => None,
+        };
+        if world
+            .get::<MapPosition>(entity)
+            .is_some_and(|current| Some(*current) != target)
+        {
+            world.entity_mut(entity).remove::<MapPosition>();
+        }
     }
     for (id, unit) in units {
         let entity = world

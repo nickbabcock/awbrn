@@ -197,7 +197,12 @@ mod tests {
     use super::*;
     use crate::loading::apply_replay_building_overrides;
     use crate::modes::replay::bootstrap::initialize_replay_semantic_world_for_client;
+    use crate::modes::replay::timeline::{
+        ReplayNavigate, ReplayOutline, ReplayTarget, handle_replay_navigation,
+    };
+    use crate::render::animation::UnitPathAnimation;
     use awbrn_bevy::GameWorldPlugin;
+    use awbrn_bevy::MapPosition;
     use awbrn_bevy::replay::AwbwUnitId;
     use awbrn_bevy::world::{GameMap, StrongIdMap};
     use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
@@ -364,6 +369,137 @@ mod tests {
         app.update();
 
         assert_eq!(app.world().resource::<ReplayState>().next_action_index, 2);
+    }
+
+    #[test]
+    fn a_step_to_the_next_boundary_is_watched_and_a_jump_there_is_not() {
+        let arrive = |target: fn(u32) -> ReplayTarget| {
+            let (mut app, replay) = replay_navigation_test_app();
+            let watched = replay
+                .turns
+                .iter()
+                .position(action_requires_path_animation)
+                .unwrap();
+            ReplaySeekCommand {
+                target_index: watched as u32,
+            }
+            .apply(app.world_mut());
+            app.world_mut().write_message(ReplayNavigate {
+                target: target(watched as u32 + 1),
+            });
+            app.update();
+            assert_eq!(
+                app.world().resource::<ReplayState>().next_action_index as usize,
+                watched + 1
+            );
+            app.world().resource::<ReplayAdvanceLock>().is_active()
+        };
+
+        assert!(arrive(ReplayTarget::Boundary));
+        assert!(!arrive(ReplayTarget::Jump));
+    }
+
+    #[test]
+    fn a_jump_asked_for_while_a_step_is_watched_lands_in_the_same_update() {
+        let (mut app, replay) = replay_navigation_test_app();
+        let watched = replay
+            .turns
+            .iter()
+            .position(action_requires_path_animation)
+            .unwrap();
+        ReplaySeekCommand {
+            target_index: watched as u32,
+        }
+        .apply(app.world_mut());
+        app.world_mut().write_message(ReplayNavigate {
+            target: ReplayTarget::Boundary(watched as u32 + 1),
+        });
+        app.update();
+        let walker = app
+            .world()
+            .resource::<ReplayAdvanceLock>()
+            .active_entity()
+            .expect("the step is being watched");
+        app.add_observer(crate::core::on_map_position_insert);
+        let size = crate::core::SpriteSize {
+            width: 23.0,
+            height: 24.0,
+            z_index: 0,
+        };
+        app.world_mut()
+            .entity_mut(walker)
+            .insert((size, Transform::default()));
+
+        app.world_mut().write_message(ReplayNavigate {
+            target: ReplayTarget::Jump(watched as u32 + 5),
+        });
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<ReplayState>().next_action_index as usize,
+            watched + 5
+        );
+        assert!(!app.world().resource::<ReplayAdvanceLock>().is_active());
+        assert!(
+            app.world()
+                .get::<UnitPathAnimation>(walker)
+                .is_none_or(|animation| animation.path.len() < 2),
+            "the walk is over, so it cannot carry the unit on past the jump"
+        );
+        let world = app.world();
+        assert_eq!(
+            world.get::<Transform>(walker).unwrap().translation,
+            crate::core::coords::map_position_to_world_translation(
+                &size,
+                *world.get::<MapPosition>(walker).unwrap(),
+                world.resource::<GameMap>(),
+            ),
+            "the walker stands on its tile rather than part-way along the walk"
+        );
+    }
+
+    #[test]
+    fn a_frame_shows_the_newest_of_the_jumps_sent_before_it() {
+        let (mut app, _) = replay_navigation_test_app();
+        for index in [9, 12] {
+            app.world_mut().write_message(ReplayNavigate {
+                target: ReplayTarget::Jump(index),
+            });
+        }
+        app.update();
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 12);
+    }
+
+    #[test]
+    fn a_jump_is_reported_in_the_update_that_makes_it() {
+        let (mut app, _) = replay_rewind_controls_test_app();
+        let reported = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::clone(&reported);
+        app.add_plugins((bevy::state::app::StatesPlugin, bevy::time::TimePlugin))
+            .insert_state(crate::core::AppState::InGame)
+            .insert_state(crate::core::GameMode::Replay)
+            .add_plugins(crate::modes::replay::ReplayPlugin)
+            .insert_resource(
+                EventSink::<crate::features::event_bus::ReplayPositionChanged>::new(
+                    move |position| sink.lock().unwrap().push(position.index),
+                ),
+            );
+        app.update();
+        reported.lock().unwrap().clear();
+
+        app.world_mut().write_message(ReplayNavigate {
+            target: ReplayTarget::Jump(9),
+        });
+        app.update();
+        assert_eq!(*reported.lock().unwrap(), vec![9]);
+    }
+
+    fn replay_navigation_test_app() -> (App, AwbwReplay) {
+        let (mut app, replay) = replay_rewind_controls_test_app();
+        app.add_message::<ReplayNavigate>();
+        app.init_resource::<ReplayOutline>();
+        app.add_systems(Update, handle_replay_navigation);
+        (app, replay)
     }
 
     fn replay_controls_test_app(action_count: usize) -> App {

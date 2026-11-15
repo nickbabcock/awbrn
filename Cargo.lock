@@ -697,6 +697,8 @@ name = "bench"
 version = "0.1.0"
 dependencies = [
  "awbrn-ai",
+ "awbrn-client",
+ "awbrn-game",
  "awbrn-map",
  "awbrn-server",
  "awbrn-types",

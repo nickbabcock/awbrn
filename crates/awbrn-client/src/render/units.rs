@@ -375,7 +375,7 @@ pub(crate) fn handle_unit_spawn(
         return;
     };
 
-    log::info!(
+    log::debug!(
         "Spawning unit of type {:?} for faction {:?} at entity {:?}",
         unit.0,
         faction.0,
