@@ -482,7 +482,27 @@ fn no_suicide() -> Puzzle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profile::HARD_V2 as HARD;
+    use crate::profile::{AiProfile, CURRENT_PROFILES};
+
+    /// Play one turn of `puzzle` with the agent that `profile` seats, at the
+    /// node budget of the profile, and check it. A turn that does not run
+    /// fails the test rather than the puzzle.
+    fn seated_turn(puzzle: &Puzzle, profile: &AiProfile) -> (TurnResult, Result<(), String>) {
+        let mut agent = profile.agent(7);
+        agent.start_match();
+        let result = run_agent_turn_unmeasured(
+            puzzle.state.clone(),
+            &mut *agent,
+            &mut Rng::from_seed(11),
+            profile.node_budget(),
+        )
+        .unwrap_or_else(|error| panic!("{} {}: {error}", profile.id, puzzle.name));
+        let check = (puzzle.check)(&PuzzleTurn {
+            start: &puzzle.state,
+            result: &result,
+        });
+        (result, check)
+    }
 
     /// Every puzzle board is legal, and the agent's seat moves first.
     #[test]
@@ -517,57 +537,56 @@ mod tests {
         }
     }
 
-    /// The fixed Hard baseline. Update this table when Hard changes.
-    ///
-    /// A `false` entry is a known weakness of Hard, not a test failure.
+    /// The seated profiles, in the order of the columns of [`SOLVED`].
+    const COLUMNS: [&str; 3] = ["ai-easy-v2", "ai-medium-v2", "ai-hard-v5"];
+
+    /// Whether each seated profile solves each puzzle, in suite order, in the
+    /// columns of [`COLUMNS`]. A `false` entry is a known weakness.
+    const SOLVED: [(&str, [bool; 3]); 7] = [
+        ("kill-the-tank", [true, true, true]),
+        ("three-attacker-kill", [true, true, true]),
+        ("focus-fire", [true, true, true]),
+        ("hq-block", [false, true, false]),
+        ("capture-denial", [true, true, true]),
+        ("hq-capture-denial", [true, true, true]),
+        ("no-suicide", [false, true, true]),
+    ];
+
+    /// Each seated profile solves the puzzles that [`SOLVED`] says it solves,
+    /// and no other. A new failure and a new solution both fail the test:
+    /// change the table to accept a change of play.
     #[test]
-    fn hard_baseline() {
-        let expected = HARD_BASELINE.to_vec();
+    fn the_seated_profiles_solve_the_puzzles_of_the_table() {
+        assert_eq!(CURRENT_PROFILES.map(|profile| profile.id), COLUMNS);
+        let mut failures = Vec::new();
         let actual = suite()
             .iter()
             .map(|puzzle| {
-                let mut agent = HARD.agent(7);
-                let outcome = solve(puzzle, &mut *agent, 11);
-                (outcome.name, outcome.passed)
+                let solved = CURRENT_PROFILES.map(|profile| {
+                    let (_, check) = seated_turn(puzzle, &profile);
+                    if let Err(error) = &check {
+                        failures.push(format!("{} {}: {error}", profile.id, puzzle.name));
+                    }
+                    check.is_ok()
+                });
+                (puzzle.name, solved)
             })
             .collect::<Vec<_>>();
-        assert_eq!(actual, expected);
+        assert_eq!(actual, SOLVED.to_vec(), "failures: {failures:#?}");
     }
 
-    /// Print what Hard plays in each puzzle.
+    /// Print what each seated profile plays in each puzzle.
     #[test]
     #[ignore = "prints a report"]
-    fn print_hard_turns() {
-        for puzzle in suite() {
-            let mut agent = HARD.agent(7);
-            agent.start_match();
-            let mut entropy = Rng::from_seed(11);
-            let result = run_agent_turn_unmeasured(
-                puzzle.state.clone(),
-                &mut *agent,
-                &mut entropy,
-                NodeBudget::FOUR,
-            )
-            .expect("the turn runs");
-            let turn = PuzzleTurn {
-                start: &puzzle.state,
-                result: &result,
-            };
-            println!("{}: {:?}", puzzle.name, (puzzle.check)(&turn));
-            for command in &result.commands {
-                println!("  {command:?}");
+    fn print_seated_turns() {
+        for profile in CURRENT_PROFILES {
+            for puzzle in suite() {
+                let (result, check) = seated_turn(&puzzle, &profile);
+                println!("{} {}: {check:?}", profile.id, puzzle.name);
+                for command in &result.commands {
+                    println!("  {command:?}");
+                }
             }
         }
     }
-
-    /// Whether `ai-hard-v2` solves each puzzle, in suite order.
-    const HARD_BASELINE: [(&str, bool); 7] = [
-        ("kill-the-tank", true),
-        ("three-attacker-kill", true),
-        ("focus-fire", true),
-        ("hq-block", false),
-        ("capture-denial", true),
-        ("hq-capture-denial", true),
-        ("no-suicide", false),
-    ];
 }

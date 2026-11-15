@@ -566,65 +566,6 @@ fn a_crowded_target_does_not_hide_a_later_kill() {
     );
 }
 
-#[test]
-fn the_production_profile_solves_all_puzzles() {
-    for puzzle in suite() {
-        // The ignored test below holds the puzzle that the profile does not
-        // pass.
-        if puzzle.name == "hq-block" {
-            continue;
-        }
-        solve_with_the_production_profile(&puzzle);
-    }
-}
-
-/// The enemy infantry cannot reach our headquarters on its next turn.
-#[test]
-#[ignore = "planner-v9 does not pass this puzzle"]
-fn the_production_profile_solves_the_hq_block_puzzle() {
-    let puzzle = suite()
-        .into_iter()
-        .find(|puzzle| puzzle.name == "hq-block")
-        .unwrap();
-    solve_with_the_production_profile(&puzzle);
-}
-
-/// The Medium profile (planner-v8-move) passes the puzzle that the Hard
-/// profile does not.
-#[test]
-fn the_medium_profile_solves_the_hq_block_puzzle() {
-    let puzzle = suite()
-        .into_iter()
-        .find(|puzzle| puzzle.name == "hq-block")
-        .unwrap();
-    solve_with_profile(&crate::profile::MEDIUM, &puzzle);
-}
-
-/// Play the turn of `puzzle` with the Hard profile, and panic when the turn
-/// does not solve it.
-fn solve_with_the_production_profile(puzzle: &crate::puzzles::Puzzle) {
-    solve_with_profile(&crate::profile::HARD, puzzle);
-}
-
-/// Play the turn of `puzzle` with `profile`, and panic when the turn does
-/// not solve it.
-fn solve_with_profile(profile: &crate::profile::AiProfile, puzzle: &crate::puzzles::Puzzle) {
-    let mut agent = profile.agent(7);
-    let mut entropy = Rng::from_seed(11);
-    let result = crate::harness::run_agent_turn_unmeasured(
-        puzzle.state.clone(),
-        &mut *agent,
-        &mut entropy,
-        profile.node_budget(),
-    )
-    .unwrap();
-    let turn = crate::puzzles::PuzzleTurn {
-        start: &puzzle.state,
-        result: &result,
-    };
-    (puzzle.check)(&turn).unwrap_or_else(|error| panic!("{}: {error}", puzzle.name));
-}
-
 fn replay_fixture(name: &str) -> State {
     let path = format!(
         "{}/tests/fixtures/replay_regressions/{name}.json",
