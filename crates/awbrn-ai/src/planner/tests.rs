@@ -2966,6 +2966,83 @@ fn a_blocker_that_enemy_fire_destroys_does_not_hold() {
     assert!(!without.headquarters_lost);
 }
 
+/// A board with our headquarters at (2, 2), our infantry with `blocker_hp`
+/// on it, and an enemy infantry on each of `enemies`. The enemy turn is
+/// active, and one full enemy infantry completes the capture.
+fn blocked_headquarters(blocker_hp: u8, enemies: &[awvm::semantic::Pos]) -> (State, PlayerIdx) {
+    use awvm::ruleset::{Terrain, UnitKind};
+    use awvm::semantic::{Pos, TileOwner};
+    let (mut state, ours, theirs) = empty_board(5);
+    let hq = Pos::new(2, 2);
+    set_property(&mut state, hq, Terrain::Hq, TileOwner::Owned(ours));
+    state.board.tile_mut(hq).capture_points = Some(10);
+    let mut blocker = board_unit(
+        1,
+        UnitKind::Infantry,
+        ours,
+        Location::Board { position: hq },
+    );
+    blocker.hp = blocker_hp;
+    state.units.push(blocker);
+    for (id, position) in (2..).zip(enemies) {
+        state.units.push(board_unit(
+            id,
+            UnitKind::Infantry,
+            theirs,
+            Location::Board {
+                position: *position,
+            },
+        ));
+    }
+    state.next_unit_id = Some(2 + enemies.len() as u32);
+    state.turn.active_player = state.player(theirs).id().clone();
+    (state, ours)
+}
+
+/// An enemy unit that attacks our blocker has ended its action, so it
+/// cannot also capture the property that the blocker held. Another enemy
+/// capturer still can.
+#[test]
+fn the_units_that_destroy_a_blocker_do_not_capture_behind_it() {
+    use awvm::semantic::Pos;
+    let values = PropertyValues::STANDARD;
+    let options = [
+        contest_options(true),
+        reply::ReplyOptions {
+            march_guard: true,
+            ..contest_options(true)
+        },
+    ];
+    // One infantry destroys the blocker of one health.
+    let (state, ours) = blocked_headquarters(10, &[Pos::new(2, 3)]);
+    let session = Session::new(state);
+    for options in options {
+        let estimate = reply::estimate(&session, ours, values, options);
+        assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
+        assert!(!estimate.headquarters_lost, "{options:?}");
+    }
+    // It takes two infantry to destroy the blocker of six health.
+    let two = [Pos::new(2, 3), Pos::new(3, 2)];
+    let (state, ours) = blocked_headquarters(60, &two[..1]);
+    let estimate = reply::estimate(&Session::new(state), ours, values, options[0]);
+    assert!(estimate.destroyed.is_empty());
+    let (state, ours) = blocked_headquarters(60, &two);
+    let session = Session::new(state);
+    for options in options {
+        let estimate = reply::estimate(&session, ours, values, options);
+        assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
+        assert!(!estimate.headquarters_lost, "{options:?}");
+    }
+    // A third infantry is left to capture.
+    let (state, ours) = blocked_headquarters(60, &[two[0], two[1], Pos::new(1, 2)]);
+    let session = Session::new(state);
+    for options in options {
+        let estimate = reply::estimate(&session, ours, values, options);
+        assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
+        assert!(estimate.headquarters_lost, "{options:?}");
+    }
+}
+
 /// At the start of our turn, an enemy capturer that completes the capture of
 /// our headquarters next turn is the whole headquarters value when no unit
 /// of ours can attack it, and nothing when our attacks stop it.

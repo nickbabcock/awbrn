@@ -161,7 +161,8 @@ pub struct ReplyOptions {
     ///   [`super::contest::TWO_TURN_SHARE`] of the headquarters value.
     /// - A unit of ours on a decisive property that focused fire destroys
     ///   does not block it: the estimate counts the enemy captures of the
-    ///   property without that unit.
+    ///   property without that unit, by the enemy units that did not attack
+    ///   it.
     pub contest: bool,
     /// When true, with [`ReplyOptions::march`]
     /// ([`super::PlannerConfig::march_guard`]): the enemy meter can pay for
@@ -231,6 +232,8 @@ pub fn estimate(
     let mut attacks = collector.attacks;
     let mut destroyed_units: Vec<(f64, UnitId)> = Vec::new();
     let mut exposed_units: Vec<(f64, UnitId)> = Vec::new();
+    // Each assigned attack as (target, attacker).
+    let mut spent: Vec<(UnitId, UnitId)> = Vec::new();
     loop {
         let mut best: Option<(usize, f64)> = None;
         for (index, attack) in attacks.iter().enumerate() {
@@ -252,6 +255,7 @@ pub fn estimate(
             break;
         };
         let attack = attacks.swap_remove(index);
+        spent.push((attack.target, attack.attacker));
         let target = &mut remaining[attack.target_index];
         let destroyed = target.1 > 0.0 && attack.damage >= target.1;
         target.1 = (target.1 - attack.damage).max(0.0);
@@ -279,7 +283,9 @@ pub fn estimate(
         Vec::new()
     };
     // With the contest switch, a decisive property of ours whose blocker
-    // focused fire destroys is open to the enemy captures without it.
+    // focused fire destroys is open to the enemy captures without it. The
+    // enemy units that attacked the blocker have ended their action, so
+    // they do not capture in that position.
     let captures = collector.captures;
     let mut opened: Vec<awvm::semantic::State> = Vec::new();
     if contest || (march && march_guard) {
@@ -297,7 +303,12 @@ pub fn estimate(
                     .iter()
                     .any(|(at, share)| *at == position && *share >= 1.0)
             };
-            if blocks && let Some(open) = super::contest::without_unit(state, *id) {
+            if blocks && let Some(mut open) = super::contest::without_unit(state, *id) {
+                for (_, attacker) in spent.iter().filter(|(target, _)| target == id) {
+                    if let Some(unit) = open.units.get_mut(*attacker) {
+                        unit.action = awvm::semantic::UnitAction::Spent;
+                    }
+                }
                 opened.push(open);
             }
         }
