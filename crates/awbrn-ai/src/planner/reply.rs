@@ -162,7 +162,8 @@ pub struct ReplyOptions {
     /// - A unit of ours on a decisive property that focused fire destroys
     ///   does not block it: the estimate counts the enemy captures of the
     ///   property without that unit, by the enemy units that did not attack
-    ///   it.
+    ///   it. When the enemy units that cannot capture could destroy it alone,
+    ///   every enemy capturer counts.
     pub contest: bool,
     /// When true, with [`ReplyOptions::march`]
     /// ([`super::PlannerConfig::march_guard`]): the enemy meter can pay for
@@ -230,6 +231,28 @@ pub fn estimate(
         })
         .collect();
     let mut attacks = collector.attacks;
+    let opens_blockers = contest || (march && march_guard);
+    // With a switch that opens a destroyed blocker, the damage that the enemy
+    // units that cannot capture can do to each target together.
+    let mut non_capturer_damage: Vec<(UnitId, f64)> = Vec::new();
+    if opens_blockers {
+        for attack in &attacks {
+            let captures = state
+                .units
+                .get(attack.attacker)
+                .is_some_and(|unit| ruleset::profile(unit.kind).can_capture);
+            if captures {
+                continue;
+            }
+            match non_capturer_damage
+                .iter_mut()
+                .find(|(target, _)| *target == attack.target)
+            {
+                Some((_, damage)) => *damage += attack.damage,
+                None => non_capturer_damage.push((attack.target, attack.damage)),
+            }
+        }
+    }
     let mut destroyed_units: Vec<(f64, UnitId)> = Vec::new();
     let mut exposed_units: Vec<(f64, UnitId)> = Vec::new();
     // Each assigned attack as (target, attacker).
@@ -285,10 +308,13 @@ pub fn estimate(
     // With the contest switch, a decisive property of ours whose blocker
     // focused fire destroys is open to the enemy captures without it. The
     // enemy units that attacked the blocker have ended their action, so
-    // they do not capture in that position.
+    // they do not capture in that position, unless the enemy units that
+    // cannot capture could destroy it alone: the enemy then keeps its
+    // capturers for the capture, whichever attackers the greedy assignment
+    // gave the blocker.
     let captures = collector.captures;
     let mut opened: Vec<awvm::semantic::State> = Vec::new();
-    if contest || (march && march_guard) {
+    if opens_blockers {
         for (_, id) in &destroyed_units {
             let Some(unit) = state.units.get(*id) else {
                 continue;
@@ -304,9 +330,14 @@ pub fn estimate(
                     .any(|(at, share)| *at == position && *share >= 1.0)
             };
             if blocks && let Some(mut open) = super::contest::without_unit(state, *id) {
-                for (_, attacker) in spent.iter().filter(|(target, _)| target == id) {
-                    if let Some(unit) = open.units.get_mut(*attacker) {
-                        unit.action = awvm::semantic::UnitAction::Spent;
+                let left_to_others = non_capturer_damage
+                    .iter()
+                    .any(|(target, damage)| target == id && *damage >= f64::from(unit.hp));
+                if !left_to_others {
+                    for (_, attacker) in spent.iter().filter(|(target, _)| target == id) {
+                        if let Some(unit) = open.units.get_mut(*attacker) {
+                            unit.action = awvm::semantic::UnitAction::Spent;
+                        }
                     }
                 }
                 opened.push(open);

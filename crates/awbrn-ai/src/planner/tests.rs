@@ -3059,6 +3059,42 @@ fn the_units_that_destroy_a_blocker_do_not_capture_behind_it() {
     }
 }
 
+/// When an enemy unit that cannot capture can destroy our blocker alone, the
+/// enemy capturer next to it still captures, whichever of the two the
+/// focused fire gives the blocker: the estimate does not depend on the order
+/// of the enemy units.
+#[test]
+fn a_blocker_that_a_non_capturer_destroys_leaves_the_capturer_free() {
+    use awvm::ruleset::UnitKind;
+    use awvm::semantic::Pos;
+    let values = PropertyValues::STANDARD;
+    let options = [
+        contest_options(true),
+        reply::ReplyOptions {
+            march_guard: true,
+            ..contest_options(true)
+        },
+    ];
+    let infantry = (UnitKind::Infantry, Pos::new(2, 3));
+    let tank = (UnitKind::Tank, Pos::new(3, 2));
+    for enemies in [[infantry, tank], [tank, infantry]] {
+        let (mut state, ours) = blocked_headquarters(10, &[]);
+        let theirs = state.players.seat(&state.turn.active_player).unwrap();
+        for (id, (kind, position)) in (2..).zip(enemies) {
+            state
+                .units
+                .push(board_unit(id, kind, theirs, Location::Board { position }));
+        }
+        state.next_unit_id = Some(4);
+        let session = Session::new(state);
+        for options in options {
+            let estimate = reply::estimate(&session, ours, values, options);
+            assert_eq!(estimate.destroyed, vec![UnitId::new(1)]);
+            assert!(estimate.headquarters_lost, "{enemies:?} {options:?}");
+        }
+    }
+}
+
 /// At the start of our turn, an enemy capturer that completes the capture of
 /// our headquarters next turn is the whole headquarters value when no unit
 /// of ours can attack it, and nothing when our attacks stop it.
