@@ -216,8 +216,9 @@ node scripts/run-wasi.mjs \
   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v7
 ```
 
-The timing example plays one pair per map on one thread. Compare work
-counts between builds before comparing times. Host load affects elapsed
+The timing example plays one pair per map on one thread; a last argument
+`fog` plays the games in fog. Compare work counts between builds before
+comparing times. Host load affects elapsed
 time. Measure the service host before setting a runtime requirement.
 Wall-clock limits are excluded from CI; tests check deterministic work limits.
 

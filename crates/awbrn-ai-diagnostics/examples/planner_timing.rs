@@ -1,8 +1,10 @@
 //! Measure planner turn time on one thread, for native and Wasm builds.
 //!
 //! The server runs the AI in Wasm on one thread. This program plays the
-//! planner against fixed Hard on the non-fog development maps, one game at a
-//! time, and prints the distribution of complete planner turn times. Build it
+//! planner against fixed Hard (`ai-hard-v2`) on the development maps, one
+//! game at a time, and prints the distribution of complete planner turn
+//! times and the most time in 16 consecutive planner turns of one game (a
+//! server wake plays at most 16 AI turns). Build it
 //! for `wasm32-wasip1` and run it under Node to measure Wasm time on V8, the
 //! engine of a Worker. Build it natively to get the ratio for the same games.
 //! The work counts must be equal in the two builds.
@@ -18,7 +20,9 @@
 //!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v8
 //! ```
 //!
-//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8|v8-move|v9> [map-id]`
+//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8|v8-move|v9> [map-id] [fog]`
+//!
+//! With `fog`, the games are played in fog.
 
 use std::time::Instant;
 
@@ -41,9 +45,13 @@ fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let [_, manifest, pairs, mode, selected @ ..] = arguments.as_slice() else {
         eprintln!(
-            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8|v8-move|v9> [map-id]"
+            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v6-canonical|v7|v8|v8-move|v9> [map-id] [fog]"
         );
         std::process::exit(2);
+    };
+    let (fog, selected) = match selected {
+        [rest @ .., last] if last == "fog" => (true, rest),
+        rest => (false, rest),
     };
     let selected = match selected {
         [] => None,
@@ -78,6 +86,8 @@ fn main() {
     let mut work = 0;
     let mut max_turn_work = 0;
     let mut plans = 0;
+    // The most planner time in 16 consecutive planner turns of one game.
+    let mut most_in_16 = 0;
     for map_id in MAPS
         .into_iter()
         .filter(|map| selected.is_none_or(|selected| selected == *map))
@@ -86,7 +96,10 @@ fn main() {
         for pair in 0..pairs.get() {
             let match_seed = Rng::mix(RUN_SEED ^ (u64::from(map_id) << 32) ^ pair as u64);
             for planner_seat in 0..2 {
-                let state = map.state(match_seed).expect("state builds");
+                let mut state = map.state(match_seed).expect("state builds");
+                if fog {
+                    state.settings.fog = true;
+                }
                 let mut session = Session::new(state.clone());
                 let mut entropy = Rng::from_seed(BaselineConfig::LOCKED.entropy_seed(match_seed));
                 let mut planner = PlannerAgent::with_config(
@@ -114,10 +127,18 @@ fn main() {
                 .expect("game plays");
                 let elapsed = match_started.elapsed().as_nanos();
                 match_nanos += elapsed;
-                planner_turns.extend(
-                    record.complete_turn_times_by_seat[planner_seat]
+                let turns = &record.complete_turn_times_by_seat[planner_seat];
+                most_in_16 = turns
+                    .windows(16.min(turns.len()).max(1))
+                    .map(|window| window.iter().sum::<u64>())
+                    .fold(most_in_16, u64::max);
+                planner_turns.extend(turns.iter().copied());
+                eprintln!(
+                    "map {map_id} pair {pair} seat {planner_seat}: planner turn ms {:?}",
+                    turns
                         .iter()
-                        .copied(),
+                        .map(|nanos| (*nanos as f64 / 1e5).round() / 10.0)
+                        .collect::<Vec<_>>()
                 );
                 hard_turns.extend(
                     record.complete_turn_times_by_seat[1 - planner_seat]
@@ -147,6 +168,11 @@ fn main() {
     println!("complete match time {:.3} ms", match_nanos as f64 / 1e6);
     let total: u64 = planner_turns.iter().sum();
     report(config.identifier, &mut planner_turns);
+    println!(
+        "{}: most in 16 consecutive turns {:.1} ms",
+        config.identifier,
+        most_in_16 as f64 / 1e6
+    );
     report("hard", &mut hard_turns);
     println!("planner plans {plans}, hard fallback decisions {fallbacks}");
     println!(
