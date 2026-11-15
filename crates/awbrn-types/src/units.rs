@@ -14,9 +14,6 @@ pub trait UnitExt: Sized + Copy {
     /// Get the display name used by the UI.
     fn name(&self) -> &'static str;
 
-    /// Convert an AWBW numeric unit-type id to a unit kind.
-    fn from_awbw_id(id: u32) -> Option<Self>;
-
     fn domain(self) -> UnitDomain;
     fn max_fuel(&self) -> u32;
     fn max_ammo(&self) -> u32;
@@ -60,12 +57,6 @@ impl UnitExt for Unit {
             Unit::TCopter => "T-Copter",
             Unit::Tank => "Tank",
         }
-    }
-
-    fn from_awbw_id(id: u32) -> Option<Self> {
-        Unit::ALL
-            .into_iter()
-            .find(|kind| profile(*kind).awbw_id == id)
     }
 
     fn domain(self) -> UnitDomain {
@@ -115,20 +106,4 @@ pub enum GraphicalMovement {
     Up,
     Down,
     Lateral,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn from_awbw_id_maps_known_ids() {
-        assert_eq!(Unit::from_awbw_id(1), Some(Unit::Infantry));
-        assert_eq!(Unit::from_awbw_id(18), Some(Unit::Sub));
-        assert_eq!(Unit::from_awbw_id(46), Some(Unit::NeoTank));
-        assert_eq!(Unit::from_awbw_id(960900), Some(Unit::Piperunner));
-        assert_eq!(Unit::from_awbw_id(1141438), Some(Unit::MegaTank));
-        assert_eq!(Unit::from_awbw_id(0), None);
-        assert_eq!(Unit::from_awbw_id(19), None);
-    }
 }

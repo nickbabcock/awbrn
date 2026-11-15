@@ -1,6 +1,6 @@
 //! Units that a map places before the first turn.
 
-use awbrn_types::{PlayerFaction, Unit, UnitExt, VisualHp};
+use awbrn_types::{PlayerFaction, Unit, VisualHp};
 use awvm::semantic::{CellIdx, Dimensions, Pos};
 
 use crate::MapError;
@@ -134,7 +134,7 @@ impl Deployments {
 impl Deployment {
     /// Converts one AWBW predeployed unit, with the tile it names.
     pub(crate) fn from_predeployed(entry: &PredeployedUnit) -> Result<(Pos, Self), MapError> {
-        let unit = Unit::from_awbw_id(entry.unit_id)
+        let unit = unit_from_awbw_id(entry.unit_id)
             .ok_or(MapError::UnknownUnitId { id: entry.unit_id })?;
         let faction = PlayerFaction::from_country_code(&entry.country_code).ok_or_else(|| {
             MapError::UnknownCountryCode {
@@ -169,5 +169,28 @@ impl Deployment {
                 faction,
             },
         ))
+    }
+}
+
+/// The unit kind an AWBW numeric unit-type id names.
+fn unit_from_awbw_id(id: u32) -> Option<Unit> {
+    Unit::ALL
+        .into_iter()
+        .find(|kind| awvm::ruleset::profile(*kind).awbw_id == id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unit_from_awbw_id_maps_known_ids() {
+        assert_eq!(unit_from_awbw_id(1), Some(Unit::Infantry));
+        assert_eq!(unit_from_awbw_id(18), Some(Unit::Sub));
+        assert_eq!(unit_from_awbw_id(46), Some(Unit::NeoTank));
+        assert_eq!(unit_from_awbw_id(960900), Some(Unit::Piperunner));
+        assert_eq!(unit_from_awbw_id(1141438), Some(Unit::MegaTank));
+        assert_eq!(unit_from_awbw_id(0), None);
+        assert_eq!(unit_from_awbw_id(19), None);
     }
 }
