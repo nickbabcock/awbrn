@@ -14,7 +14,7 @@ mod view;
 #[cfg(target_family = "wasm")]
 mod wasm;
 
-pub use ai::{AiSeat, MAX_COMMANDS_PER_TURN};
+pub use ai::{MAX_COMMANDS_PER_TURN, play_ai_turn};
 pub use awbrn_ai::{AiProfile, AiTier, profile as ai_profile, profile_for_tier};
 pub use awbrn_game::{
     CommandError, GameCommand, GameSetup, PlayerId, PlayerSetup, PostMoveAction, PowerLevel,
