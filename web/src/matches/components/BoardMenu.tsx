@@ -629,7 +629,7 @@ const styles = stylex.create({
     },
     animationDuration: "90ms",
     animationTimingFunction: awbrnVars.easeStep,
-    inlineSize: "296px",
+    inlineSize: boardMenuLayout.anchoredInlineSize,
     borderStyle: "none",
     backgroundColor: awbrnVars.sheet,
     boxShadow: awbrnVars.shadowSheet,

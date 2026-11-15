@@ -11,6 +11,7 @@ import {
   followPointerCursor,
   type BoardMenuPresentation,
 } from "#/matches/components/BoardMenu.tsx";
+import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import type { ProductionOption, ProductionSite, UnitKind } from "#/wasm/awbrn_wasm.js";
 
@@ -306,10 +307,8 @@ const styles = stylex.create({
     fontWeight: 600,
     fontVariantNumeric: "tabular-nums",
   },
-  // On the board, eight and a half rows: the menu covers less of the map, and
-  // the half row says the list goes on.
   listCap: {
-    maxBlockSize: "408px",
+    maxBlockSize: boardMenuLayout.buildListMaxBlockSize,
   },
   row: {
     display: "grid",

@@ -3,6 +3,7 @@
  * other seat left open or handed to the computer.
  */
 
+import { Icon } from "@astryxdesign/core/Icon";
 import { Selector } from "@astryxdesign/core/Selector";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
@@ -13,14 +14,14 @@ import { FactionLogo } from "#/components/FactionLogo.tsx";
 import { getFactionById } from "#/factions.ts";
 import { SeatStamp } from "#/play/Opponents.tsx";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { Button } from "#/ui/Button.tsx";
 import { figureStyles } from "#/ui/Figure.tsx";
+import { IconArrowDown, IconArrowUp } from "#/ui/icons.tsx";
 import { aiProfileDisplays, DEFAULT_AI_PROFILE_ID } from "../ai_profiles.ts";
 import type { AiProfileId } from "../schemas.ts";
 
 /** The value a row carries when nobody has been put in the seat. */
 const OPEN = "open";
-/** The value that moves the host into a row. */
-const YOU = "you";
 
 export interface RosterSeats {
   /** The seat the host takes in the lobby. */
@@ -39,7 +40,6 @@ export interface SeatRosterProps extends RosterSeats {
 }
 
 const seatOptions = [
-  { value: YOU, label: "You" },
   { value: OPEN, label: "Open" },
   ...aiProfileDisplays.map((profile) => ({
     value: profile.id,
@@ -57,20 +57,21 @@ export function SeatRoster({
 }: SeatRosterProps) {
   function setSeat(slotIndex: number, value: string): void {
     const next = new Map(aiSeats);
-    if (value === YOU) {
-      // The host and whoever held the seat trade places.
-      const occupant = aiSeats.get(slotIndex);
-      next.delete(slotIndex);
-      if (occupant) next.set(hostSlot, occupant);
-      onChange({ hostSlot: slotIndex, aiSeats: next });
-      return;
-    }
     if (value === OPEN) {
       next.delete(slotIndex);
     } else {
       next.set(slotIndex, value as AiProfileId);
     }
     onChange({ hostSlot, aiSeats: next });
+  }
+
+  // The host and whoever held the seat trade places; armies stay with seats.
+  function moveHost(slotIndex: number): void {
+    const next = new Map(aiSeats);
+    const occupant = aiSeats.get(slotIndex);
+    next.delete(slotIndex);
+    if (occupant) next.set(hostSlot, occupant);
+    onChange({ hostSlot: slotIndex, aiSeats: next });
   }
 
   return (
@@ -104,6 +105,29 @@ export function SeatRoster({
                     YOU
                   </HStack>
                 ) : null}
+                {/* Turn order is the seat: these move the host through it. */}
+                <HStack as="span" xstyle={styles.move}>
+                  <Button
+                    icon={<Icon icon={IconArrowUp} />}
+                    isDisabled={slotIndex === 0}
+                    isIconOnly
+                    label={`Move to seat ${slotIndex}`}
+                    onClick={() => moveHost(slotIndex - 1)}
+                    size="sm"
+                    tooltip="Move earlier"
+                    variant="ghost"
+                  />
+                  <Button
+                    icon={<Icon icon={IconArrowDown} />}
+                    isDisabled={slotIndex === factionIds.length - 1}
+                    isIconOnly
+                    label={`Move to seat ${slotIndex + 2}`}
+                    onClick={() => moveHost(slotIndex + 1)}
+                    size="sm"
+                    tooltip="Move later"
+                    variant="ghost"
+                  />
+                </HStack>
               </HStack>
             ) : (
               <Selector
@@ -153,6 +177,10 @@ const styles = stylex.create({
   number: {
     color: awbrnVars.textTertiary,
     fontSize: textSizeVars["--font-size-sm"],
+  },
+  move: {
+    display: "inline-flex",
+    marginInlineStart: "auto",
   },
   who: {
     display: "inline-flex",

@@ -124,7 +124,13 @@ export function ReplayScreen({
   const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
   const isFullscreenEnabled = useFullscreenEnabled();
   const layout = useTableLayout(tableRef, map, isPhone);
-  useOpeningView(runner, layout, map ? `${map.width}x${map.height}` : null);
+  // Each archive opens afresh, though the next may share the last one's map.
+  const [archiveCount, setArchiveCount] = useState(0);
+  useEffect(() => {
+    if (replayPosition !== null) return;
+    setArchiveCount((count) => count + 1);
+  }, [replayPosition]);
+  useOpeningView(runner, layout, archiveCount);
   const whole = useWholeMap(runner);
   const boardView = useBoardView();
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);

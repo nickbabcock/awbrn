@@ -105,6 +105,31 @@ describe("createMatch", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("gives an AI seat the army the host's roster chose, and refuses an unknown one", async () => {
+    await seed();
+    const create = (factionId: number) =>
+      createMatch(
+        matchCreateRequestSchema.parse({
+          ...request,
+          map: mapRef,
+          aiSeats: [{ slotIndex: 1, profileId: "ai-medium-v2", factionId }],
+        }),
+        creator,
+      );
+
+    const created = await create(4);
+    expect(created.ok).toBe(true);
+    const seat = await db
+      .select({ factionId: matchParticipants.factionId })
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, created.ok ? created.value.matchId : ""))
+      .get();
+    expect(seat?.factionId).toBe(4);
+
+    const unknown = await create(999);
+    expect(unknown.ok ? null : unknown.error.code).toBe("participantInvalid");
+  });
+
   it("rejects a session that names no account", async () => {
     await seed();
 

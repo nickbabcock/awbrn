@@ -432,6 +432,9 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
                   hostSlot={hostSlot}
                   onChange={(seats) => {
                     setCreateError(null);
+                    // Every seat keeps the army it shows now: a seat that
+                    // takes a CPU, or the host, takes that army with it.
+                    setPickedArmies(shownArmies);
                     setAiSeats(seats.aiSeats);
                     setHostSlot(seats.hostSlot);
                   }}

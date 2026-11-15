@@ -706,6 +706,11 @@ const styles = stylex.create({
     insetInline: 0,
     insetBlockEnd: 0,
     minBlockSize: "100%",
+    // A transport's unload rows can outgrow a phone held sideways; they scroll
+    // rather than rise off the screen.
+    maxBlockSize: "70dvh",
+    overflowY: "auto",
+    overscrollBehavior: "contain",
   },
   dock: {
     gridArea: "dock",
