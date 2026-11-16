@@ -67,7 +67,8 @@ pub struct PlayerView {
 #[serde(rename_all = "camelCase")]
 pub struct PublicPlayerState {
     pub slot_index: u8,
-    pub funds: u32,
+    /// `None` when the recipient may not know them: an opponent's under fog.
+    pub funds: Option<u32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -264,7 +265,7 @@ pub(crate) fn build_player_view(
     Some(PlayerView {
         state: game_state_header(state),
         my_funds: narrow_u32(recipient_state.funds),
-        players: public_player_states(state),
+        players: observed_player_states(&observation),
         units: observation
             .units
             .iter()
@@ -893,13 +894,27 @@ fn winner(state: &State) -> Option<PlayerId> {
         .map(|player| server_player_id(player.id()))
 }
 
+/// Every player's funds, for a spectator. Spectators only watch matches
+/// without fog, where funds are public.
 fn public_player_states(state: &State) -> Vec<PublicPlayerState> {
     state
         .players
         .iter()
         .map(|player| PublicPlayerState {
             slot_index: server_player_id(player.id()).0,
-            funds: narrow_u32(player.funds),
+            funds: Some(narrow_u32(player.funds)),
+        })
+        .collect()
+}
+
+/// The funds a player may know, read from their own observation.
+fn observed_player_states(observation: &Observation) -> Vec<PublicPlayerState> {
+    observation
+        .players
+        .iter()
+        .map(|player| PublicPlayerState {
+            slot_index: server_player_id(player.id()).0,
+            funds: player.funds().map(narrow_u32),
         })
         .collect()
 }

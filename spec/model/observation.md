@@ -34,7 +34,9 @@ The observation contains:
   current. Terrain and teleporter topology are map data and are always present
   when applicable;
 - players sorted by authoritative player order. `relation` is `self`, `ally`,
-  or `opponent`. Funds are team-private. Exact power charge, power-use count,
+  or `opponent`. Funds are team-private under fog and public without it: an
+  opponent entry carries `funds` exactly when fog is disabled. Exact power
+  charge, power-use count,
   commander identity, active slot, active power and status are public. A client
   can derive the current COP and SCOP costs from the public commander state and
   the referenced ruleset;
@@ -56,7 +58,8 @@ The observation contains:
 Settings remain public, but secrets are recipient-specific even when fog is
 disabled. With fog disabled every mutable tile and every exposed on-board enemy
 unit is visible; a submerged Sub or hidden Stealth still requires concealment
-detection. Opponent funds, cargo and draw offers remain private.
+detection. Opponent funds are public, as AWBW shows them without fog; cargo and
+draw offers remain private.
 
 ### Unit references
 
@@ -293,13 +296,14 @@ therefore never disclosed.
 
 `funds-changed{player, from, to, reason}` emits
 `player-changed{player, state: post's entry for that player, reason}` when
-`player` is a team member, and nothing otherwise. Opponent funds are absent from
-the observation, so there is no payload that could be emitted.
+`player` is a team member or fog is disabled, and nothing otherwise. Under fog
+an opponent's funds are absent from the observation, so there is no payload that
+could be emitted.
 
 `power-charge-changed{player, commander_slot, from, to, reason}` is global. It
 emits one `player-changed` containing the post-state player entry to every
-recipient. Opponent commander entries expose exact charge but continue to omit
-funds only.
+recipient. Opponent commander entries expose exact charge; their funds follow
+the fog rule above.
 
 `draw-offer-changed{player, offered}` emits
 `public-event{kind: "draw-offer-changed"}` when `player` is a team member, and
@@ -311,7 +315,7 @@ state without exposing a gameplay command.
 `automatic-supply` and `automatic-repair` are **not** team-private. They assert
 ordinary unit facts and take the unit-fact rule, so an opponent watching a
 visible unit refuel observes the change. Only the accompanying `funds-changed`
-is restricted. An earlier revision of this document listed them as team-private,
+is restricted, and only under fog. An earlier revision of this document listed them as team-private,
 which contradicted the rule that every included unit's schema fields are exact;
 that defect is resolved in favour of the unit-fact rule.
 

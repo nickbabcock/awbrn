@@ -429,10 +429,10 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
         .iter()
         .flat_map(|transition| transition.post.players.iter())
         .filter_map(|player| {
-            let awvm::semantic::ObservedPlayer::Private { id, funds, .. } = player else {
-                return None;
-            };
-            Some((parse_player_id(id)?, u32::try_from(*funds).ok()?))
+            Some((
+                parse_player_id(player.id())?,
+                u32::try_from(player.funds()?).ok()?,
+            ))
         })
         .collect::<Vec<_>>();
     if let Some(mut player_funds) = world.get_resource_mut::<PlayerFunds>() {
@@ -458,13 +458,7 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
         .first()
         .into_iter()
         .flat_map(|transition| transition.post.players.iter())
-        .filter_map(|player| {
-            let id = match player {
-                awvm::semantic::ObservedPlayer::Private { id, .. }
-                | awvm::semantic::ObservedPlayer::Public { id, .. } => id,
-            };
-            Some((parse_player_id(id)?, active_power_meter(player)?))
-        })
+        .filter_map(|player| Some((parse_player_id(player.id())?, active_power_meter(player)?)))
         .collect::<Vec<_>>();
     if let Some(mut meters) = world.get_resource_mut::<PlayerPowerMeters>() {
         for (player, meter) in power_meters {

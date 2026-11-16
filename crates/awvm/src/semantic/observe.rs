@@ -400,7 +400,7 @@ pub enum TileVisibility {
     Visible,
     Fogged,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(untagged)]
 pub enum ObservedPlayer {
@@ -417,10 +417,80 @@ pub enum ObservedPlayer {
         id: PlayerId,
         team: TeamId,
         relation: Relation,
+        /// Present only when fog is off: AWBW shows every player's funds then.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", tsify(optional))]
+        funds: Option<u64>,
         status: PlayerStatus,
         commanders: Vec<PublicCommander>,
         power_state: PowerState,
     },
+}
+
+impl ObservedPlayer {
+    pub fn id(&self) -> &PlayerId {
+        match self {
+            ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => id,
+        }
+    }
+
+    /// The player's funds, when the recipient may know them.
+    pub fn funds(&self) -> Option<u64> {
+        match self {
+            ObservedPlayer::Private { funds, .. } => Some(*funds),
+            ObservedPlayer::Public { funds, .. } => *funds,
+        }
+    }
+}
+
+/// An opponent's entry and a teammate's can carry the same fields once fog is
+/// off, so the variant is read from `relation` rather than guessed from shape.
+impl<'de> Deserialize<'de> for ObservedPlayer {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Wire {
+            id: PlayerId,
+            team: TeamId,
+            relation: Relation,
+            #[serde(default)]
+            funds: Option<u64>,
+            status: PlayerStatus,
+            commanders: Vec<Commander>,
+            power_state: PowerState,
+        }
+        let wire = Wire::deserialize(deserializer)?;
+        Ok(match wire.relation {
+            Relation::Self_ | Relation::Ally => ObservedPlayer::Private {
+                id: wire.id,
+                team: wire.team,
+                relation: wire.relation,
+                funds: wire
+                    .funds
+                    .ok_or_else(|| serde::de::Error::missing_field("funds"))?,
+                status: wire.status,
+                commanders: wire.commanders,
+                power_state: wire.power_state,
+            },
+            Relation::Opponent => ObservedPlayer::Public {
+                id: wire.id,
+                team: wire.team,
+                relation: wire.relation,
+                funds: wire.funds,
+                status: wire.status,
+                commanders: wire
+                    .commanders
+                    .into_iter()
+                    .map(|commander| PublicCommander {
+                        id: commander.id,
+                        active: commander.active,
+                        power_charge: commander.power_charge,
+                        power_uses: commander.power_uses,
+                    })
+                    .collect(),
+                power_state: wire.power_state,
+            },
+        })
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
@@ -833,9 +903,14 @@ fn project_into(
 
     for (index, player) in state.players.iter().enumerate() {
         if let Some(out) = players.get_mut(index) {
-            project_player_into(out, player, recipient, team);
+            project_player_into(out, player, recipient, team, state.settings.fog);
         } else {
-            players.push(projected_player(player, recipient, team));
+            players.push(projected_player(
+                player,
+                recipient,
+                team,
+                state.settings.fog,
+            ));
         }
     }
     players.truncate(state.players.len());
@@ -960,6 +1035,7 @@ fn project_player_into(
     player: &super::Player,
     recipient: &PlayerId,
     team: &TeamId,
+    fog: bool,
 ) {
     match (out, player.team == *team) {
         (
@@ -991,6 +1067,7 @@ fn project_player_into(
                 id,
                 team,
                 relation,
+                funds,
                 status,
                 commanders,
                 power_state,
@@ -1000,6 +1077,7 @@ fn project_player_into(
             id.clone_from(&player.id);
             team.clone_from(&player.team);
             *relation = Relation::Opponent;
+            *funds = (!fog).then_some(player.funds);
             *status = player.status;
             commanders.clear();
             commanders.extend(player.commanders.iter().map(|co| PublicCommander {
@@ -1010,11 +1088,16 @@ fn project_player_into(
             }));
             power_state.clone_from(&player.power_state);
         }
-        (out, _) => *out = projected_player(player, recipient, team),
+        (out, _) => *out = projected_player(player, recipient, team, fog),
     }
 }
 
-fn projected_player(player: &super::Player, recipient: &PlayerId, team: &TeamId) -> ObservedPlayer {
+fn projected_player(
+    player: &super::Player,
+    recipient: &PlayerId,
+    team: &TeamId,
+    fog: bool,
+) -> ObservedPlayer {
     if player.team == *team {
         ObservedPlayer::Private {
             id: player.id.clone(),
@@ -1034,6 +1117,7 @@ fn projected_player(player: &super::Player, recipient: &PlayerId, team: &TeamId)
             id: player.id.clone(),
             team: player.team.clone(),
             relation: Relation::Opponent,
+            funds: (!fog).then_some(player.funds),
             status: player.status,
             commanders: player
                 .commanders
@@ -1213,9 +1297,10 @@ impl<V: Viewpoint> Projection<'_, V> {
                         });
                     }
                 }
-                // A player only learns their own funds changed; a power charge is
-                // public, so it is projected to everyone.
-                Event::FundsChanged { player, .. } if !self.owns(player) => {}
+                // Funds are team-private under fog and public without it; a
+                // power charge is always public, so it is projected to everyone.
+                Event::FundsChanged { player, .. }
+                    if self.next_state.settings.fog && !self.owns(player) => {}
                 Event::FundsChanged { player, .. } | Event::PowerChargeChanged { player, .. } => {
                     if let Some(player_state) = self.next_state.find_player(player) {
                         let snapshot = self
@@ -1229,7 +1314,12 @@ impl<V: Viewpoint> Projection<'_, V> {
                             })
                             .cloned()
                             .unwrap_or_else(|| {
-                                projected_player(player_state, self.recipient, self.team)
+                                projected_player(
+                                    player_state,
+                                    self.recipient,
+                                    self.team,
+                                    self.next_state.settings.fog,
+                                )
                             });
                         self.output.push(ObservedEvent::PlayerChanged {
                             player: player.clone(),
@@ -1681,6 +1771,7 @@ mod tests {
             id: PlayerId::from("p2"),
             team: TeamId::from("t2"),
             relation: Relation::Opponent,
+            funds: None,
             status: PlayerStatus::Active,
             commanders: vec![],
             power_state: PowerState::None,
@@ -1694,6 +1785,27 @@ mod tests {
             .unwrap(),
             json!({"type":"player-changed","player":"p2",
                    "state":serde_json::to_value(&player).unwrap(),"reason":"combat"})
+        );
+    }
+
+    #[test]
+    fn an_opponent_with_funds_reads_back_as_an_opponent() {
+        // Without fog an opponent's entry has a teammate's fields, so only
+        // `relation` tells the two apart.
+        let opponent = ObservedPlayer::Public {
+            id: PlayerId::from("p2"),
+            team: TeamId::from("t2"),
+            relation: Relation::Opponent,
+            funds: Some(4000),
+            status: PlayerStatus::Active,
+            commanders: vec![],
+            power_state: PowerState::None,
+        };
+        let wire = serde_json::to_value(&opponent).unwrap();
+        assert_eq!(wire["funds"], json!(4000));
+        assert_eq!(
+            serde_json::from_value::<ObservedPlayer>(wire).unwrap(),
+            opponent
         );
     }
 

@@ -293,8 +293,8 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
         visibility.set_unit_visible(unit);
     }
     for player in &observation.players {
-        // Only a teammate's projection carries funds and commander state, and
-        // that is exactly the disclosure the roster reports.
+        // Only a teammate's projection carries commander state (and, under
+        // fog, funds), and that is exactly the disclosure the roster reports.
         if let ObservedPlayer::Private { id, .. } = player
             && let Some(player) = parse_player_id(id.as_str())
         {

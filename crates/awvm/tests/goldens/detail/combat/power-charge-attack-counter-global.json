@@ -43,6 +43,7 @@
               "power_uses": 0
             }
           ],
+          "funds": 0,
           "id": "red",
           "power_state": {
             "type": "none"
@@ -78,6 +79,7 @@
               "power_uses": 0
             }
           ],
+          "funds": 0,
           "id": "green",
           "power_state": {
             "type": "none"
@@ -250,6 +252,7 @@
               "power_uses": 0
             }
           ],
+          "funds": 0,
           "id": "red",
           "power_state": {
             "type": "none"
@@ -267,6 +270,7 @@
               "power_uses": 0
             }
           ],
+          "funds": 0,
           "id": "blue",
           "power_state": {
             "type": "none"
@@ -475,6 +479,7 @@
               "power_uses": 0
             }
           ],
+          "funds": 0,
           "id": "blue",
           "power_state": {
             "type": "none"
@@ -492,6 +497,7 @@
               "power_uses": 0
             }
           ],
+          "funds": 0,
           "id": "green",
           "power_state": {
             "type": "none"
@@ -669,6 +675,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "red",
               "power_state": {
                 "type": "none"
@@ -704,6 +711,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "green",
               "power_state": {
                 "type": "none"
@@ -876,6 +884,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "red",
               "power_state": {
                 "type": "none"
@@ -893,6 +902,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "blue",
               "power_state": {
                 "type": "none"
@@ -1101,6 +1111,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "blue",
               "power_state": {
                 "type": "none"
@@ -1118,6 +1129,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "green",
               "power_state": {
                 "type": "none"
@@ -1338,6 +1350,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "red",
               "power_state": {
                 "type": "none"
@@ -1468,6 +1481,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "red",
               "power_state": {
                 "type": "none"
@@ -1611,6 +1625,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "red",
               "power_state": {
                 "type": "none"
@@ -1633,6 +1648,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "blue",
               "power_state": {
                 "type": "none"
@@ -1723,6 +1739,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "blue",
               "power_state": {
                 "type": "none"
@@ -1745,6 +1762,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "red",
               "power_state": {
                 "type": "none"
@@ -1902,6 +1920,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "blue",
               "power_state": {
                 "type": "none"
@@ -1986,6 +2005,7 @@
                   "power_uses": 0
                 }
               ],
+              "funds": 0,
               "id": "blue",
               "power_state": {
                 "type": "none"

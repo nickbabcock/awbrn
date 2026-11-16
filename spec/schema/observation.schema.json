@@ -127,6 +127,11 @@
             "id": { "$ref": "common.schema.json#/$defs/player-id" },
             "team": { "$ref": "common.schema.json#/$defs/team-id" },
             "relation": { "const": "opponent" },
+            "funds": {
+              "description": "Present only when fog is off.",
+              "type": "integer",
+              "minimum": 0
+            },
             "status": { "enum": ["active", "resigned", "timed-out", "eliminated"] },
             "commanders": {
               "type": "array",
