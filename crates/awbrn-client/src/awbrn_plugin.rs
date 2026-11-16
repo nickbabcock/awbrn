@@ -103,7 +103,7 @@ impl Plugin for AwbrnPlugin {
         );
         app.add_systems(
             OnEnter(LoadingState::Complete),
-            crate::modes::replay::bootstrap::initialize_replay_semantic_world_for_client
+            crate::modes::replay::bootstrap::initialize_loaded_replay_world
                 .run_if(in_state(GameMode::Replay)),
         );
         app.add_systems(

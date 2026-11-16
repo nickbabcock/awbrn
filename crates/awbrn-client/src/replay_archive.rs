@@ -188,8 +188,8 @@ impl From<awvm_awbw::RecordedAdapter> for ReplayTimeline {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplayBoundary {
     pub day: u32,
-    /// The seat holding the turn here, or `None` once the game is over.
-    pub active_player: Option<PlayerId>,
+    /// The player holding the turn here.
+    pub active_player: PlayerId,
 }
 
 impl ReplayTimeline {
@@ -421,7 +421,7 @@ impl ReplayTimeline {
 fn boundary(turn: &awvm::semantic::Turn) -> ReplayBoundary {
     ReplayBoundary {
         day: u32::try_from(turn.day).unwrap_or(u32::MAX),
-        active_player: Some(turn.active_player.clone()),
+        active_player: turn.active_player.clone(),
     }
 }
 

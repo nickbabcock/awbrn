@@ -30,10 +30,10 @@ pub struct ReplayOutline(pub Vec<ReplayBoundary>);
 impl ReplayOutline {
     /// The turn a boundary falls in. Two boundaries in the same turn answer
     /// with the same value.
-    fn turn_at(&self, index: usize) -> Option<(u32, Option<&PlayerId>)> {
+    fn turn_at(&self, index: usize) -> Option<(u32, &PlayerId)> {
         self.0
             .get(index)
-            .map(|boundary| (boundary.day, boundary.active_player.as_ref()))
+            .map(|boundary| (boundary.day, &boundary.active_player))
     }
 
     /// Where the turn holding this boundary began.
@@ -211,8 +211,7 @@ pub(crate) fn emit_replay_position(
             .unwrap_or(replay_state.day),
         active_player_id: outline
             .turn_at(index)
-            .and_then(|(_, player)| player)
-            .map(js_player_id),
+            .map(|(_, player)| js_player_id(player)),
         previous_turn_index: outline.previous_turn_start(index).map(|start| start as u32),
         next_turn_index: outline.next_turn_start(index).map(|start| start as u32),
     });
@@ -230,7 +229,7 @@ mod tests {
             for _ in 0..3 {
                 boundaries.push(ReplayBoundary {
                     day,
-                    active_player: Some(PlayerId::from(player)),
+                    active_player: PlayerId::from(player),
                 });
             }
         }

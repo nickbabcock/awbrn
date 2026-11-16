@@ -7,7 +7,7 @@ use awbrn_bevy::world::GameMap;
 use awbrn_client::features::player_roster::PlayerPowerMeters;
 use awbrn_client::loading::LoadedReplay;
 use awbrn_client::loading::apply_replay_building_overrides;
-use awbrn_client::modes::replay::bootstrap::initialize_replay_semantic_world_for_client;
+use awbrn_client::modes::replay::bootstrap::initialize_loaded_replay_world;
 use awbrn_client::modes::replay::navigation::PendingCourseArrows;
 use awbrn_client::modes::replay::presentation::{
     ReplayAdvanceLock, ReplayFollowupCommand, ReplaySeekCommand, ReplayTransitionFailed,
@@ -325,7 +325,7 @@ fn replay_test_app(replay: &awbw_replay::AwbwReplay, map_data: &AwbwMapData) -> 
         awbrn_client::replay_archive::ReplayArchive::Awbw(replay.clone()),
     ));
     app.insert_resource(ReplayTransitionSource::new(adapter));
-    initialize_replay_semantic_world_for_client(app.world_mut());
+    initialize_loaded_replay_world(app.world_mut());
     app
 }
 

@@ -202,7 +202,7 @@ pub fn emit_replay_viewpoint(
 mod tests {
     use super::*;
     use crate::loading::apply_replay_building_overrides;
-    use crate::modes::replay::bootstrap::initialize_replay_semantic_world_for_client;
+    use crate::modes::replay::bootstrap::initialize_loaded_replay_world;
     use crate::modes::replay::timeline::{
         ReplayNavigate, ReplayOutline, ReplayTarget, handle_replay_navigation,
     };
@@ -560,7 +560,7 @@ mod tests {
         app.insert_resource(
             crate::modes::replay::presentation::ReplayTransitionSource::new(adapter),
         );
-        initialize_replay_semantic_world_for_client(app.world_mut());
+        initialize_loaded_replay_world(app.world_mut());
         (app, replay)
     }
 

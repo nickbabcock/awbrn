@@ -35,8 +35,8 @@ impl<T: Send + Sync + 'static> EventSink<T> {
 /// The number JavaScript knows a player by.
 ///
 /// The engine names players with strings, and every one this client meets is
-/// a decimal number: an AWBW game player id in an archive and a seat index
-/// in a live match or on the planner.
+/// a decimal number: an AWBW game player id in an archive or on the planner,
+/// and a seat index in a live match.
 pub fn js_player_id(player: &PlayerId) -> u32 {
     player.parse().expect("player ids are decimal numbers")
 }

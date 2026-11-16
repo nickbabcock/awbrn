@@ -70,7 +70,7 @@ fn build_replay_outline(world: &mut World) {
     }
 }
 
-pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
+pub fn initialize_loaded_replay_world(world: &mut World) {
     let is_awbrn = world
         .get_resource::<LoadedReplay>()
         .is_some_and(|replay| replay.0.awbw().is_none());
@@ -122,7 +122,7 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
 ///
 /// Sets up terrain HP for pipe seams, spawns unit entities, and installs the
 /// presentation-visibility resources. Does NOT insert `ReplayAdvanceLock`;
-/// [`initialize_replay_semantic_world_for_client`] does.
+/// [`initialize_loaded_replay_world`] does.
 pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) {
     let board_root = initialize_terrain_semantic_world(world);
 
@@ -335,7 +335,7 @@ mod tests {
             GraphicalTerrain::PipeSeam(awbrn_types::PipeSeamType::Vertical),
         ));
 
-        initialize_replay_semantic_world_for_client(app.world_mut());
+        initialize_loaded_replay_world(app.world_mut());
 
         let mut query = app.world_mut().query::<(&TerrainTile, &TerrainHp)>();
         let (_, terrain_hp) = query.single(app.world()).unwrap();
@@ -369,7 +369,7 @@ mod tests {
                 crate::replay_archive::ReplayArchive::Awbw(replay),
             ));
 
-        initialize_replay_semantic_world_for_client(app.world_mut());
+        initialize_loaded_replay_world(app.world_mut());
 
         let mut query = app.world_mut().query::<(&MapPosition, &TerrainHp)>();
         let (_, terrain_hp) = query
