@@ -53,14 +53,14 @@ function readings(game: WasmMatch) {
 }
 
 /**
- * Settle as the alarm does, and report the failed settles in a row and how far
- * ahead the next wake is.
+ * Settle as the alarm does, and report both failure counts and how far ahead
+ * the next wake is.
  */
 async function settleOnAlarm(
   instance: MatchDurableObject,
   state: DurableObjectState,
   setup: MatchSetup,
-): Promise<{ failures: unknown; waitMs: [number, number] }> {
+): Promise<{ failures: unknown; turnFailures: unknown; waitMs: [number, number] }> {
   const before = Date.now();
   await instance["settle"](setup, { fromAlarm: true, retryCount: 0 });
   const after = Date.now();
@@ -68,12 +68,19 @@ async function settleOnAlarm(
   expect(alarm).not.toBeNull();
   return {
     failures: await state.storage.get("settleFailures"),
+    turnFailures: (await state.storage.get<{ failures: number }>("aiTurnFailures"))?.failures,
     waitMs: [alarm! - after, alarm! - before],
   };
 }
 
+/** Fake `Date` a year ahead, so no alarm comes due on its own and each test runs its wakes. */
+function holdAlarms() {
+  vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 365 * 24 * 60 * 60_000 });
+}
+
 describe("a server seat whose turn fails", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -81,7 +88,7 @@ describe("a server seat whose turn fails", () => {
     const setup = serverFirstSetup();
     const stub = env.MATCHES.get(env.MATCHES.idFromName(`test-${crypto.randomUUID()}`));
 
-    await runInDurableObject(stub, (instance) => {
+    await runInDurableObject(stub, async (instance) => {
       instance["appendEvent"]({ kind: "setup", payload: setup });
       const game = instance["loadGame"]();
       expect(game).not.toBeNull();
@@ -97,7 +104,7 @@ describe("a server seat whose turn fails", () => {
         throw new WebAssembly.RuntimeError("unreachable");
       });
 
-      expect(instance["playPendingAiTurns"](setup, game!)).toBe(false);
+      expect(await instance["playPendingAiTurn"](setup, game!)).toBe(false);
 
       expect(runAiTurn).toHaveBeenCalledOnce();
       expect(instance["readActionEvents"]()).toEqual([]);
@@ -107,7 +114,7 @@ describe("a server seat whose turn fails", () => {
       expect(readings(restored!)).toEqual(readings(new WasmMatch(setup)));
 
       // The turn is still owed, and the next wake plays it.
-      expect(instance["playPendingAiTurns"](setup, restored!)).toBe(true);
+      expect(await instance["playPendingAiTurn"](setup, restored!)).toBe(true);
 
       const events = instance["readActionEvents"]();
       expect(events.at(-1)?.command).toEqual({ type: "endTurn" });
@@ -137,15 +144,17 @@ describe("a server seat whose turn fails", () => {
         const settled = await settleOnAlarm(instance, state, setup);
         expect(runAiTurn).toHaveBeenCalledTimes(failures);
         expect(settled.failures).toBe(failures);
+        expect(settled.turnFailures).toBe(failures);
         expect(settled.waitMs[0]).toBeLessThanOrEqual(delayMs);
         expect(settled.waitMs[1]).toBeGreaterThanOrEqual(delayMs);
       }
 
       // The wait stops growing at five minutes, and the seat's clock, a week
       // away, is still what ends a match whose seat never plays.
-      await state.storage.put("settleFailures", 30);
+      const counted = await state.storage.get<{ failures: number }>("aiTurnFailures");
+      await state.storage.put("aiTurnFailures", { ...counted, failures: 30 });
       const capped = await settleOnAlarm(instance, state, setup);
-      expect(capped.failures).toBe(31);
+      expect(capped.turnFailures).toBe(31);
       expect(capped.waitMs[0]).toBeLessThanOrEqual(5 * 60_000);
       expect(capped.waitMs[1]).toBeGreaterThanOrEqual(5 * 60_000);
 
@@ -154,6 +163,7 @@ describe("a server seat whose turn fails", () => {
       runAiTurn.mockRestore();
       const played = await settleOnAlarm(instance, state, setup);
       expect(played.failures).toBeUndefined();
+      expect(played.turnFailures).toBeUndefined();
       expect(instance["loadGame"]()!.pendingAiSlot()).toBeUndefined();
       expect(played.waitMs[0]).toBeGreaterThan(24 * 60 * 60_000);
     });
@@ -203,19 +213,85 @@ describe("a server seat whose turn fails", () => {
       runAiTurn.mockRestore();
       const recovered = await settleOnAlarm(instance, state, setup);
       expect(recovered.failures).toBeUndefined();
+      expect(recovered.turnFailures).toBeUndefined();
       expect(instance["loadGame"]()!.pendingAiSlot()).toBeUndefined();
       expect(recovered.waitMs[0]).toBeGreaterThan(24 * 60 * 60_000);
     });
   });
 
+  it("is asked again on the backoff when it ends its turn still on the move", async () => {
+    holdAlarms();
+    const setup = serverFirstSetup();
+    const stub = env.MATCHES.get(env.MATCHES.idFromName(`test-${crypto.randomUUID()}`));
+
+    await runInDurableObject(stub, async (instance, state) => {
+      instance["appendEvent"]({ kind: "setup", payload: setup });
+      const runAiTurn = vi
+        .spyOn(WasmMatch.prototype, "runAiTurn")
+        .mockImplementationOnce(() => ({ actions: [] }));
+
+      // An unrelated earlier failure, which the owed turn must not wait on.
+      await state.storage.put("settleFailures", 5);
+      await instance.alarm();
+      expect(runAiTurn).toHaveBeenCalledOnce();
+      expect(instance["loadGame"]()!.pendingAiSlot()).toBe(0);
+      expect(await state.storage.get("settleFailures")).toBe(6);
+      expect(await state.storage.get("aiTurnFailures")).toMatchObject({ slot: 0, failures: 1 });
+      expect(await state.storage.getAlarm()).toBe(Date.now() + 2_000);
+
+      await instance.alarm();
+      expect(instance["loadGame"]()!.pendingAiSlot()).toBeUndefined();
+      expect(await state.storage.get("settleFailures")).toBeUndefined();
+      expect(await state.storage.get("aiTurnFailures")).toBeUndefined();
+      expect(await state.storage.getAlarm()).toBeGreaterThan(Date.now() + 24 * 60 * 60_000);
+    });
+  });
+
+  it("is asked again on the backoff when its turn cannot be written down", async () => {
+    holdAlarms();
+    const setup = serverFirstSetup();
+    const stub = env.MATCHES.get(env.MATCHES.idFromName(`test-${crypto.randomUUID()}`));
+
+    await runInDurableObject(stub, async (instance, state) => {
+      instance["appendEvent"]({ kind: "setup", payload: setup });
+      const runAiTurn = vi.spyOn(WasmMatch.prototype, "runAiTurn");
+      // As a full database would.
+      const append = vi.spyOn(
+        instance as unknown as { appendEvent(event: unknown): void },
+        "appendEvent",
+      );
+      append.mockImplementation(() => {
+        throw new Error("SQLITE_FULL");
+      });
+
+      await instance.alarm();
+      expect(runAiTurn).toHaveBeenCalledOnce();
+      expect(instance["readActionEvents"]()).toEqual([]);
+      expect(instance["loadGame"]()!.pendingAiSlot()).toBe(0);
+      expect(await state.storage.get("aiTurnFailures")).toMatchObject({ slot: 0, failures: 1 });
+      expect(await state.storage.getAlarm()).toBe(Date.now() + 2_000);
+
+      await instance.alarm();
+      expect(runAiTurn).toHaveBeenCalledTimes(2);
+      expect(await state.storage.get("aiTurnFailures")).toMatchObject({ slot: 0, failures: 2 });
+      expect(await state.storage.getAlarm()).toBe(Date.now() + 4_000);
+
+      append.mockRestore();
+      await instance.alarm();
+      expect(instance["loadGame"]()!.pendingAiSlot()).toBeUndefined();
+      expect(await state.storage.get("aiTurnFailures")).toBeUndefined();
+    });
+  });
+
   it("keeps a person's command whose following server turn fails", async () => {
+    holdAlarms();
     const setup = serverFirstSetup();
     const stub = env.MATCHES.get(env.MATCHES.idFromName(`test-${crypto.randomUUID()}`));
 
     await runInDurableObject(stub, async (instance, state) => {
       instance["appendEvent"]({ kind: "setup", payload: setup });
       // The server's opening turn plays, and the person is on the move.
-      expect(instance["playPendingAiTurns"](setup, instance["loadGame"]()!)).toBe(true);
+      expect(await instance["playPendingAiTurn"](setup, instance["loadGame"]()!)).toBe(true);
       const before = instance["readActionEvents"]().length;
 
       const sent: { type?: unknown }[] = [];
@@ -229,26 +305,25 @@ describe("a server seat whose turn fails", () => {
         throw new WebAssembly.RuntimeError("unreachable");
       });
 
-      const sentAt = Date.now();
       await instance.webSocketMessage(socket, JSON.stringify({ type: "endTurn" }));
 
-      // The command was taken, written down and sent on, and the person is
-      // not told of a failure that is not theirs.
+      expect(runAiTurn).not.toHaveBeenCalled();
+      expect(instance["readActionEvents"]()).toHaveLength(before + 1);
+      expect(sent.some((message) => message.type === "playerUpdate")).toBe(true);
+      expect(await state.storage.getAlarm()).toBe(Date.now());
+
+      // An unrelated earlier failure, which the owed turn must not wait on.
+      await state.storage.put("settleFailures", 5);
+      await instance.alarm();
       expect(runAiTurn).toHaveBeenCalledOnce();
       const events = instance["readActionEvents"]();
       expect(events).toHaveLength(before + 1);
       expect(events.at(-1)).toMatchObject({ player: 1, command: { type: "endTurn" } });
-      expect(sent.some((message) => message.type === "playerUpdate")).toBe(true);
       expect(sent.some((message) => message.type === "error")).toBe(false);
-
-      // The server's turn is still owed, and the match wakes once on the
-      // two-second delay to ask for it; that wake's settle backs off.
       expect(instance["loadGame"]()!.pendingAiSlot()).toBe(0);
-      const alarm = await state.storage.getAlarm();
-      expect(alarm).not.toBeNull();
-      expect(alarm! - sentAt).toBeLessThanOrEqual(2_000 + (Date.now() - sentAt));
-      expect(alarm! - sentAt).toBeGreaterThanOrEqual(2_000);
-      expect(await state.storage.get("settleFailures")).toBeUndefined();
+      expect(await state.storage.get("settleFailures")).toBe(6);
+      expect(await state.storage.get("aiTurnFailures")).toMatchObject({ slot: 0, failures: 1 });
+      expect(await state.storage.getAlarm()).toBe(Date.now() + 2_000);
     });
   });
 });
