@@ -44,6 +44,8 @@ fn setup() -> GameSetup {
         players,
         fog_enabled: false,
         rng_seed: RNG_SEED,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     }
 }
 

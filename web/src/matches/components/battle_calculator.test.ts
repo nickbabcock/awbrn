@@ -63,6 +63,7 @@ function entry(overrides: Partial<PlayerRosterEntry> = {}): PlayerRosterEntry {
       unitValue: undefined,
       properties: undefined,
       comTowers: undefined,
+      labs: undefined,
     },
     ...overrides,
   };
@@ -185,6 +186,7 @@ describe("side context", () => {
           unitValue: 40_000,
           properties: 9,
           comTowers: 2,
+          labs: 0,
         },
       }),
     );

@@ -92,6 +92,8 @@ pub fn try_state_from_map(
             .collect(),
         fog_enabled: fog,
         rng_seed: seed,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     };
     let mut state = state_from_setup(&setup)?;
     state.settings.unit_bans = BANNED_UNITS.to_vec();

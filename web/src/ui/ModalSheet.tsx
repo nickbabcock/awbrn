@@ -31,6 +31,7 @@ export function ModalSheet({
   children,
   footer,
   hasCloseKey = true,
+  head,
   headMeta,
   headStart,
   isOpen,
@@ -43,6 +44,8 @@ export function ModalSheet({
   children: ReactNode;
   footer?: ReactNode;
   hasCloseKey?: boolean;
+  /** Drawn in place of the heading, as tabs are; `title` stays the sheet's name. */
+  head?: ReactNode;
   headMeta?: ReactNode;
   headStart?: ReactNode;
   isOpen: boolean;
@@ -60,19 +63,21 @@ export function ModalSheet({
   const content = (
     <VStack gap={0}>
       <HStack align="center" gap={3} justify="between" xstyle={styles.head}>
-        <HStack align="center" gap={2} xstyle={styles.headTitle}>
-          {headStart}
-          <Heading
-            accessibilityLevel={2}
-            color="inherit"
-            id={titleId}
-            level={4}
-            xstyle={styles.title}
-          >
-            {titleContent ?? title}
-          </Heading>
-          {headMeta ? <Figure tone="on-ink-secondary">{headMeta}</Figure> : null}
-        </HStack>
+        {head ?? (
+          <HStack align="center" gap={2} xstyle={styles.headTitle}>
+            {headStart}
+            <Heading
+              accessibilityLevel={2}
+              color="inherit"
+              id={titleId}
+              level={4}
+              xstyle={styles.title}
+            >
+              {titleContent ?? title}
+            </Heading>
+            {headMeta ? <Figure tone="on-ink-secondary">{headMeta}</Figure> : null}
+          </HStack>
+        )}
         {hasCloseKey ? (
           <Button
             icon={<Icon icon={IconClose} />}
@@ -118,7 +123,8 @@ export function ModalSheet({
 
   return (
     <Dialog
-      aria-labelledby={titleId}
+      aria-label={head ? title : undefined}
+      aria-labelledby={head ? undefined : titleId}
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       padding={0}
@@ -188,8 +194,13 @@ const rule = {
 } as const;
 
 const styles = stylex.create({
+  // The head holds still while a long body scrolls under it, so a sheet's
+  // tabs and close key stay in reach.
   head: {
-    minBlockSize: "56px",
+    position: "sticky",
+    insetBlockStart: 0,
+    zIndex: 2,
+    minBlockSize: awbrnVars.sheetHead,
     flexShrink: 0,
     paddingBlock: awbrnVars.spacing2_5,
     paddingInlineStart: awbrnVars.spacing3_5,

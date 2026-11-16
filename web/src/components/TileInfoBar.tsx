@@ -12,6 +12,7 @@ import {
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState, type ReactNode, type RefObject, type SVGProps } from "react";
+import { LabLine, type LabReadout } from "#/matches/components/UnitRules.tsx";
 import type {
   HoveredCargoUnit,
   HoveredTile,
@@ -901,7 +902,7 @@ function Coordinates({ tile }: { tile: HoveredTile }) {
  * the cursor it draws nothing. It changes with the selection in two stepped
  * frames; hovering only rewrites it.
  */
-export function TileWindow() {
+export function TileWindow({ lab = null }: { lab?: LabReadout | null }) {
   const tile = useGameStore((state) => state.hoveredTile);
   const reach = useGameStore((state) => state.inspectedUnit);
   if (tile === null && reach === null) return null;
@@ -939,6 +940,9 @@ export function TileWindow() {
           </HStack>
         </ArtBlock>
       )}
+      {lab !== null && tile?.terrainName === "Lab" ? (
+        <LabLine lab={lab} xstyle={docked.ruled} />
+      ) : null}
       {reach === null ? null : <ReachGrid reach={reach} />}
     </section>
   );

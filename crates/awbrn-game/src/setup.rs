@@ -10,6 +10,7 @@
 use std::num::NonZeroU8;
 
 use awbrn_types::{Co, PlayerFaction};
+use awvm::ruleset::UnitKind;
 
 use crate::AwbrnMap;
 
@@ -30,6 +31,10 @@ pub struct GameSetup {
     pub players: Vec<PlayerSetup>,
     pub fog_enabled: bool,
     pub rng_seed: u64,
+    /// Unit kinds nobody may build.
+    pub unit_bans: Vec<UnitKind>,
+    /// Unit kinds a player may build only while they own a Lab.
+    pub lab_units: Vec<UnitKind>,
 }
 
 /// Error returned when a game cannot be initialized from the provided setup.

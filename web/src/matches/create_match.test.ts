@@ -8,6 +8,7 @@ import { createMatch, mutateMatch } from "./matches.server.ts";
 import { canonicalizeAwbwMap } from "#/server_wasm.ts";
 import awbwMap from "../../../assets/maps/61748.json";
 import foreignInvasion from "../../../assets/maps/162795.json";
+import normandie from "../../../assets/maps/67073.json";
 import { coRoster } from "#/co_roster.ts";
 import { awbwMapDataSchema } from "#/awbw/schemas.ts";
 
@@ -338,5 +339,44 @@ describe("teams and per-seat bans", () => {
     expect(after.coId).not.toBe(before.coId);
     expect(after.ready).toBe(true);
     expect((await settingsOf(matchId)).seatBannedCoIds?.[3]).toEqual([before.coId]);
+  });
+});
+
+describe("unit settings", () => {
+  const units = { unitBans: ["piperunner"], labUnits: ["neo-tank"] };
+
+  it("refuses Lab units on a map with no Lab", async () => {
+    await seed();
+    const result = await createMatch(
+      matchCreateRequestSchema.parse({
+        ...request,
+        map: mapRef,
+        settings: { ...request.settings, ...units },
+      }),
+      creator,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "participantInvalid",
+        message: "this map has no Lab, so it can have no Lab units",
+      },
+    });
+  });
+
+  it("keeps both lists on a map with a Lab", async () => {
+    await seed();
+    const map = await seedMap(normandie, "cmtestmap009");
+    const result = await createMatch(
+      matchCreateRequestSchema.parse({
+        ...request,
+        map,
+        settings: { ...request.settings, ...units },
+      }),
+      creator,
+    );
+    if (!result.ok) throw new Error(result.error.message);
+    const row = await db.select().from(matches).where(eq(matches.id, result.value.matchId)).get();
+    expect(row!.settings).toMatchObject(units);
   });
 });

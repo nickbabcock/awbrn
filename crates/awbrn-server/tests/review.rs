@@ -42,6 +42,8 @@ fn contested_setup(fog: bool) -> GameSetup {
         ],
         fog_enabled: fog,
         rng_seed: 0x5eed,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     };
 
     let mut set = |position, property| setup.map.set_terrain(position, property);

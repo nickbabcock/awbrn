@@ -98,6 +98,8 @@ fn two_player_setup(width: u8, height: u8) -> GameSetup {
         ],
         fog_enabled: false,
         rng_seed: 0,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     }
 }
 
@@ -219,6 +221,8 @@ fn allied_player_setup(width: u8, height: u8) -> GameSetup {
         ],
         fog_enabled: false,
         rng_seed: 0,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     }
 }
 
@@ -252,6 +256,8 @@ fn state_conversion_rejects_empty_player_setup() {
         players: Vec::new(),
         fog_enabled: false,
         rng_seed: 0,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     };
     let err = state_from_setup(&setup).unwrap_err();
 
@@ -278,6 +284,8 @@ fn state_conversion_rejects_more_than_255_players() {
         ],
         fog_enabled: false,
         rng_seed: 0,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     };
     let err = state_from_setup(&setup).unwrap_err();
 
@@ -1305,6 +1313,8 @@ fn allied_units_share_fuel_and_ammo_visibility() {
         ],
         fog_enabled: false,
         rng_seed: 0,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     })
     .unwrap();
 
@@ -2588,6 +2598,47 @@ fn full_hp_infantry_captures_property_in_two_capture_actions() {
             .capture_progress,
         None
     );
+}
+
+/// The match's unit settings reach the engine: a banned kind is never built,
+/// and a Lab unit only once its builder owns a Lab, from the moment the
+/// capture completes.
+#[test]
+fn capturing_a_lab_unlocks_the_lab_units() {
+    let mut setup = two_player_setup_with_funds(3, 1, 50_000);
+    setup.unit_bans = vec![awvm::ruleset::UnitKind::Recon];
+    setup.lab_units = vec![awvm::ruleset::UnitKind::Tank];
+    setup.map.set_terrain(
+        Pos::new(0, 0),
+        GraphicalTerrain::Property(Property::Lab(TerrainFaction::Neutral)),
+    );
+    set_property(
+        &mut setup,
+        Pos::new(2, 0),
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let base = Pos::new(2, 0);
+    let mut server = GameServer::new(setup).unwrap();
+    let infantry = server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+
+    server
+        .submit_command(p1(), build_command(base, Unit::Tank))
+        .expect_err("a Lab unit needs a Lab of its builder");
+    server
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
+        .unwrap();
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
+        .unwrap();
+
+    server
+        .submit_command(p1(), build_command(base, Unit::Recon))
+        .expect_err("a banned unit is never built");
+    server
+        .submit_command(p1(), build_command(base, Unit::Tank))
+        .expect("the captured Lab unlocks the Lab unit");
 }
 
 #[test]

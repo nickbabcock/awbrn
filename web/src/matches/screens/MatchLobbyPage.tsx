@@ -28,6 +28,8 @@ import { ordinal } from "#/matches/match_history.ts";
 import { banDraft, seatBans, seatsAlike, type BanDraft } from "#/matches/co_bans.ts";
 import { BanEditor, BanLines } from "#/matches/components/SeatBans.tsx";
 import { TeamKey, TeamShape, TeamTag } from "#/matches/components/Teams.tsx";
+import { CoRow, RuleWell, UnitRow } from "#/matches/components/UnitRules.tsx";
+import { labTiles } from "#/matches/unit_rules.ts";
 import { mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
@@ -321,6 +323,13 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
   const isLocked = pendingAction !== null || seatChanges.intents.size > 0 || !isLobby;
   const mapName = mapData?.metadata.name ?? mapEntry?.name ?? `Map ${match.mapId}`;
   const faction = seat ? getFactionById(seat.factionId) : null;
+  const unitBans = match.settings.unitBans ?? [];
+  const labUnits = match.settings.labUnits ?? [];
+  const hasUnitRules = unitBans.length > 0 || labUnits.length > 0;
+  // With Lab units set, the picture marks where the Labs stand.
+  const markedLabs = labUnits.length > 0 && mapData ? labTiles(mapData.terrain) : undefined;
+  // Units are drawn in the reader's army.
+  const unitFactionCode = faction?.code ?? factionCodeFor(0);
   const savingIntent =
     seat !== null && seatChanges.isSaving ? seatChanges.intents.get(seat.slotIndex) : undefined;
   const isCoSaving = savingIntent?.patch.coId !== undefined && savingIntent.error === null;
@@ -427,6 +436,38 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
     />
   );
 
+  const banEditKey = (
+    <Button
+      isDisabled={isLocked}
+      isLoading={pendingAction === "bans"}
+      label="Edit"
+      onClick={() => {
+        const opened = banDraft(match.settings, match.maxPlayers);
+        setBanEdit({ opened, draft: opened });
+      }}
+      size="sm"
+      xstyle={styles.bansEdit}
+    />
+  );
+  const bansHead = (
+    <HStack xstyle={styles.bansHead}>
+      <Text color="inherit" type="inherit" xstyle={styles.bansLabel}>
+        Banned
+      </Text>
+      {canEditBans ? banEditKey : null}
+    </HStack>
+  );
+  const seatLines = (
+    <BanLines
+      factionCodes={slots.map(factionCodeFor)}
+      lists={match.settings}
+      teams={teams}
+      tierList={tierList}
+      viewerSlots={ownedSlots}
+      viewerTeam={viewerTeam}
+    />
+  );
+
   return (
     <Page>
       <header>
@@ -526,6 +567,7 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
                 }
                 mapId={match.mapId}
                 mapName={mapName}
+                marked={markedLabs}
                 revision={match.mapRevision}
               />
               {seat ? (
@@ -561,8 +603,9 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
           </VStack>
 
           {/* In a team match a phone shows allies and every seat's bans
-              before the pick, and the host's team keys within reach. */}
-          <VStack xstyle={[setupStyles.after, isTeamMatch && styles.seatsFirst]}>
+              before the pick, and the host's team keys within reach; with
+              unit settings, what nobody builds and what a Lab unlocks. */}
+          <VStack xstyle={[setupStyles.after, (isTeamMatch || hasUnitRules) && styles.seatsFirst]}>
             <Sheet aria-labelledby={seatsId}>
               <SheetHead>
                 <HStack xstyle={styles.seatsTitle}>
@@ -638,34 +681,43 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
                   );
                 })}
               </SheetRows>
-              {canEditBans || !areBansAlike ? (
-                <VStack aria-label="Banned" role="group" xstyle={styles.bans}>
-                  <HStack xstyle={styles.bansHead}>
-                    <Text color="inherit" type="inherit" xstyle={styles.bansLabel}>
-                      Banned
-                    </Text>
-                    {canEditBans ? (
-                      <Button
-                        isDisabled={isLocked}
-                        isLoading={pendingAction === "bans"}
-                        label="Edit"
-                        onClick={() => {
-                          const opened = banDraft(match.settings, match.maxPlayers);
-                          setBanEdit({ opened, draft: opened });
-                        }}
-                        size="sm"
-                        xstyle={styles.bansEdit}
+              {hasUnitRules ? (
+                <VStack xstyle={styles.bans}>
+                  {!areBansAlike ? (
+                    <VStack aria-label="Banned" role="group" xstyle={styles.bansGroup}>
+                      {bansHead}
+                      {seatLines}
+                      {unitBans.length > 0 ? (
+                        <RuleWell>
+                          <UnitRow factionCode={unitFactionCode} kinds={unitBans} label="Units" />
+                        </RuleWell>
+                      ) : null}
+                    </VStack>
+                  ) : canEditBans || unitBans.length > 0 ? (
+                    <RuleWell label="Banned">
+                      {canEditBans ? (
+                        <CoRow coIds={[...seatBans(match.settings, 0)]} edit={banEditKey} />
+                      ) : null}
+                      {unitBans.length > 0 ? (
+                        <UnitRow factionCode={unitFactionCode} kinds={unitBans} label="Units" />
+                      ) : null}
+                    </RuleWell>
+                  ) : null}
+                  {labUnits.length > 0 ? (
+                    <RuleWell label="Lab units">
+                      <UnitRow
+                        factionCode={unitFactionCode}
+                        isLab
+                        kinds={labUnits}
+                        noteWhenClosed
                       />
-                    ) : null}
-                  </HStack>
-                  <BanLines
-                    factionCodes={slots.map(factionCodeFor)}
-                    lists={match.settings}
-                    teams={teams}
-                    tierList={tierList}
-                    viewerSlots={ownedSlots}
-                    viewerTeam={viewerTeam}
-                  />
+                    </RuleWell>
+                  ) : null}
+                </VStack>
+              ) : canEditBans || !areBansAlike ? (
+                <VStack aria-label="Banned" role="group" xstyle={styles.bans}>
+                  {bansHead}
+                  {seatLines}
                 </VStack>
               ) : null}
               {shareUrl ? (
@@ -689,7 +741,11 @@ function LobbyRoom({ matchId, joinSlug }: { matchId: string; joinSlug: string | 
           <VStack xstyle={[setupStyles.after, setupStyles.phoneHidden]}>
             <Sheet aria-label="Battlefield">
               <SheetBody xstyle={setupStyles.pickerBody}>
-                <BattlefieldPicture mapId={match.mapId} revision={match.mapRevision} />
+                <BattlefieldPicture
+                  mapId={match.mapId}
+                  marked={markedLabs}
+                  revision={match.mapRevision}
+                />
               </SheetBody>
             </Sheet>
           </VStack>
@@ -984,6 +1040,10 @@ const styles = stylex.create({
     borderBlockStartColor: awbrnVars.rule,
     borderBlockStartStyle: "solid",
     borderBlockStartWidth: "1px",
+  },
+  bansGroup: {
+    display: "grid",
+    gap: "10px",
   },
   bansHead: {
     alignItems: "center",

@@ -46,6 +46,7 @@ import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
 import { banDraft, canonicalBans, leavesACo, ownBans, seatBans, seatListsFor } from "./co_bans";
 import { moveSeat, teamsProblem } from "./teams";
+import { labTiles } from "./unit_rules";
 import { drizzle } from "drizzle-orm/d1";
 import {
   and,
@@ -185,6 +186,9 @@ export async function createMatch(
     const teamsError = teamsProblem(teams, maxPlayers);
     if (teamsError) {
       return err("participantInvalid", teamsError, 400);
+    }
+    if ((input.settings.labUnits?.length ?? 0) > 0 && labTiles(mapDocument.terrain).length === 0) {
+      return err("participantInvalid", "this map has no Lab, so it can have no Lab units", 400);
     }
     if ((input.settings.seatBannedCoIds?.length ?? 0) > maxPlayers) {
       return err("invalidSlot", "a seat's bans are outside the map's player count", 400);
@@ -1169,6 +1173,8 @@ async function buildMatchSetup(row: NonNullable<MatchRow>): Promise<MatchResult<
     map,
     fogEnabled: settings.value.fogEnabled,
     startingFunds: settings.value.startingFunds,
+    unitBans: settings.value.unitBans ?? [],
+    labUnits: settings.value.labUnits ?? [],
     creatorUserId: row.creatorUserId,
     pool: row.pool,
     season: row.season,

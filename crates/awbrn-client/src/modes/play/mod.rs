@@ -1333,15 +1333,43 @@ fn emit_production_options(
     };
     let mut rows = Vec::new();
     session.legal().production_options(cell, &mut rows);
-    let options: Vec<_> = rows
-        .into_iter()
+    let mut options: Vec<_> = rows
+        .iter()
         .map(|option| ProductionOption {
             unit: option.kind,
             name: option.kind.name().to_string(),
             cost: option.cost as u32,
             affordable: option.affordable,
+            lab_locked: false,
         })
         .collect();
+    // The reducer lists only what can be built. For a player who owns no Lab,
+    // asking it again with the Lab rule lifted finds what a Lab of their own
+    // would add, priced and sited by the same rules.
+    let lab_units = &observation.settings.lab_units;
+    let owns_lab = observation.board.tiles().any(|tile| {
+        tile.terrain == awvm::ruleset::Terrain::Lab
+            && tile.owner.is_owned_by(&observation.recipient)
+    });
+    if !lab_units.is_empty() && !owns_lab {
+        let mut unlocked = observation.clone();
+        unlocked.settings.lab_units.clear();
+        if let Ok(session) = awvm::session::Session::from_observation(&unlocked) {
+            let mut all = Vec::new();
+            session.legal().production_options(cell, &mut all);
+            options.extend(
+                all.into_iter()
+                    .filter(|option| lab_units.contains(&option.kind))
+                    .map(|option| ProductionOption {
+                        unit: option.kind,
+                        name: option.kind.name().to_string(),
+                        cost: option.cost as u32,
+                        affordable: option.affordable,
+                        lab_locked: true,
+                    }),
+            );
+        }
+    }
     if options.is_empty() {
         close_production_options(Some(sink));
         return;
@@ -3860,6 +3888,72 @@ mod tests {
                 |option| option.unit == awvm::ruleset::UnitKind::Infantry && option.cost == 500
             )
         );
+    }
+
+    /// The build list at a base beside a Lab, under a match that bans Recon,
+    /// makes Infantry a Lab unit, and lists Mech in both.
+    fn base_options_with_lab_owner(lab_owner: serde_json::Value) -> Vec<ProductionOption> {
+        let fixture = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/fixtures/production/lab-unit-owned-lab.json"),
+        )
+        .unwrap();
+        let mut fixture: serde_json::Value = serde_json::from_str(&fixture).unwrap();
+        let state = &mut fixture["initial_state"];
+        state["board"]["tiles"][0][0]["owner"] = serde_json::json!("0");
+        state["board"]["tiles"][0][1]["owner"] = lab_owner;
+        state["players"][0]["id"] = serde_json::json!("0");
+        state["turn"]["active_player"] = serde_json::json!("0");
+        state["turn"]["order"][0] = serde_json::json!("0");
+        state["settings"]["unit_bans"] = serde_json::json!(["mech", "recon"]);
+        state["settings"]["lab_units"] = serde_json::json!(["infantry", "mech"]);
+        let state: State = serde_json::from_value(state.clone()).unwrap();
+        let recipient = state.players[0].id().clone();
+        let observation = observe(&AwbwVisibility, &state, &recipient).unwrap();
+
+        let mut app = play_test_app();
+        app.world_mut().remove_resource::<TestObservationSync>();
+        set_plain_map(&mut app, 2, 1);
+        let mut observations = awbrn_bevy::replay::RecipientObservations::default();
+        observations.set(vec![observation]);
+        app.world_mut().insert_resource(observations);
+        app.world_mut()
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
+                awbrn_types::AwbwGamePlayerId::new(0),
+            ));
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let received_by_sink = std::sync::Arc::clone(&received);
+        app.world_mut()
+            .insert_resource(EventSink::<ProductionOptionsChanged>::new(move |event| {
+                received_by_sink.lock().unwrap().push(event);
+            }));
+
+        click_tile(&mut app, Pos::new(0, 0));
+
+        let received = received.lock().unwrap();
+        received.last().expect("production event").options.clone()
+    }
+
+    fn option_for(options: &[ProductionOption], unit: awvm::ruleset::UnitKind) -> Option<bool> {
+        options
+            .iter()
+            .find(|option| option.unit == unit)
+            .map(|option| option.lab_locked)
+    }
+
+    #[test]
+    fn build_list_locks_lab_units_until_the_player_owns_a_lab() {
+        use awvm::ruleset::UnitKind::{Infantry, Mech, Recon};
+
+        let without_lab = base_options_with_lab_owner(serde_json::Value::Null);
+        assert_eq!(option_for(&without_lab, Infantry), Some(true));
+        assert_eq!(option_for(&without_lab, Recon), None);
+        assert_eq!(option_for(&without_lab, Mech), None);
+
+        let with_lab = base_options_with_lab_owner(serde_json::json!("0"));
+        assert_eq!(option_for(&with_lab, Infantry), Some(false));
+        assert_eq!(option_for(&with_lab, Recon), None);
+        assert_eq!(option_for(&with_lab, Mech), None);
     }
 
     #[test]

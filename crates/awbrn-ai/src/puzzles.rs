@@ -223,6 +223,8 @@ fn board(properties: &[(Pos, u16)]) -> State {
             .collect(),
         fog_enabled: false,
         rng_seed: 1,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     };
     let mut state = state_from_setup(&setup).expect("the puzzle setup is valid");
     state.units.retain(|_| false);

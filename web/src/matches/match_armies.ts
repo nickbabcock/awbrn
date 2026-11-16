@@ -100,6 +100,7 @@ function seatEntry(
       unitValue: undefined,
       properties: undefined,
       comTowers: undefined,
+      labs: undefined,
     },
   };
 }

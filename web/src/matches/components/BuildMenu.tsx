@@ -1,5 +1,6 @@
 import { HStack, Stack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { Tooltip } from "@astryxdesign/core/Tooltip";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { borderVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
@@ -12,6 +13,7 @@ import {
   type BoardMenuPresentation,
 } from "#/matches/components/BoardMenu.tsx";
 import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
+import { LAB_RULE, LabTag } from "#/matches/components/UnitRules.tsx";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import type { ProductionOption, ProductionSite, UnitKind } from "#/wasm/awbrn_wasm.js";
 
@@ -135,18 +137,27 @@ function BuildMenuBody({
         </VStack>
       ) : (
         <VStack gap={0} xstyle={isSheet ? undefined : [boardMenuStyles.list, styles.listCap]}>
-          {options.map((option) => (
-            <BuildRow
-              factionCode={factionCode}
-              isEnabled={isEnabled}
-              key={option.unit}
-              onBuild={onBuild}
-              onPreview={setPreviewCost}
-              option={option}
-              spriteScale={spriteScale}
-              title={disabledReason}
-            />
-          ))}
+          {options.map((option) =>
+            option.labLocked ? (
+              <LockedBuildRow
+                factionCode={factionCode}
+                key={option.unit}
+                option={option}
+                spriteScale={spriteScale}
+              />
+            ) : (
+              <BuildRow
+                factionCode={factionCode}
+                isEnabled={isEnabled}
+                key={option.unit}
+                onBuild={onBuild}
+                onPreview={setPreviewCost}
+                option={option}
+                spriteScale={spriteScale}
+                title={disabledReason}
+              />
+            ),
+          )}
         </VStack>
       )}
 
@@ -260,6 +271,55 @@ function BuildRow({
   );
 }
 
+/**
+ * A Lab unit the player cannot build until they own a Lab: the reward of a
+ * capture, in view where it is spent. It stays focusable and tappable, which
+ * is how its tooltip names the rule.
+ */
+function LockedBuildRow({
+  factionCode,
+  option,
+  spriteScale,
+}: {
+  factionCode: string;
+  option: ProductionOption;
+  spriteScale: 1 | 2;
+}) {
+  const spriteStyle = unitSpriteStyle(option.unit, factionCode, 2);
+  return (
+    <Tooltip content={LAB_RULE} focusTrigger="always" placement="end" touchTrigger="tap">
+      <button
+        aria-disabled="true"
+        aria-label={`${option.name}, ${option.cost.toLocaleString()}`}
+        onPointerMove={followPointerCursor}
+        type="button"
+        {...stylex.props(
+          boardMenuStyles.row,
+          styles.row,
+          spriteScale === 2 && boardMenuStyles.rowSpacious,
+          styles.rowLocked,
+        )}
+      >
+        {/* Raw span: an inline atlas crop, which no Astryx component takes. */}
+        <span
+          aria-hidden="true"
+          style={spriteStyle ?? undefined}
+          {...stylex.props(boardMenuStyles.sprite, styles.spriteOff)}
+        />
+        <VStack as="span" xstyle={styles.lockedName}>
+          <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
+            {option.name}
+          </Text>
+          <LabTag isLocked />
+        </VStack>
+        <Stack as="span" xstyle={styles.rowCost}>
+          {option.cost.toLocaleString("en-US")}
+        </Stack>
+      </button>
+    </Tooltip>
+  );
+}
+
 /** "Base", "Airport", "Port" — the facility as the game names it. */
 function facilityLabel(site: ProductionSite): string {
   return site.facility
@@ -320,6 +380,19 @@ const styles = stylex.create({
     cursor: "not-allowed",
     color: awbrnVars.textTertiary,
     backgroundColor: awbrnVars.sheet,
+  },
+  // The tooltip's wrapper makes each locked row a first child, which would
+  // drop the divider every other row has.
+  rowLocked: {
+    borderBlockStartWidth: borderVars["--border-width"],
+    cursor: "default",
+    color: awbrnVars.textTertiary,
+    backgroundColor: awbrnVars.sheet,
+  },
+  lockedName: {
+    alignItems: "start",
+    gap: spacingVars["--spacing-1"],
+    paddingBlock: spacingVars["--spacing-1-5"],
   },
   spriteOff: {
     filter: "grayscale(1) opacity(0.55)",

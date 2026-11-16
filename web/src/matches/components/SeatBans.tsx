@@ -137,10 +137,10 @@ export function BanEditor({
         tabIndex={isOn ? 0 : -1}
         type="button"
         {...stylex.props(
-          styles.chip,
+          scopeChipStyles.chip,
           isQuiet && styles.chipQuiet,
           xstyle,
-          isOn && styles.chipOn,
+          isOn && scopeChipStyles.chipOn,
           isChipLocked && styles.chipLocked,
         )}
       >
@@ -206,7 +206,7 @@ export function BanEditor({
         aria-label="Banned for"
         onKeyDown={onRadioGroupKeyDown}
         role="radiogroup"
-        xstyle={styles.chips}
+        xstyle={scopeChipStyles.chips}
       >
         {chips}
       </HStack>
@@ -410,14 +410,12 @@ function MoreKey({
   );
 }
 
-const styles = stylex.create({
-  editor: {
-    display: "grid",
-  },
-  // The chips hold still while the tiers scroll under them.
+/** The editor's chip row: a scope here, a brush in the Units tab. */
+export const scopeChipStyles = stylex.create({
+  // The chips hold still under the sheet's head while the tiers scroll.
   chips: {
     position: "sticky",
-    insetBlockStart: 0,
+    insetBlockStart: awbrnVars.sheetHead,
     zIndex: 1,
     flexWrap: "wrap",
     gap: {
@@ -460,9 +458,6 @@ const styles = stylex.create({
     fontWeight: 650,
     cursor: "pointer",
   },
-  chipQuiet: {
-    borderColor: awbrnVars.rule,
-  },
   chipOn: {
     borderColor: awbrnVars.ink900,
     backgroundColor: {
@@ -470,6 +465,15 @@ const styles = stylex.create({
       ":hover": awbrnVars.ink900,
     },
     color: awbrnVars.textOnInkStrong,
+  },
+});
+
+const styles = stylex.create({
+  editor: {
+    display: "grid",
+  },
+  chipQuiet: {
+    borderColor: awbrnVars.rule,
   },
   chipReach: {
     backgroundColor: awbrnVars.ink100,

@@ -8,6 +8,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasCourierSurface, pressBoardKey } from "#/canvas_courier/index.ts";
 import { TileDetails, TileLine, TileWindow } from "#/components/TileInfoBar.tsx";
+import { LAB_RULE, LabKey, LabUnitsList } from "#/matches/components/UnitRules.tsx";
 import { ImmersiveNoticeLine, useImmersiveNotice } from "#/components/GameFullscreen.tsx";
 import { ReviewFoot, PhoneReviewBar, type ReviewModel } from "#/components/StepControls.tsx";
 import { useLatestSeek, type LatestSeekOptions } from "#/components/latest_seek.ts";
@@ -1321,6 +1322,12 @@ function ActiveMatchScreen({
   const moverView = views.find((view) => view.army.entry.playerId === activePlayerSlot) ?? null;
   const title = isOwed ? "Your turn" : mover ? `${mover.name}'s turn` : (mapName ?? match.name);
   const factionCode = viewerArmy?.entry.displayFactionCode ?? "os";
+  const labUnits = match.settings.labUnits ?? [];
+  const labReadout =
+    viewerArmy && labUnits.length > 0
+      ? { units: labUnits, ownsLab: (viewerArmy.entry.stats.labs ?? 0) > 0, factionCode }
+      : null;
+  const [isLabSheetOpen, setIsLabSheetOpen] = useState(false);
   const endTurnTooltip = !isConnected
     ? "Reconnect to the match before ending your turn."
     : isReviewing
@@ -1493,7 +1500,7 @@ function ActiveMatchScreen({
   const side = (
     <>
       <BoardKeys runner={runner} />
-      {tileMessage ?? <TileWindow />}
+      {tileMessage ?? <TileWindow lab={labReadout} />}
       <DockedAttackPreview />
     </>
   );
@@ -1689,6 +1696,9 @@ function ActiveMatchScreen({
           <FirstTouchHint>
             <TileLine onOpen={() => setIsTileSheetOpen(true)} />
           </FirstTouchHint>
+          {labReadout && hoveredTile?.terrainName === "Lab" ? (
+            <LabKey lab={labReadout} onOpen={() => setIsLabSheetOpen(true)} />
+          ) : null}
           <ViewKey runner={runner} />
         </>
       )}
@@ -1891,6 +1901,16 @@ function ActiveMatchScreen({
       >
         <TileDetails />
       </ModalSheet>
+
+      {labReadout ? (
+        <ModalSheet
+          isOpen={isLabSheetOpen}
+          onOpenChange={setIsLabSheetOpen}
+          title={labReadout.ownsLab ? "Lab units" : `Lab units · ${LAB_RULE}`}
+        >
+          <LabUnitsList lab={labReadout} />
+        </ModalSheet>
+      ) : null}
     </>
   );
 }

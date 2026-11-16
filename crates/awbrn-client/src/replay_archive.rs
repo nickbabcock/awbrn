@@ -43,6 +43,11 @@ pub struct AwbrnReplaySetup {
     pub starting_funds: u32,
     #[serde(default)]
     pub rng_seed: Option<u64>,
+    // Archives from before unit bans have neither list.
+    #[serde(default)]
+    pub unit_bans: Vec<awvm::ruleset::UnitKind>,
+    #[serde(default)]
+    pub lab_units: Vec<awvm::ruleset::UnitKind>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,6 +97,8 @@ impl AwbrnReplayFile {
             players,
             fog_enabled: self.setup.fog_enabled,
             rng_seed: self.setup.rng_seed.unwrap_or(0),
+            unit_bans: self.setup.unit_bans.clone(),
+            lab_units: self.setup.lab_units.clone(),
         })
     }
 }

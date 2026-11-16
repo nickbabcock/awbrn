@@ -165,6 +165,8 @@ pub fn setup(players: usize, fog: bool) -> GameSetup {
             .collect(),
         fog_enabled: fog,
         rng_seed: 0x5eed,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
     }
 }
 

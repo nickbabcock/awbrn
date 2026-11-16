@@ -9,7 +9,7 @@ import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { coRoster, getCoById } from "#/co_roster.ts";
 import { coTierListFor } from "#/co_tiers.ts";
@@ -40,12 +40,21 @@ import { aiSeatName } from "#/matches/ai_profiles.ts";
 import { banDraft, seatBans, seatListsFor, seatsAlike, type BanDraft } from "#/matches/co_bans.ts";
 import { ClockSettings, validateClock } from "#/matches/components/ClockSettings.tsx";
 import { BanEditor, BanLines } from "#/matches/components/SeatBans.tsx";
+import {
+  RuleTabs,
+  CoRow,
+  RuleWell,
+  UnitEditor,
+  UnitRow,
+  ruleTabId,
+} from "#/matches/components/UnitRules.tsx";
 import { TeamShape } from "#/matches/components/Teams.tsx";
 import { NO_AI_SEATS, SeatRoster } from "#/matches/components/SeatRoster.tsx";
 import { createMatchFn, mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { defaultMatchClock, type AiProfileId, type MatchClock } from "#/matches/schemas.ts";
 import { splitTeams } from "#/matches/teams.ts";
+import { labTiles, NO_UNIT_RULES, unitRulesForMap, type UnitRules } from "#/matches/unit_rules.ts";
 import { MatchThumb } from "#/play/MatchThumb.tsx";
 import { Postage } from "#/play/Postage.tsx";
 import { setupStyles } from "#/play/setup.tsx";
@@ -107,6 +116,10 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const [pickedMap, setPickedMap] = useState<MapCatalogEntry | null>(null);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isBansOpen, setIsBansOpen] = useState(false);
+  // Which tab the Restrictions dialog shows, and the Units tab's brush on opening.
+  const [rulesTab, setRulesTab] = useState<"cos" | "units">("cos");
+  const rulesPanelId = useId();
+  const [unitBrush, setUnitBrush] = useState<"banned" | "lab">("banned");
   const nameRef = useRef<HTMLInputElement>(null);
   const fundsRef = useRef<HTMLInputElement>(null);
 
@@ -119,6 +132,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const [clock, setClock] = useState<MatchClock>(defaultMatchClock);
   // All, and each seat's own bans by slot index.
   const [bans, setBans] = useState<BanDraft>(NO_BANS);
+  const [units, setUnits] = useState<UnitRules>(NO_UNIT_RULES);
   // Each seat's side by slot index; null in a free-for-all.
   const [teams, setTeams] = useState<readonly number[] | null>(null);
   // The opponent in each seat, by slot index. A seat with no entry is open.
@@ -189,6 +203,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
     ...mapRevisionQueryOptions(selectedMap?.mapId ?? "", selectedMap?.revision ?? 0),
     enabled: selectedMap !== null,
   });
+  // Unknown (null) until the map's terrain arrives.
+  const hasLab = revision ? labTiles(revision.terrain).length > 0 : null;
+  // A map with no Lab turns Lab units into bans, at once and for good: going
+  // back to a map with a Lab restores nothing the host cannot see.
+  if (hasLab === false && units.labUnits.length > 0) setUnits(unitRulesForMap(units, false));
   const mapArmies =
     revision?.slotFactionIds ??
     Array.from({ length: selectedMap?.playerCount ?? 0 }, (_, slotIndex) =>
@@ -258,13 +277,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
 
     setCreateError(null);
     try {
-      const armies = armiesFor(
-        (
-          await queryClient.fetchQuery(
-            mapRevisionQueryOptions(selectedMap.mapId, selectedMap.revision),
-          )
-        ).slotFactionIds,
+      const chosenRevision = await queryClient.fetchQuery(
+        mapRevisionQueryOptions(selectedMap.mapId, selectedMap.revision),
       );
+      const armies = armiesFor(chosenRevision.slotFactionIds);
+      const unitRules = unitRulesForMap(units, labTiles(chosenRevision.terrain).length > 0);
       const match = await createMatchMutation.mutateAsync({
         data: {
           name: matchName.trim(),
@@ -277,6 +294,8 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             bannedCoIds: bans.all,
             seatBannedCoIds: seatListsFor(bans.seats, selectedMap.playerCount),
             teams: teams ? [...teams] : undefined,
+            unitBans: [...unitRules.unitBans],
+            labUnits: [...unitRules.labUnits],
             clock,
           },
           aiSeats: [...aiSeats].map(([slotIndex, profileId]) => ({
@@ -325,6 +344,12 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const lists = { bannedCoIds: draft.all, seatBannedCoIds: draft.seats };
   const shownFactionCodes = shownArmies.map((factionId) => getFactionById(factionId)?.code ?? "os");
   const tierList = coTierListFor({ fogEnabled, playerCount: selectedMap?.playerCount ?? 2 });
+  const hostFactionCode = shownFactionCodes[hostSlot] ?? "os";
+  function openBans(tab: "cos" | "units", brush: "banned" | "lab" = "banned"): void {
+    setRulesTab(tab);
+    setUnitBrush(brush);
+    setIsBansOpen(true);
+  }
 
   const filterBar = (
     <MapFilterBar
@@ -495,15 +520,13 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
                   />
                 </VStack>
               ) : null}
-              {seatsAlike(lists, seatCount) ? (
-                <BannedWell bannedCoIds={seatBans(lists, 0)} onEdit={() => setIsBansOpen(true)} />
-              ) : (
+              {!seatsAlike(lists, seatCount) ? (
                 <VStack aria-label="Banned" role="group" xstyle={styles.field}>
                   <HStack xstyle={styles.bannedHead}>
                     <Text color="inherit" type="inherit" xstyle={styles.fieldLabel}>
                       Banned
                     </Text>
-                    <Button label="Edit" onClick={() => setIsBansOpen(true)} size="sm" />
+                    <Button label="Edit" onClick={() => openBans("cos")} size="sm" />
                   </HStack>
                   <BanLines
                     factionCodes={shownFactionCodes}
@@ -513,8 +536,35 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
                     viewerSlots={[hostSlot]}
                     viewerTeam={teams?.[hostSlot] ?? null}
                   />
+                  {units.unitBans.length > 0 ? (
+                    <RuleWell>
+                      <UnitRow factionCode={hostFactionCode} kinds={units.unitBans} label="Units" />
+                    </RuleWell>
+                  ) : null}
                 </VStack>
+              ) : units.unitBans.length > 0 ? (
+                <RuleWell label="Banned">
+                  <CoRow
+                    coIds={[...seatBans(lists, 0)]}
+                    edit={<Button label="Edit" onClick={() => openBans("cos")} size="sm" />}
+                  />
+                  <UnitRow factionCode={hostFactionCode} kinds={units.unitBans} label="Units" />
+                </RuleWell>
+              ) : (
+                <BannedWell bannedCoIds={seatBans(lists, 0)} onEdit={() => openBans("cos")} />
               )}
+              {units.labUnits.length > 0 ? (
+                <RuleWell label="Lab units">
+                  <UnitRow
+                    edit={
+                      <Button label="Edit" onClick={() => openBans("units", "lab")} size="sm" />
+                    }
+                    factionCode={hostFactionCode}
+                    isLab
+                    kinds={units.labUnits}
+                  />
+                </RuleWell>
+              ) : null}
               <VStack xstyle={styles.switches}>
                 <SwitchRow
                   icon={IconFog}
@@ -631,24 +681,48 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
         ) : null}
       </ModalSheet>
 
-      <ModalSheet isOpen={isBansOpen} onOpenChange={setIsBansOpen} title="Banned" width={760}>
-        {isBansOpen ? (
-          <BanEditor
-            draft={draft}
-            factionCodes={shownFactionCodes}
-            names={shownFactionCodes.map((_, slotIndex) => {
-              if (slotIndex === hostSlot) return session?.user.name ?? "You";
-              const profileId = aiSeats.get(slotIndex);
-              return profileId ? aiSeatName(profileId) : null;
-            })}
-            onChange={(next) => {
-              setCreateError(null);
-              setBans(next);
-            }}
-            teams={teams ?? []}
-            tierList={tierList}
-          />
-        ) : null}
+      <ModalSheet
+        head={<RuleTabs onChange={setRulesTab} panelId={rulesPanelId} tab={rulesTab} />}
+        isOpen={isBansOpen}
+        onOpenChange={setIsBansOpen}
+        title="Restrictions"
+        width={760}
+      >
+        <VStack
+          aria-labelledby={ruleTabId(rulesPanelId, rulesTab)}
+          gap={0}
+          id={rulesPanelId}
+          role="tabpanel"
+        >
+          {isBansOpen && rulesTab === "units" ? (
+            <UnitEditor
+              factionCode={hostFactionCode}
+              hasLab={hasLab === true}
+              initialBrush={unitBrush}
+              onChange={(next) => {
+                setCreateError(null);
+                setUnits(next);
+              }}
+              rules={units}
+            />
+          ) : isBansOpen ? (
+            <BanEditor
+              draft={draft}
+              factionCodes={shownFactionCodes}
+              names={shownFactionCodes.map((_, slotIndex) => {
+                if (slotIndex === hostSlot) return session?.user.name ?? "You";
+                const profileId = aiSeats.get(slotIndex);
+                return profileId ? aiSeatName(profileId) : null;
+              })}
+              onChange={(next) => {
+                setCreateError(null);
+                setBans(next);
+              }}
+              teams={teams ?? []}
+              tierList={tierList}
+            />
+          ) : null}
+        </VStack>
       </ModalSheet>
     </Page>
   );
