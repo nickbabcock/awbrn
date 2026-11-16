@@ -343,7 +343,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
     let mut lab_counts = config
         .players
         .iter()
-        .map(|player| (player.player_id, 0_u32))
+        .map(|player| (&player.player_id, 0_u32))
         .collect::<HashMap<_, _>>();
 
     {
