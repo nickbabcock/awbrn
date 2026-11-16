@@ -20,7 +20,11 @@
       "day_limit": null,
       "unit_limit": null
     },
-    "board": { "width": 2, "height": 1, "tiles": [[{ "terrain": "shoal" }, { "terrain": "sea" }]] },
+    "board": {
+      "width": 2,
+      "height": 1,
+      "tiles": [[{ "terrain": "plain" }, { "terrain": "shoal" }]]
+    },
     "teams": [{ "id": "red-team", "status": "active" }],
     "players": [
       {
@@ -109,7 +113,7 @@
           "board": {
             "width": 2,
             "height": 1,
-            "tiles": [[{ "terrain": "shoal" }, { "terrain": "sea" }]]
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "shoal" }]]
           },
           "teams": [{ "id": "red-team", "status": "active" }],
           "players": [

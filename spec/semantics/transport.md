@@ -135,6 +135,7 @@ NOT_ACTIVE_PLAYER
 INVALID_TARGET      (transport is not an owned on-board transport)
 INVALID_TARGET      (cargo is not currently loaded in that transport)
 TARGET_OUT_OF_RANGE (destination is not orthogonally adjacent to the transport)
+TERRAIN_IMPASSABLE  (the cargo kind cannot stand on the transport's own terrain)
 TERRAIN_IMPASSABLE  (the cargo kind cannot enter or stop on the destination terrain)
 DESTINATION_OCCUPIED (destination holds a unit)
 ```
@@ -145,6 +146,14 @@ DESTINATION_OCCUPIED (destination holds a unit)
   `{ type: "cargo", transport, ... }` for that transport.
 - `TARGET_OUT_OF_RANGE` (`target: destination`) when the destination's Manhattan
   distance from the transport's board position is not exactly one.
+- `TERRAIN_IMPASSABLE` (`position: transport position`) when the cargo could
+  not stand on the transport's own tile, by the same test as the destination
+  below. Cargo leaves from the transport's tile, so a Lander or Black Boat on
+  Sea, or a T-Copter over Sea or Reef, cannot put foot soldiers or vehicles
+  down, while a Cruiser launches its copters anywhere. Archived AWBW games
+  are consistent with this but do not prove it: transports of foot soldiers
+  and vehicles never unloaded while on Sea or Reef, and Cruisers launched
+  copters from both.
 - `TERRAIN_IMPASSABLE` (`position: destination`) when the destination terrain's
   base cost for the cargo kind's movement class is `null` under the current
   weather, or when it carries the `teleporter` trait. Teleporters are

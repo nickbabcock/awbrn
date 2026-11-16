@@ -1,0 +1,268 @@
+{
+  "id": "von-bolt-scop-displayed-hp",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "commander-power-v1.von-bolt.scop",
+  "evidence": {
+    "confidence": "confirmed-replay",
+    "note": "In archived AWBW games from late 2024 on, scoring each unit by the HP a missile takes from its displayed bars places all 21 recorded Von Bolt and Rachel missiles; scoring by exact HP misplaces 2. This board separates the two: the Tank at 3.0 shows 3 bars and gives up 2.0 HP (14,000), while the full Artillery gives up 3.0 (18,000)."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 10,
+      "height": 1,
+      "tiles": [
+        [
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "von-bolt",
+            "active": true,
+            "power_charge": 90000,
+            "power_uses": 0
+          }
+        ],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "neutral",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "tank",
+        "owner": "blue",
+        "hp": 30,
+        "fuel": 70,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "artillery",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 50,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [9, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "missile-aims-by-displayed-bars",
+      "command": { "type": "activate-power", "player": "red", "level": "scop" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "enabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 10,
+            "height": 1,
+            "tiles": [
+              [
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" }
+              ]
+            ]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                {
+                  "id": "von-bolt",
+                  "active": true,
+                  "power_charge": 0,
+                  "power_uses": 1
+                }
+              ],
+              "power_state": {
+                "type": "scop",
+                "commander_slot": 0
+              }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                {
+                  "id": "neutral",
+                  "active": true,
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red", "blue"],
+            "position": 0
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "tank",
+              "owner": "blue",
+              "hp": 30,
+              "fuel": 70,
+              "ammo": 9,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [0, 0]
+              }
+            },
+            {
+              "id": 1,
+              "kind": "artillery",
+              "owner": "blue",
+              "hp": 70,
+              "fuel": 50,
+              "ammo": 9,
+              "action": "immobilized",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [9, 0]
+              }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          {
+            "type": "power-activated",
+            "player": "red",
+            "commander": "von-bolt",
+            "power": "scop"
+          },
+          {
+            "type": "area-strike-resolved",
+            "strike": 0,
+            "policy": "unit-value",
+            "center": [7, 0],
+            "radius": 2,
+            "damage": 30
+          },
+          {
+            "type": "unit-damaged",
+            "unit": 1,
+            "from_hp": 100,
+            "to_hp": 70,
+            "reason": "commander-power"
+          },
+          {
+            "type": "unit-action-changed",
+            "unit": 1,
+            "from": "ready",
+            "to": "immobilized",
+            "reason": "commander-power"
+          }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

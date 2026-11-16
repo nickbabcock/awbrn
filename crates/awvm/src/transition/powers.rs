@@ -17,6 +17,16 @@ use crate::semantic::{CAPTURE_REQUIRED_POINTS, TeamId, UnitAction};
 use crate::violation::Action;
 use std::collections::HashSet;
 
+/// What a missile is worth against `hp`, in points: the HP it would take,
+/// read from the bars the unit shows. A unit is never left below 0.1, so one
+/// showing a single bar gives up a single point.
+fn missile_loss(hp: u8) -> i128 {
+    match hp.div_ceil(10) {
+        0 | 1 => 1,
+        bars => i128::from(bars - 1).min(3) * 10,
+    }
+}
+
 pub(crate) fn area_strike_centers(
     state: &State,
     player: &PlayerId,
@@ -60,7 +70,7 @@ pub(crate) fn area_strike_centers(
                         continue;
                     }
                     let exact_hp = i128::from(unit.hp);
-                    let capped_hp = exact_hp.clamp(1, 30);
+                    let loss = missile_loss(unit.hp);
                     let cost = i128::from(*cost);
                     let value = match policy {
                         AreaStrikePolicy::InfantryHp => {
@@ -72,24 +82,16 @@ pub(crate) fn area_strike_centers(
                                 } else {
                                     1
                                 };
-                            capped_hp.checked_mul(multiplier).ok_or_else(|| {
+                            loss.checked_mul(multiplier).ok_or_else(|| {
                                 ExecuteError::InvalidState(
                                     "area-strike infantry score overflow".into(),
                                 )
                             })?
                         }
-                        AreaStrikePolicy::UnitValue => {
-                            if unit.hp < 10 {
-                                2
-                            } else {
-                                capped_hp.checked_mul(cost).ok_or_else(|| {
-                                    ExecuteError::InvalidState(
-                                        "area-strike cost score overflow".into(),
-                                    )
-                                })?
-                            }
-                        }
-                        AreaStrikePolicy::UnitHp => capped_hp,
+                        AreaStrikePolicy::UnitValue => loss.checked_mul(cost).ok_or_else(|| {
+                            ExecuteError::InvalidState("area-strike cost score overflow".into())
+                        })?,
+                        AreaStrikePolicy::UnitHp => loss,
                     };
                     score = if *friendly {
                         score.checked_sub(value)
@@ -949,13 +951,9 @@ fn fire_immobilizing_area_strike(
                 }
                 let exact_hp = i128::from(unit.hp);
                 let cost = i128::from(*cost);
-                let value = if unit.hp < 10 {
-                    2
-                } else {
-                    exact_hp.clamp(1, 30).checked_mul(cost).ok_or_else(|| {
-                        ExecuteError::InvalidState("immobilizing area-strike score overflow".into())
-                    })?
-                };
+                let value = missile_loss(unit.hp).checked_mul(cost).ok_or_else(|| {
+                    ExecuteError::InvalidState("immobilizing area-strike score overflow".into())
+                })?;
                 score = if *friendly {
                     score.checked_sub(value)
                 } else {

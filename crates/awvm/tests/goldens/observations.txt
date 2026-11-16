@@ -233,6 +233,7 @@ f2d79b40d1388600  obs=4 ev=6  commander/sturm-scop.json
 6069b0fbba2bfa2a  obs=4 ev=10  commander/von-bolt-day-to-day-combat.json
 661dbbed06a4df73  obs=6 ev=10  commander/von-bolt-immobilization.json
 cf34fd23aef78107  obs=4 ev=8  commander/von-bolt-scop-combat.json
+38311c5c62c7724a  obs=4 ev=8  commander/von-bolt-scop-displayed-hp.json
 8a5cd4702293c88a  obs=6 ev=18  commander/von-bolt-scop.json
 9e43258640eca761  obs=2 ev=0  concealment/hide-already-hidden-rejected.json
 9373393e99b4f0d8  obs=2 ev=0  concealment/hide-non-concealable-rejected.json
@@ -311,12 +312,14 @@ ff3539fc4970eefc  obs=4 ev=28  tag/combat-dual-charge.json
 9d926d41df7a71ac  obs=4 ev=20  tag/combat-power-freezes-both-slots.json
 17185a23623e18a1  obs=8 ev=26  tag/swap-and-power-expiry.json
 fe8888ed44904267  obs=2 ev=0  tag/tag-disabled-rejected.json
+18006c05dbf8c416  obs=4 ev=2  transport/cruiser-launches-at-sea.json
 caa56b80de302f17  obs=4 ev=3  transport/load-hidden-blocker.json
 fab93d1ccf522485  obs=2 ev=2  transport/load-infantry-into-apc.json
 e2b48893f95371b4  obs=10 ev=0  transport/load-validation.json
 6633cc09136aedbe  obs=2 ev=1  transport/unload-after-transport-spent.json
-b617a01256006fd1  obs=2 ev=1  transport/unload-compacts-lander-cargo.json
+632a26103244b5e1  obs=2 ev=1  transport/unload-compacts-lander-cargo.json
 8b57b437122ada7f  obs=2 ev=1  transport/unload-infantry-from-apc.json
+e45661003d356463  obs=8 ev=2  transport/unload-needs-footing.json
 ae3b8527dd64f008  obs=2 ev=0  transport/unload-nonadjacent-rejected.json
 8d9ab68ceb52be64  obs=2 ev=0  transport/unload-teleporter-rejected.json
 805616ab2dcef746  obs=12 ev=2  transport/unload-validation-fog.json
