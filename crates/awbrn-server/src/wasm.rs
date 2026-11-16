@@ -11,7 +11,6 @@ use serde_json::{Value, json};
 use tsify::{Ts, Tsify};
 use wasm_bindgen::prelude::*;
 
-use crate::ai::AiSeat;
 use crate::subscriber::LoggingConfig;
 use crate::view::{VisibleTerrain, VisibleUnit};
 use crate::{CaptureEvent, PlayerUpdate, PlayerView, SpectatorView};
@@ -440,6 +439,24 @@ pub struct WasmMatch {
     rng_seed: u64,
 }
 
+/// A seat the match plays submits through the same `apply` a person's command
+/// goes through, and its turn is the one every host plays.
+impl crate::ai::SeatHost for WasmMatch {
+    type Accepted = WasmActionResponse;
+
+    fn server(&self) -> &GameServer {
+        &self.server
+    }
+
+    fn submit(
+        &mut self,
+        player: crate::PlayerId,
+        command: crate::GameCommand,
+    ) -> Result<WasmActionResponse, crate::CommandError> {
+        self.apply(player, command)
+    }
+}
+
 #[wasm_bindgen]
 impl WasmMatch {
     #[wasm_bindgen(constructor)]
@@ -525,9 +542,8 @@ impl WasmMatch {
     /// exactly as it does its own, which is what keeps a match with an
     /// opponent in it a match like any other.
     ///
-    /// A refused command is not returned: the seat is told and decides again,
-    /// because a play chosen against what a seat can see may be refused by the
-    /// board it cannot, and that is an answer rather than a fault.
+    /// The turn is [`crate::play_ai_turn`], so a refused command is not
+    /// returned: the seat is told and decides again.
     #[wasm_bindgen(js_name = runAiTurn)]
     pub fn run_ai_turn(&mut self, player_slot: u8) -> Result<Ts<WasmAiTurnResponse>, JsError> {
         let player = crate::PlayerId(player_slot);
@@ -555,22 +571,7 @@ impl WasmMatch {
             usize::from(player_slot),
             self.server.state().turn.day,
         );
-        let mut seat = AiSeat::new(player, profile, seed);
-        seat.begin_turn(&self.server);
-
-        let mut actions = Vec::new();
-        while let Some(command) = seat.next_command(&self.server) {
-            match self.apply(player, command) {
-                Ok(response) => {
-                    actions.push(response);
-                    seat.accepted(&self.server);
-                }
-                Err(error) => {
-                    tracing::debug!(slot = player_slot, %error, "a played seat had a command refused");
-                    seat.refused();
-                }
-            }
-        }
+        let actions = crate::ai::play_ai_turn(self, player, profile, seed);
 
         Ok(WasmAiTurnResponse { actions }.into_ts()?)
     }

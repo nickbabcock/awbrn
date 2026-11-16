@@ -79,8 +79,8 @@ pub use eval::{
 pub use fingerprint::FNV1A_OFFSET_BASIS;
 pub use fog::{FogAccuracy, FogEstimate, FogMemory};
 pub use harness::{
-    Limits, Record, TurnResult, next_command_fingerprint, play, play_measured, play_observed,
-    play_observed_fallible, run_agent_turn, run_agent_turn_unmeasured,
+    Limits, REFUSAL_LIMIT, Record, TurnResult, next_command_fingerprint, play, play_measured,
+    play_observed, play_observed_fallible, run_agent_turn, run_agent_turn_unmeasured,
 };
 pub use map::ContestMap;
 pub use mission::{DecisionTrace, TraceError, TurnEndReason};

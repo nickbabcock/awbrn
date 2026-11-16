@@ -649,7 +649,7 @@ struct PairOutput {
 /// An agent that is built again at the start of each of its turns.
 ///
 /// The host builds a new agent for each turn of a seat that the server
-/// plays (`awbrn_server::AiSeat`), from a seed of the match seed, the seat
+/// plays (`awbrn_server::play_ai_turn`), from a seed of the match seed, the seat
 /// and the day. This wrapper does the same from the agent seed of the seat,
 /// so a run measures the play of the host. An agent that keeps state over
 /// turns loses it here, as it does in the host. The counters (planner,

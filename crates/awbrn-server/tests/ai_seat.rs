@@ -8,7 +8,7 @@
 use awbrn_ai::{AiTier, EASY, HARD, profile, profile_for_tier};
 use awbrn_map::{AwbrnMap, Dimensions, Pos};
 use awbrn_server::{
-    AiSeat, Co, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, StoredActionEvent,
+    Co, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, StoredActionEvent,
     reconstruct_from_events,
 };
 use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property};
@@ -84,24 +84,9 @@ fn play_ai_turn(
     seed: u64,
 ) -> Vec<GameCommand> {
     let profile = profile(profile_id).expect("the profile is seated");
-    let mut seat = AiSeat::new(player, profile, seed);
-    seat.begin_turn(server);
-
-    let mut played = Vec::new();
-    while let Some(command) = seat.next_command(server) {
-        match server.submit_command(player, command.clone()) {
-            Ok(_) => {
-                events.push(StoredActionEvent {
-                    player,
-                    command: command.clone(),
-                    random: server.last_random().to_vec(),
-                });
-                played.push(command);
-                seat.accepted(server);
-            }
-            Err(_) => seat.refused(),
-        }
-    }
+    let recorded = awbrn_server::play_ai_turn(server, player, profile, seed);
+    let played = recorded.iter().map(|event| event.command.clone()).collect();
+    events.extend(recorded);
     played
 }
 

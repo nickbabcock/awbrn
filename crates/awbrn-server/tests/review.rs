@@ -9,7 +9,7 @@
 use awbrn_ai::{HARD_V2, profile};
 use awbrn_map::{AwbrnMap, Dimensions, Pos};
 use awbrn_server::{
-    AiSeat, Co, GameServer, GameSetup, MatchReview, PlayerId, PlayerSetup, StoredActionEvent,
+    Co, GameServer, GameSetup, MatchReview, PlayerId, PlayerSetup, StoredActionEvent,
     reconstruct_from_events, review::transition_for,
 };
 use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property};
@@ -84,21 +84,7 @@ fn play_ai_turn(
     seed: u64,
 ) {
     let profile = profile(profile_id).expect("the profile is seated");
-    let mut seat = AiSeat::new(player, profile, seed);
-    seat.begin_turn(server);
-    while let Some(command) = seat.next_command(server) {
-        match server.submit_command(player, command.clone()) {
-            Ok(_) => {
-                events.push(StoredActionEvent {
-                    player,
-                    command,
-                    random: server.last_random().to_vec(),
-                });
-                seat.accepted(server);
-            }
-            Err(_) => seat.refused(),
-        }
-    }
+    events.extend(awbrn_server::play_ai_turn(server, player, profile, seed));
 }
 
 /// A log long enough to cross the checkpoint spacing more than once.

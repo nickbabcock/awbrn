@@ -264,7 +264,7 @@ cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
   --output target/planner-v8
 ```
 
-The host builds a new agent for each turn (`awbrn_server::AiSeat`). Set
+The host builds a new agent for each turn (`awbrn_server::play_ai_turn`). Set
 `"rebuild_agent_each_turn": true` in a plan to do the same: each agent is
 built again at the start of each own turn, from a seed of its agent seed and
 the day. The march plan of `planner-v8` keeps a log of the meter

@@ -28,6 +28,15 @@ use crate::fingerprint::{FNV1A_OFFSET_BASIS, FNV1A_PRIME};
 use crate::mission::TurnEndReason;
 use crate::shape::Shape;
 
+/// Refusals in a row that end a turn by force.
+///
+/// A play chosen against what a seat can see may be refused by the board it
+/// cannot, and one refusal is an answer rather than a fault. The cap is high
+/// enough that an ordinary fog refusal does not end a turn early, and it is
+/// shared with the server's seats so a turn played in a match ends where the
+/// same turn measured here does.
+pub const REFUSAL_LIMIT: u32 = 64;
+
 type Observer<'a, Error> = &'a mut dyn FnMut(&State, Option<&Command>) -> Result<(), Error>;
 
 fn elapsed_nanos(started: Instant) -> u64 {
@@ -124,8 +133,6 @@ fn run_agent_turn_inner<E: Entropy>(
     node_budget: NodeBudget,
     measure: bool,
 ) -> Result<TurnResult, ExecuteError> {
-    const REFUSAL_LIMIT: u32 = 64;
-
     let mut session = Session::new(state);
     let active_player = session.state().turn.active_player.clone();
     let mut view = observe(&AwbwVisibility, session.state(), &active_player)
@@ -312,12 +319,12 @@ impl Limits {
     /// What a game costs unless a caller says otherwise.
     ///
     /// Thirty-five days is the length of a played game. The refusal cap is
-    /// high enough that an ordinary fog refusal does not end a turn early;
-    /// [`Record::refusals`] is what says whether that holds.
+    /// [`REFUSAL_LIMIT`]; [`Record::refusals`] is what says whether an
+    /// ordinary fog refusal stays below it.
     pub const DEFAULT: Self = Self {
         nodes: NodeBudget::FOUR,
         days: 35,
-        refusals: 64,
+        refusals: REFUSAL_LIMIT,
     };
 }
 

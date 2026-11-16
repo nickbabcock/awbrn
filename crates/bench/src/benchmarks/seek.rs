@@ -10,7 +10,7 @@ use awbrn_client::replay_archive::{
 };
 use awbrn_game::{Authority, GameSetup};
 use awbrn_map::AwbwMapData;
-use awbrn_server::{AiSeat, GameServer, StoredActionEvent};
+use awbrn_server::{GameServer, play_ai_turn};
 use awvm_awbw::RecordedAdapter;
 
 /// The longest AWBW fixture, by actions.
@@ -68,21 +68,7 @@ impl SeekCase {
                     break 'days;
                 };
                 let seed = profile.turn_seed(setup.rng_seed, slot, day);
-                let mut seat = AiSeat::new(player, profile, seed);
-                seat.begin_turn(&server);
-                while let Some(command) = seat.next_command(&server) {
-                    match server.submit_command(player, command.clone()) {
-                        Ok(_) => {
-                            events.push(StoredActionEvent {
-                                player,
-                                command,
-                                random: server.last_random().to_vec(),
-                            });
-                            seat.accepted(&server);
-                        }
-                        Err(_) => seat.refused(),
-                    }
-                }
+                events.extend(play_ai_turn(&mut server, player, profile, seed));
             }
         }
         file.actions = events;

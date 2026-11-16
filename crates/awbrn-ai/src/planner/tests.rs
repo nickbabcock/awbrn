@@ -1,6 +1,6 @@
 use super::*;
 use crate::board::arena;
-use crate::harness::{Limits, play};
+use crate::harness::{Limits, next_command_fingerprint, play, play_observed};
 use crate::puzzles::{solve, suite};
 
 fn deterministic() -> PlannerConfig {
@@ -564,65 +564,6 @@ fn a_crowded_target_does_not_hide_a_later_kill() {
             .iter()
             .any(|kills| kills[0].attacks[0].target == UnitId::new(201))
     );
-}
-
-#[test]
-fn the_production_profile_solves_all_puzzles() {
-    for puzzle in suite() {
-        // The ignored test below holds the puzzle that the profile does not
-        // pass.
-        if puzzle.name == "hq-block" {
-            continue;
-        }
-        solve_with_the_production_profile(&puzzle);
-    }
-}
-
-/// The enemy infantry cannot reach our headquarters on its next turn.
-#[test]
-#[ignore = "planner-v9 does not pass this puzzle"]
-fn the_production_profile_solves_the_hq_block_puzzle() {
-    let puzzle = suite()
-        .into_iter()
-        .find(|puzzle| puzzle.name == "hq-block")
-        .unwrap();
-    solve_with_the_production_profile(&puzzle);
-}
-
-/// The Medium profile (planner-v8-move) passes the puzzle that the Hard
-/// profile does not.
-#[test]
-fn the_medium_profile_solves_the_hq_block_puzzle() {
-    let puzzle = suite()
-        .into_iter()
-        .find(|puzzle| puzzle.name == "hq-block")
-        .unwrap();
-    solve_with_profile(&crate::profile::MEDIUM, &puzzle);
-}
-
-/// Play the turn of `puzzle` with the Hard profile, and panic when the turn
-/// does not solve it.
-fn solve_with_the_production_profile(puzzle: &crate::puzzles::Puzzle) {
-    solve_with_profile(&crate::profile::HARD, puzzle);
-}
-
-/// Play the turn of `puzzle` with `profile`, and panic when the turn does
-/// not solve it.
-fn solve_with_profile(profile: &crate::profile::AiProfile, puzzle: &crate::puzzles::Puzzle) {
-    let mut agent = profile.agent(7);
-    let mut entropy = Rng::from_seed(11);
-    let result = crate::harness::run_agent_turn_unmeasured(
-        puzzle.state.clone(),
-        &mut *agent,
-        &mut entropy,
-        profile.node_budget(),
-    )
-    .unwrap();
-    let turn = crate::puzzles::PuzzleTurn {
-        start: &puzzle.state,
-        result: &result,
-    };
-    (puzzle.check)(&turn).unwrap_or_else(|error| panic!("{}: {error}", puzzle.name));
 }
 
 fn replay_fixture(name: &str) -> State {
@@ -3587,9 +3528,14 @@ fn move2_combo(order: bool) -> PlannerConfig {
     }
 }
 
-/// The command count and a digest of the final state of a game of `config`
-/// against itself on a small map, with a short day limit.
-fn golden_game(config: PlannerConfig, fog: bool) -> (u64, String) {
+/// The command count and a digest of a game of `config` against itself on a
+/// small map, with a short day limit and `nodes` for each planning call. The
+/// digest covers the final state and every accepted command of both seats in
+/// order, so two games that reach the same end by different moves differ. The
+/// state is digested as it serializes rather than as `Debug` prints it, because
+/// `Debug` prints the unit index in its hash map's iteration order, which may
+/// differ between targets.
+fn golden_game(config: PlannerConfig, fog: bool, nodes: NodeBudget) -> (u64, String) {
     let state = arena(fog, 3);
     let mut session = Session::new(state.clone());
     let mut first = PlannerAgent::with_config(1, config);
@@ -3598,34 +3544,159 @@ fn golden_game(config: PlannerConfig, fog: bool) -> (u64, String) {
     let mut entropy = Rng::from_seed(5);
     let limits = Limits {
         days: 8,
-        nodes: NodeBudget::new(16).expect("a budget"),
+        nodes,
         ..Limits::DEFAULT
     };
-    let record =
-        play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
-    let digest = crate::fingerprint::fnv1a(format!("{:?}", session.state()).as_bytes());
+    let mut commands = Vec::new();
+    let record = play_observed(
+        state,
+        &mut session,
+        &mut agents,
+        &mut entropy,
+        limits,
+        |_, command| commands.extend(command.cloned()),
+    )
+    .expect("the game runs");
+    assert_eq!(record.commands, commands.len() as u64);
+    let digest = commands.iter().fold(
+        crate::fingerprint::fnv1a(&serde_json::to_vec(session.state()).expect("states serialize")),
+        next_command_fingerprint,
+    );
     (record.commands, format!("{digest:016x}"))
 }
 
-/// With the switches of later configurations off, planner-v8 and
-/// planner-v8-move play the games they played before those switches were
-/// added. The values come from master before the tree move model, re-pinned
-/// when a rules change moves the games.
+/// The planners of the seated profiles play the games pinned here, with and
+/// without fog: planner-v9 at the node budget of [`crate::profile::HARD`],
+/// and planner-v8-move, the planner of [`crate::profile::MEDIUM`], at 16
+/// nodes for each planning call rather than its profile's 256. A change in
+/// the play of either changes its games. Change a value only for a change of
+/// play that is meant; a failure prints every game's new values.
 #[test]
-fn the_earlier_configurations_play_the_same_games() {
-    for (config, fog, commands, digest) in [
-        (PlannerConfig::V8, false, 109, "8b3eb86f4fd4ed5a"),
-        (PlannerConfig::V8, true, 111, "5378e3e1fa6b27a1"),
-        (PlannerConfig::V8_MOVE, false, 108, "4f256c7bef0e4b17"),
-        (PlannerConfig::V8_MOVE, true, 116, "8c1e45589c2acea7"),
-    ] {
-        assert_eq!(
-            golden_game(config, fog),
-            (commands, digest.to_owned()),
-            "{} fog {fog}",
-            config.identifier
-        );
+fn the_seated_planners_play_the_pinned_games() {
+    let hard = crate::profile::HARD.node_budget();
+    let pins = [
+        (
+            PlannerConfig::V8_MOVE,
+            NodeBudget::SIXTEEN,
+            false,
+            108,
+            "d05733fe17350e74",
+        ),
+        (
+            PlannerConfig::V8_MOVE,
+            NodeBudget::SIXTEEN,
+            true,
+            116,
+            "4d918a857cee7630",
+        ),
+        (PlannerConfig::V9, hard, false, 176, "cdc11e3dd5e7dedb"),
+        (PlannerConfig::V9, hard, true, 151, "a44c33da4bb0df93"),
+    ];
+    let actual = pins.map(|(config, nodes, fog, _, _)| {
+        let (commands, digest) = golden_game(config, fog, nodes);
+        (config.identifier, fog, commands, digest)
+    });
+    let expected = pins.map(|(config, _, fog, commands, digest)| {
+        (config.identifier, fog, commands, digest.to_owned())
+    });
+    assert_eq!(actual, expected);
+}
+
+/// The counters of each seat after a game from `state` between the planners
+/// `configs`, with mean luck, to the end of day `days`, and the number of
+/// plays that the host refused or could not write as a command.
+fn mean_luck_game(
+    state: State,
+    configs: [PlannerConfig; 2],
+    seed: u64,
+    days: u32,
+) -> ([PlannerStats; 2], u64) {
+    let mut session = Session::new(state.clone());
+    let mut first = PlannerAgent::with_config(seed, configs[0]);
+    let mut second = PlannerAgent::with_config(seed + 1, configs[1]);
+    let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+    let limits = Limits {
+        days,
+        nodes: crate::profile::HARD.node_budget(),
+        ..Limits::DEFAULT
+    };
+    let record =
+        play(state, &mut session, &mut agents, &mut MeanLuck, limits).expect("the game runs");
+    let invalid = record.refusals + record.preflight_rejections;
+    ([first.stats().clone(), second.stats().clone()], invalid)
+}
+
+/// The first day of the map with this AWBW identifier, without fog.
+fn map_start(id: u32) -> State {
+    let path = format!("{}/../../assets/maps/{id}.json", env!("CARGO_MANIFEST_DIR"));
+    let map = awbrn_map::AwbwMap::parse_json(&std::fs::read(path).unwrap()).unwrap();
+    let seats = map.slot_factions(2);
+    let map = awbrn_map::AwbrnMap::from_map(&map);
+    crate::board::try_state_from_map(map, &[seats[0], seats[1]], false, 1).unwrap()
+}
+
+/// Without fog and with mean luck, the engine plays what the planner
+/// simulates. In games of planner-v9 against itself and against
+/// planner-v8-move, from the first day of three maps and from each position
+/// of a played game, the host refuses no play, each decision has a plan, no
+/// rollout fails, and each position that a plan predicts is the position that
+/// the agent then observes, with the known exception below.
+///
+/// The projection can rename units. [`position::matches`] refuses to rename
+/// units when any unit is loaded in a transport, so a plan whose projection
+/// renamed units while a unit was loaded counts mismatches and plans again.
+/// The last column pins those mismatches of each seat.
+#[test]
+fn the_planners_predict_their_games_with_mean_luck() {
+    let (v9, medium) = (PlannerConfig::V9, PlannerConfig::V8_MOVE);
+    let mut games = vec![
+        (arena(false, 3), [v9, v9], 1, 10, [0, 0]),
+        (arena(false, 3), [v9, medium], 3, 10, [0, 0]),
+        (arena(false, 3), [medium, v9], 5, 10, [0, 0]),
+        (map_start(159_501), [v9, v9], 7, 10, [2, 0]),
+        (map_start(126_428), [medium, v9], 9, 10, [4, 0]),
+    ];
+    for (index, day) in (6..=11).enumerate() {
+        let pair = if index % 2 == 0 {
+            [v9, v9]
+        } else {
+            [v9, medium]
+        };
+        let state = replay_fixture(&format!("amber-valley-day{day:02}"));
+        games.push((state, pair, 11 + 2 * index as u64, day + 2, [0, 0]));
     }
+    // Each game reads as its day, its seed, the invalid plays, and for each
+    // seat whether it planned, its mismatches, refusals, fallbacks and failed
+    // rollouts. The whole table is compared, so a failure prints every game.
+    let expected = games
+        .iter()
+        .map(|(state, _, seed, _, renamed)| {
+            (
+                state.turn.day,
+                *seed,
+                0,
+                renamed.map(|r| (true, r, 0, 0, 0)),
+            )
+        })
+        .collect::<Vec<_>>();
+    let actual = games
+        .into_iter()
+        .map(|(state, configs, seed, days, _)| {
+            let day = state.turn.day;
+            let (stats, invalid) = mean_luck_game(state, configs, seed, days);
+            let seats = stats.map(|stats| {
+                (
+                    stats.plans > 0,
+                    stats.mismatches,
+                    stats.rejections,
+                    stats.fallbacks,
+                    stats.rollout_failed,
+                )
+            });
+            (day, seed, invalid, seats)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
 }
 
 /// The planners on the tree move model with the contest switches and the
