@@ -11,10 +11,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::MapPosition;
-use crate::replay::{AwbwUnitId, ReplayState};
+use crate::replay::ReplayState;
 use crate::world::{
     Ammo, BoardRoot, CaptureProgress, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, Hiding,
-    TerrainHp, TerrainTile, Unit, UnitActive, VisionRange, adopt_unattached_board_entities,
+    TerrainHp, TerrainTile, Unit, UnitActive, UnitId, VisionRange, adopt_unattached_board_entities,
     board_root,
 };
 
@@ -135,8 +135,8 @@ impl Plugin for GameSnapshotPlugin {
             .register_type_data::<Unit, ReplaySemanticComponentType>()
             .register_type::<Faction>()
             .register_type_data::<Faction, ReplaySemanticComponentType>()
-            .register_type::<AwbwUnitId>()
-            .register_type_data::<AwbwUnitId, ReplaySemanticComponentType>()
+            .register_type::<UnitId>()
+            .register_type_data::<UnitId, ReplaySemanticComponentType>()
             .register_type::<UnitActive>()
             .register_type_data::<UnitActive, ReplaySemanticComponentType>()
             .register_type::<CaptureProgress>()
@@ -528,8 +528,8 @@ fn semantic_id_for_entity(entity: &DynamicEntity) -> Result<String, GameSnapshot
     let mut map_position = None;
 
     for component in &entity.components {
-        if let Some(unit_id) = component.try_downcast_ref::<AwbwUnitId>() {
-            return Ok(format!("unit:{}", unit_id.0.as_u32()));
+        if let Some(unit_id) = component.try_downcast_ref::<UnitId>() {
+            return Ok(format!("unit:{}", unit_id.0.get()));
         }
         if component.try_downcast_ref::<TerrainTile>().is_some() {
             terrain_entity = true;
@@ -653,7 +653,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
             UnitActive,
         ));
@@ -692,7 +692,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
             UnitActive,
             Fuel(60),
@@ -750,7 +750,7 @@ mod tests {
             .spawn((
                 MapPosition::new(0, 0),
                 Faction(PlayerFaction::OrangeStar),
-                AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
+                UnitId(awvm::semantic::UnitId::new(1)),
                 Unit(awbrn_types::Unit::Apc),
                 UnitActive,
             ))
@@ -760,7 +760,7 @@ mod tests {
             .spawn((
                 MapPosition::new(0, 0),
                 Faction(PlayerFaction::OrangeStar),
-                AwbwUnitId(awbw_types::AwbwUnitId::new(2)),
+                UnitId(awvm::semantic::UnitId::new(2)),
                 Unit(awbrn_types::Unit::Infantry),
                 TestEntityRef(transport),
             ))
@@ -857,7 +857,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(7)),
+            UnitId(awvm::semantic::UnitId::new(7)),
             Unit(awbrn_types::Unit::Tank),
             Fuel(37),
             Ammo(5),
@@ -908,13 +908,13 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(0, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
         ));
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::BlueMoon),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             Unit(awbrn_types::Unit::Mech),
         ));
 

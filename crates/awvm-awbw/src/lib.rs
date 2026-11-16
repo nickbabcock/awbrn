@@ -424,7 +424,7 @@ fn lower_unit(
                     unit: unit.id.as_u32(),
                 })?;
         Location::Cargo {
-            transport: UnitId::new(transport.as_u32()),
+            transport: unit_id(transport),
             slot,
         }
     } else {
@@ -444,7 +444,7 @@ fn lower_unit(
     };
 
     Ok(Unit {
-        id: UnitId::new(unit.id.as_u32()),
+        id: unit_id(unit.id),
         kind: unit_kind(unit.name),
         owner,
         hp: exact_hp(unit)?,
@@ -478,8 +478,14 @@ fn exact_hp(unit: &AwbwUnit) -> Result<u8, AdapterError> {
     Ok(rounded as u8)
 }
 
-pub(crate) fn player_id(id: AwbwGamePlayerId) -> PlayerId {
+/// The engine's id for an AWBW game player.
+pub fn player_id(id: AwbwGamePlayerId) -> PlayerId {
     PlayerId::from(id.as_u32().to_string())
+}
+
+/// The engine's id for an AWBW unit.
+pub fn unit_id(id: AwbwUnitId) -> UnitId {
+    UnitId::new(id.as_u32())
 }
 
 fn team_id(game: &AwbwGame, player: &AwbwPlayer) -> TeamId {

@@ -25,7 +25,7 @@ mod board;
 #[cfg(test)]
 mod fixture;
 
-use awbrn_bevy::replay::{AwbwUnitId, ReplayViewpoint};
+use awbrn_bevy::replay::ReplayViewpoint;
 use awbrn_bevy::world::GameMap;
 use awbrn_map::Pos;
 use awbrn_types::{ExactHp, GraphicalHp, UnitExt};
@@ -609,10 +609,10 @@ fn present_strikes(world: &mut World) {
 /// Make each struck unit's health overlay show the exact HP in `after`.
 fn show_hp_after_strikes(world: &mut World, after: &HashMap<UnitId, u8>) {
     let struck = world
-        .query::<(Entity, &AwbwUnitId)>()
+        .query::<(Entity, &awbrn_bevy::world::UnitId)>()
         .iter(world)
         .filter_map(|(entity, id)| {
-            let hp = after.get(&UnitId::new(id.0.as_u32()))?;
+            let hp = after.get(&id.0)?;
             Some((entity, GraphicalHp::from(ExactHp::new(*hp))))
         })
         .collect::<Vec<_>>();
@@ -659,7 +659,7 @@ pub(crate) fn paint_badge_digits(
 pub(crate) fn emit_planner_selection(
     inspected: Res<InspectedUnit>,
     board: Res<PlannerBoard>,
-    unit_ids: Query<&AwbwUnitId>,
+    unit_ids: Query<&awbrn_bevy::world::UnitId>,
     sink: Option<Res<EventSink<PlannerSelectionChanged>>>,
     mut emitted: Local<Option<PlannerSelectionChanged>>,
 ) {
@@ -670,7 +670,7 @@ pub(crate) fn emit_planner_selection(
     let unit = inspected
         .0
         .and_then(|entity| unit_ids.get(entity).ok())
-        .and_then(|id| state.units.get(UnitId::new(id.0.as_u32())))
+        .and_then(|id| state.units.get(id.0))
         .and_then(|unit| {
             let Location::Board { position } = unit.location else {
                 return None;
@@ -1140,7 +1140,7 @@ mod tests {
             .world_mut()
             .query_filtered::<
                 (&MapPosition, Option<&HealthOverlayOverride>),
-                (With<AwbwUnitId>, Without<CarriedBy>),
+                (With<awbrn_bevy::world::UnitId>, Without<CarriedBy>),
             >()
             .iter(app.world())
         {
@@ -1162,9 +1162,9 @@ mod tests {
 
     fn unit_entity(app: &mut App, unit: UnitId) -> Option<Entity> {
         app.world_mut()
-            .query::<(Entity, &AwbwUnitId)>()
+            .query::<(Entity, &awbrn_bevy::world::UnitId)>()
             .iter(app.world())
-            .find(|(_, id)| id.0.as_u32() == unit.get())
+            .find(|(_, id)| id.0 == unit)
             .map(|(entity, _)| entity)
     }
 

@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use awbrn_map::AwbwMapData;
 use awbrn_types::{AwbwTerrain, UnitExt};
 use awbw_replay::AwbwReplay;
-use awbw_types::{AwbwGamePlayerId, AwbwUnitId};
+use awbw_types::AwbwGamePlayerId;
 use indexmap::IndexMap;
 
 use awbw_replay::turn_models::{
@@ -34,7 +34,7 @@ use awvm::semantic::{
 
 use crate::targeting::{targeted_hidden, targeted_value, visible_targeted_unit, visible_unit};
 use crate::{
-    AdapterError, awbw_power_charge, initial_state, player_id, semantic_terrain, unit_kind,
+    AdapterError, awbw_power_charge, initial_state, player_id, semantic_terrain, unit_id, unit_kind,
 };
 
 const RECORDED_REASON: &str = "recorded-awbw-outcome";
@@ -1711,10 +1711,6 @@ fn pos(x: u32, y: u32) -> Result<Pos, RecordedAdapterError> {
         u8::try_from(x).map_err(|_| RecordedAdapterError::Coordinate { x, y })?,
         u8::try_from(y).map_err(|_| RecordedAdapterError::Coordinate { x, y })?,
     ))
-}
-
-fn unit_id(id: AwbwUnitId) -> UnitId {
-    UnitId::new(id.as_u32())
 }
 
 fn display_hp(value: u8) -> u8 {

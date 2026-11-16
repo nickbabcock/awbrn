@@ -3,7 +3,8 @@ use crate::features::event_bus::{
 };
 use crate::features::player_display::{PlayerDisplayFactionOverrides, display_faction_for_player};
 use crate::loading::LiveMatchPlayer;
-use awbrn_bevy::replay::{AwbwUnitId, ReplayState};
+use awbrn_bevy::replay::ReplayState;
+use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{Faction, GraphicalHp, TerrainTile, Unit, ViewerVisibility};
 use awbrn_content::{CoPortraitMetadata, co_portrait_by_awbw_id, co_portraits};
 use awbrn_types::{
@@ -88,14 +89,14 @@ impl PlayerPowerMeters {
 }
 
 #[derive(Debug, Resource, Clone, Default)]
-pub struct PlayerUnitCosts(pub HashMap<AwbwUnitId, u32>);
+pub struct PlayerUnitCosts(pub HashMap<UnitId, u32>);
 
 impl PlayerUnitCosts {
-    pub fn set(&mut self, unit_id: AwbwUnitId, cost: u32) {
+    pub fn set(&mut self, unit_id: UnitId, cost: u32) {
         self.0.insert(unit_id, cost);
     }
 
-    pub fn get(&self, unit_id: AwbwUnitId) -> Option<u32> {
+    pub fn get(&self, unit_id: UnitId) -> Option<u32> {
         self.0.get(&unit_id).copied()
     }
 }
@@ -121,7 +122,7 @@ pub fn player_roster_seed_from_replay(
         first_game
             .units
             .iter()
-            .map(|unit| (AwbwUnitId(unit.id), unit.cost))
+            .map(|unit| (UnitId(awvm_awbw::unit_id(unit.id)), unit.cost))
             .collect::<HashMap<_, _>>(),
     );
 
@@ -405,7 +406,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
         .collect::<HashMap<_, _>>();
 
     {
-        let mut unit_query = world.query::<(&AwbwUnitId, &Faction, Option<&GraphicalHp>, &Unit)>();
+        let mut unit_query = world.query::<(&UnitId, &Faction, Option<&GraphicalHp>, &Unit)>();
         for (unit_id, faction, hp, unit) in unit_query.iter(world) {
             let Some(player_id) = player_id_for_faction(&config, faction.0) else {
                 continue;
@@ -646,8 +647,8 @@ mod tests {
         ])));
         app.world_mut()
             .insert_resource(PlayerUnitCosts(HashMap::from([
-                (AwbwUnitId(awbw_types::AwbwUnitId::new(1)), 7000),
-                (AwbwUnitId(awbw_types::AwbwUnitId::new(2)), 7000),
+                (UnitId(awvm::semantic::UnitId::new(1)), 7000),
+                (UnitId(awvm::semantic::UnitId::new(2)), 7000),
             ])));
         app.world_mut().insert_resource(ReplayState {
             next_action_index: 0,
@@ -665,13 +666,13 @@ mod tests {
         app.world_mut().spawn((
             Faction(PlayerFaction::OrangeStar),
             Unit(awbrn_types::Unit::Tank),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(100)),
         ));
         app.world_mut().spawn((
             Faction(PlayerFaction::BlueMoon),
             Unit(awbrn_types::Unit::Tank),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(2)),
+            UnitId(awvm::semantic::UnitId::new(2)),
             GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(100)),
         ));
 

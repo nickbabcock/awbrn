@@ -15,7 +15,7 @@ use awvm::semantic::{PlayerId, Pos, UnitId};
 use awvm::transition::Command;
 
 use crate::targeting::{targeted_hidden, targeted_value, visible_targeted_unit, visible_unit};
-use crate::unit_kind;
+use crate::{unit_id, unit_kind};
 
 /// Lower one archived action to the typed command it records.
 ///
@@ -443,10 +443,6 @@ fn pos(x: u32, y: u32, context: &'static str) -> Result<Pos, CommandAdapterError
             value: y,
         })?,
     ))
-}
-
-fn unit_id(id: awbw_types::AwbwUnitId) -> UnitId {
-    UnitId::new(id.as_u32())
 }
 
 fn ensure_same_unit(

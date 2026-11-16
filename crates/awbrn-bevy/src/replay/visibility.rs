@@ -13,14 +13,15 @@ use std::collections::{HashMap, HashSet};
 
 use awbrn_map::{Dimensions, Pos, TerrainKnowledge};
 use awbrn_types::PlayerFaction;
-use awbw_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId};
+use awbw_types::AwbwGamePlayerId;
 use awvm::semantic::{
     Observation, ObservedPlayer, ObservedUnitHp, ObservedUnitRef, TileVisibility,
+    UnitId as VmUnitId,
 };
 use bevy::prelude::*;
 
-use crate::replay::{AwbwUnitId, ReplayState};
-use crate::world::{BoardIndex, FriendlyFactions, GameMap, GraphicalHp, ViewerVisibility};
+use crate::replay::ReplayState;
+use crate::world::{BoardIndex, FriendlyFactions, GameMap, GraphicalHp, UnitId, ViewerVisibility};
 
 /// Selects whose perspective the presentation is drawn from.
 #[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
@@ -268,15 +269,15 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
         .units
         .iter()
         .filter_map(|unit| match unit.reference {
-            ObservedUnitRef::Friendly { unit: id } => Some((RawAwbwUnitId::new(id.get()), unit.hp)),
+            ObservedUnitRef::Friendly { unit: id } => Some((id, unit.hp)),
             ObservedUnitRef::Enemy { position } => unit_at(world, position).map(|id| (id, unit.hp)),
         })
         .collect::<Vec<_>>();
 
     for (unit, hp) in &visible_units {
         let Some(entity) = world
-            .resource::<crate::world::StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(*unit))
+            .resource::<crate::world::StrongIdMap<UnitId>>()
+            .get(&UnitId(*unit))
         else {
             continue;
         };
@@ -317,7 +318,7 @@ fn restore_spectator_hp(world: &mut World) {
                     (ObservedUnitRef::Friendly { unit: id }, ObservedUnitHp::Exact(hp))
                         if unit.owner == observation.recipient =>
                     {
-                        Some((RawAwbwUnitId::new(id.get()), hp))
+                        Some((id, hp))
                     }
                     _ => None,
                 })
@@ -325,8 +326,8 @@ fn restore_spectator_hp(world: &mut World) {
         .collect::<Vec<_>>();
     for (unit, hp) in exact {
         let Some(entity) = world
-            .resource::<crate::world::StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(unit))
+            .resource::<crate::world::StrongIdMap<UnitId>>()
+            .get(&UnitId(unit))
         else {
             continue;
         };
@@ -378,13 +379,13 @@ fn refresh_terrain_knowledge(world: &mut World, viewer: Option<AwbwGamePlayerId>
     }
 }
 
-fn unit_at(world: &World, position: Pos) -> Option<RawAwbwUnitId> {
+fn unit_at(world: &World, position: Pos) -> Option<VmUnitId> {
     let entity = world
         .get_resource::<BoardIndex>()?
         .unit_entity(position)
         .ok()
         .flatten()?;
-    world.get::<AwbwUnitId>(entity).map(|id| id.0)
+    world.get::<UnitId>(entity).map(|id| id.0)
 }
 
 fn parse_player_id(id: &str) -> Option<AwbwGamePlayerId> {

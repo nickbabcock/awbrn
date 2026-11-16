@@ -11,11 +11,11 @@ use bevy::prelude::*;
 
 use crate::MapPosition;
 use crate::replay::{
-    AwbwUnitId, RecipientObservations, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
+    RecipientObservations, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
 };
 use crate::world::{
     Ammo, BoardOf, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, TerrainHp, TerrainTile,
-    Unit, UnitActive, ViewerVisibility, VisionRange, initialize_terrain_semantic_world,
+    Unit, UnitActive, UnitId, ViewerVisibility, VisionRange, initialize_terrain_semantic_world,
 };
 
 /// Initialize the ECS world for replay playback from a parsed `AwbwReplay`.
@@ -77,7 +77,7 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
                     (
                         MapPosition::new(unit.x as u8, unit.y as u8),
                         Faction(faction),
-                        AwbwUnitId(unit.id),
+                        UnitId(awvm_awbw::unit_id(unit.id)),
                         Unit(awvm_awbw::unit_kind(unit.name)),
                         Fuel(unit.fuel),
                         Ammo(unit.ammo),

@@ -6,9 +6,9 @@ use crate::features::player_roster::PlayerRosterConfig;
 use crate::render::units::HealthOverlayOverride;
 use awbrn_bevy::MapPosition;
 use awbrn_bevy::replay::{
-    AwbwUnitId, ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
-    ReplayViewpoint,
+    ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint,
 };
+use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{
     CaptureProgress, CarriedBy, Faction, GraphicalHp, HasCargo, Hiding, TerrainTile, Unit,
     UnitActive, ViewerVisibility,
@@ -72,7 +72,7 @@ type UnitProjectionItem<'a> = (
     Entity,
     &'a Unit,
     &'a Faction,
-    Option<&'a AwbwUnitId>,
+    Option<&'a UnitId>,
     Option<Ref<'a, UnitActive>>,
     Has<CaptureProgress>,
     Has<HasCargo>,
@@ -154,7 +154,7 @@ fn projected_health(hp: Option<&GraphicalHp>) -> Option<GraphicalHp> {
 /// cannot be named by a projection.
 fn unit_visible_to_viewer(
     resources: &UnitProjectionResources,
-    unit_id: Option<&AwbwUnitId>,
+    unit_id: Option<&UnitId>,
     is_carried: bool,
 ) -> bool {
     if is_carried {
@@ -426,11 +426,11 @@ mod tests {
         app.add_plugins(GameWorldPlugin);
         app.add_systems(Update, project_unit_render_state);
 
-        let seen = awbw_types::AwbwUnitId::new(1);
-        let unseen = awbw_types::AwbwUnitId::new(2);
+        let seen = awvm::semantic::UnitId::new(1);
+        let unseen = awvm::semantic::UnitId::new(2);
         for id in [seen, unseen] {
             app.world_mut().spawn((
-                AwbwUnitId(id),
+                UnitId(id),
                 Unit(awbrn_types::Unit::Infantry),
                 Faction(PlayerFaction::OrangeStar),
                 MapPosition::new(0, 0),
@@ -445,7 +445,7 @@ mod tests {
 
         let mut query = app
             .world_mut()
-            .query::<(&AwbwUnitId, &ProjectedUnitRenderState)>();
+            .query::<(&UnitId, &ProjectedUnitRenderState)>();
         let mut drawn = query
             .iter(app.world())
             .filter(|(_, state)| state.visible)

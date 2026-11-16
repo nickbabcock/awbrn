@@ -143,7 +143,7 @@ impl Plugin for GameWorldPlugin {
             .init_resource::<replay::ReplayTerrainKnowledge>()
             .init_resource::<replay::ReplayViewpoint>()
             .init_resource::<replay::ReplayPlayerRegistry>()
-            .init_resource::<world::StrongIdMap<replay::AwbwUnitId>>()
+            .init_resource::<world::StrongIdMap<world::UnitId>>()
             .register_type::<MapPosition>()
             .register_type::<world::Faction>()
             .register_type::<world::Unit>()
@@ -152,7 +152,7 @@ impl Plugin for GameWorldPlugin {
             .register_type::<world::Fuel>()
             .register_type::<world::Ammo>()
             .register_type::<world::VisionRange>()
-            .register_type::<replay::AwbwUnitId>()
+            .register_type::<world::UnitId>()
             .register_type::<replay::ReplayState>()
             .add_observer(world::units::on_unit_destroyed);
     }

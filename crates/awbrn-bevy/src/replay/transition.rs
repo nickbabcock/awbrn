@@ -10,21 +10,21 @@ use std::collections::{BTreeMap, HashMap};
 
 use awbrn_map::Pos;
 use awbrn_types::Faction as MapFaction;
-use awbw_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId};
+use awbw_types::AwbwGamePlayerId;
 use awvm::semantic::{
     Location, Observation, ObservedEvent, ObservedTileOwner, ObservedTransition, ObservedUnit,
-    ObservedUnitRef, PlayerId, UnitAction,
+    ObservedUnitRef, PlayerId, UnitAction, UnitId as VmUnitId,
 };
 use bevy::prelude::*;
 
 use crate::MapPosition;
 use crate::replay::{
-    AwbwUnitId, RecipientObservations, ReplayPlayerRegistry, ReplayState, refresh_viewer_visibility,
+    RecipientObservations, ReplayPlayerRegistry, ReplayState, refresh_viewer_visibility,
 };
 use crate::world::{
     Ammo, BoardIndex, BoardOf, CaptureProgress, CarriedBy, CurrentWeather, Faction, Fuel, GameMap,
-    GraphicalHp, Hiding, StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive, VisionRange,
-    board_root,
+    GraphicalHp, Hiding, StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive, UnitId,
+    VisionRange, board_root,
 };
 
 #[derive(Component)]
@@ -184,7 +184,7 @@ fn consume_events(events: &[ObservedEvent]) {
 
 fn collect_owned_units(
     transitions: &[ObservedTransition],
-) -> Result<BTreeMap<RawAwbwUnitId, ObservedUnit>, TransitionApplyError> {
+) -> Result<BTreeMap<VmUnitId, ObservedUnit>, TransitionApplyError> {
     let mut units = BTreeMap::new();
     for transition in transitions {
         for unit in &transition.post.units {
@@ -194,11 +194,11 @@ fn collect_owned_units(
             if unit.owner != transition.post.recipient {
                 continue;
             }
-            let id = RawAwbwUnitId::new(id.get());
+            let id = *id;
             if let Some(previous) = units.insert(id, unit.clone())
                 && previous != *unit
             {
-                return Err(TransitionApplyError::InconsistentUnit(id.as_u32()));
+                return Err(TransitionApplyError::InconsistentUnit(id.get()));
             }
         }
     }
@@ -208,7 +208,7 @@ fn collect_owned_units(
 fn collect_recipient_units(
     world: &mut World,
     transition: &ObservedTransition,
-) -> Result<BTreeMap<RawAwbwUnitId, ObservedUnit>, TransitionApplyError> {
+) -> Result<BTreeMap<VmUnitId, ObservedUnit>, TransitionApplyError> {
     world.init_resource::<RecipientEnemyIds>();
     let moved_enemies = transition
         .events
@@ -237,7 +237,7 @@ fn collect_recipient_units(
     let mut units = BTreeMap::new();
     for unit in &transition.post.units {
         let id = match unit.reference {
-            ObservedUnitRef::Friendly { unit } => RawAwbwUnitId::new(unit.get()),
+            ObservedUnitRef::Friendly { unit } => unit,
             ObservedUnitRef::Enemy { position } => {
                 let post = position;
                 let moved_from = moved_enemies
@@ -256,27 +256,27 @@ fn collect_recipient_units(
     Ok(units)
 }
 
-fn recipient_enemy_at(world: &World, position: Pos) -> Option<RawAwbwUnitId> {
+fn recipient_enemy_at(world: &World, position: Pos) -> Option<VmUnitId> {
     let entity = world
         .resource::<BoardIndex>()
         .unit_entity(position)
         .ok()
         .flatten()?;
     world.get::<RecipientEnemy>(entity)?;
-    world.get::<AwbwUnitId>(entity).map(|id| id.0)
+    world.get::<UnitId>(entity).map(|id| id.0)
 }
 
-fn spawn_recipient_enemy(world: &mut World, unit: &ObservedUnit, position: Pos) -> RawAwbwUnitId {
+fn spawn_recipient_enemy(world: &mut World, unit: &ObservedUnit, position: Pos) -> VmUnitId {
     let id = loop {
         let candidate = {
             let mut ids = world.resource_mut::<RecipientEnemyIds>();
             let candidate = ids.next;
             ids.next = ids.next.saturating_sub(1);
-            RawAwbwUnitId::new(candidate)
+            VmUnitId::new(candidate)
         };
         if world
-            .resource::<StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(candidate))
+            .resource::<StrongIdMap<UnitId>>()
+            .get(&UnitId(candidate))
             .is_none()
         {
             break candidate;
@@ -284,7 +284,7 @@ fn spawn_recipient_enemy(world: &mut World, unit: &ObservedUnit, position: Pos) 
     };
     let root = board_root(world);
     let mut spawned = world.spawn((
-        AwbwUnitId(id),
+        UnitId(id),
         Unit(unit.kind),
         MapPosition::from(position),
         RecipientEnemy,
@@ -441,11 +441,11 @@ fn sync_tiles(
 
 fn sync_units(
     world: &mut World,
-    units: &BTreeMap<RawAwbwUnitId, ObservedUnit>,
+    units: &BTreeMap<VmUnitId, ObservedUnit>,
     capture_points: &HashMap<Pos, u8>,
 ) -> Result<(), TransitionApplyError> {
-    let existing: Vec<(RawAwbwUnitId, Entity)> = {
-        let mut query = world.query::<(Entity, &AwbwUnitId)>();
+    let existing: Vec<(VmUnitId, Entity)> = {
+        let mut query = world.query::<(Entity, &UnitId)>();
         query
             .iter(world)
             .map(|(entity, id)| (id.0, entity))
@@ -460,12 +460,12 @@ fn sync_units(
     let board_root = board_root(world);
     for (id, unit) in units {
         let entity = world
-            .resource::<StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(*id))
+            .resource::<StrongIdMap<UnitId>>()
+            .get(&UnitId(*id))
             .unwrap_or_else(|| {
                 // No tile until it is placed below with the others: a stand-in
                 // tile would index it over whatever stands there.
-                let mut spawned = world.spawn((AwbwUnitId(*id), Unit(unit.kind)));
+                let mut spawned = world.spawn((UnitId(*id), Unit(unit.kind)));
                 if let Some(root) = board_root {
                     spawned.insert(BoardOf(root));
                 }
@@ -478,18 +478,18 @@ fn sync_units(
     // typed cargo slot keeps Bevy's fixed relationship array deterministic.
     for id in units.keys() {
         let entity = world
-            .resource::<StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(*id))
-            .ok_or(TransitionApplyError::MissingUnit(id.as_u32()))?;
+            .resource::<StrongIdMap<UnitId>>()
+            .get(&UnitId(*id))
+            .ok_or(TransitionApplyError::MissingUnit(id.get()))?;
         world.entity_mut(entity).remove::<CarriedBy>();
     }
     // A unit moving onto a tile another unit has yet to leave would be indexed
     // over it, so every unit that moves leaves its tile before any arrives.
     for (id, unit) in units {
         let entity = world
-            .resource::<StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(*id))
-            .ok_or(TransitionApplyError::MissingUnit(id.as_u32()))?;
+            .resource::<StrongIdMap<UnitId>>()
+            .get(&UnitId(*id))
+            .ok_or(TransitionApplyError::MissingUnit(id.get()))?;
         let target = match unit.location {
             Location::Board { position } => Some(MapPosition::from(position)),
             Location::Cargo { .. } => None,
@@ -503,9 +503,9 @@ fn sync_units(
     }
     for (id, unit) in units {
         let entity = world
-            .resource::<StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(*id))
-            .ok_or(TransitionApplyError::MissingUnit(id.as_u32()))?;
+            .resource::<StrongIdMap<UnitId>>()
+            .get(&UnitId(*id))
+            .ok_or(TransitionApplyError::MissingUnit(id.get()))?;
         match &unit.location {
             Location::Board { position } => {
                 world
@@ -524,17 +524,16 @@ fn sync_units(
             Location::Board { .. } => None,
         })
         .collect::<Vec<_>>();
-    cargo.sort_by_key(|(id, transport, slot)| (transport.get(), *slot, id.as_u32()));
+    cargo.sort_by_key(|(id, transport, slot)| (transport.get(), *slot, id.get()));
     for (id, transport, _) in cargo {
         let entity = world
-            .resource::<StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(id))
-            .ok_or(TransitionApplyError::MissingUnit(id.as_u32()))?;
-        let transport = RawAwbwUnitId::new(transport.get());
+            .resource::<StrongIdMap<UnitId>>()
+            .get(&UnitId(id))
+            .ok_or(TransitionApplyError::MissingUnit(id.get()))?;
         let transport_entity = world
-            .resource::<StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(transport))
-            .ok_or(TransitionApplyError::MissingUnit(transport.as_u32()))?;
+            .resource::<StrongIdMap<UnitId>>()
+            .get(&UnitId(transport))
+            .ok_or(TransitionApplyError::MissingUnit(transport.get()))?;
         world.entity_mut(entity).insert(CarriedBy(transport_entity));
     }
 
@@ -628,7 +627,7 @@ pub enum TransitionApplyError {
     InvalidPlayerId(String),
     #[error("unknown AWBW player {0}")]
     UnknownPlayer(u32),
-    #[error("missing AWBW unit {0}")]
+    #[error("missing unit {0}")]
     MissingUnit(u32),
     #[error("missing terrain at {0}")]
     MissingTerrain(Pos),

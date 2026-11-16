@@ -8,7 +8,7 @@ use crate::render::animation::{
 use crate::render::course_arrow::{
     COURSE_ARROW_SPRITE_SIZE, CourseArrowSpriteKind, course_arrow_tip,
 };
-use awbrn_bevy::replay::AwbwUnitId;
+use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{Faction, GameMap, Unit, UnitActive};
 use awbrn_map::Pos;
 use awbrn_types::GraphicalMovement;
@@ -353,7 +353,7 @@ type UnitPathAnimationQuery<'w, 's> = Query<
         &'static mut Sprite,
         &'static Unit,
         &'static Faction,
-        Option<&'static AwbwUnitId>,
+        Option<&'static UnitId>,
         Option<&'static mut Animation>,
         Has<UnitActive>,
         &'static mut Visibility,

@@ -16,7 +16,7 @@ use crate::features::input::{
 use crate::render::UiAtlas;
 use crate::render::course_arrow::{COURSE_ARROW_SPRITE_SIZE, build_course_arrow_spawns};
 use awbrn_bevy::MapPosition;
-use awbrn_bevy::replay::AwbwUnitId;
+use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{
     BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, HasCargo, Unit,
     UnitActive,
@@ -423,7 +423,7 @@ pub(crate) struct PlayUnitSelectionParams<'w, 's> {
     game_map: Res<'w, GameMap>,
     friendly_factions: Res<'w, FriendlyFactions>,
     units: Query<'w, 's, UnitSelectionQueryItem<'static>, With<Unit>>,
-    unit_ids: Query<'w, 's, &'static AwbwUnitId, With<Unit>>,
+    unit_ids: Query<'w, 's, &'static UnitId, With<Unit>>,
     graphical_hp: Query<'w, 's, &'static GraphicalHp, With<Unit>>,
     observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
     viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
@@ -582,7 +582,7 @@ fn unit_session(
     // The AWBW unit id and the AWVM unit id are the same number by
     // construction. See `awvm_awbw::command::unit_id`.
     let session = awvm::session::Session::from_observation(observation).ok()?;
-    let index = session.index_of(awvm::semantic::UnitId::new(id.0.as_u32()))?;
+    let index = session.index_of(id.0)?;
     Some((session, index))
 }
 
@@ -2126,7 +2126,7 @@ pub(crate) fn emit_unit_actions(
     };
     // The AWBW unit id and the AWVM unit id are the same number by
     // construction; see `awvm_awbw::command::unit_id`.
-    let semantic_unit_id = awvm::semantic::UnitId::new(unit_id.0.as_u32());
+    let semantic_unit_id = unit_id.0;
     // One session answers the whole menu: what may be done here, what may be
     // put down, whether the unit may go, and what each strike would do.
     let Ok(session) = awvm::session::Session::from_observation(observation) else {
@@ -2483,7 +2483,7 @@ fn unit_id_at_position(
         .unit_ids
         .get(entity)
         .ok()
-        .map(|id| id.0.as_u32())
+        .map(|id| id.0.get())
 }
 
 /// Send the chosen order, and remember enough to undo the sending.
@@ -2531,7 +2531,7 @@ pub(crate) fn handle_unit_action_chosen(
                 return;
             };
             sink.emit(DeleteUnitCommandRequested {
-                unit_id: unit_id.0.as_u32(),
+                unit_id: unit_id.0.get(),
             });
         }
         UnitOrder::Move { action } => {
@@ -2540,7 +2540,7 @@ pub(crate) fn handle_unit_action_chosen(
                 return;
             };
             sink.emit(MoveCommandRequested {
-                unit_id: unit_id.0.as_u32(),
+                unit_id: unit_id.0.get(),
                 path: pending.path.clone(),
                 action: action.clone(),
             });
@@ -2551,7 +2551,7 @@ pub(crate) fn handle_unit_action_chosen(
                 return;
             };
             sink.emit(UnloadCommandRequested {
-                transport_id: unit_id.0.as_u32(),
+                transport_id: unit_id.0.get(),
                 cargo_id: *cargo_id,
                 position: *position,
             });
@@ -2829,7 +2829,7 @@ mod tests {
         app.init_resource::<BoardIndex>();
         app.init_resource::<GameMap>();
         app.init_resource::<FriendlyFactions>();
-        app.init_resource::<StrongIdMap<AwbwUnitId>>();
+        app.init_resource::<StrongIdMap<UnitId>>();
         app.init_resource::<ButtonInput<KeyCode>>();
         app.init_resource::<crate::features::input::KeyboardCursor>();
         app.add_message::<bevy::input::keyboard::KeyboardInput>();
@@ -2887,14 +2887,14 @@ mod tests {
             &Faction,
             Option<&Fuel>,
             Has<UnitActive>,
-            &AwbwUnitId,
+            &UnitId,
         )>();
         let units: Vec<_> = query
             .iter(app.world())
             .map(|(position, unit, faction, fuel, active, id)| {
                 let owner = if faction.0 == PlayerFaction::OrangeStar { "0" } else { "1" };
                 serde_json::json!({
-                    "id": id.0.as_u32(),
+                    "id": id.0.get(),
                     "kind": unit.0,
                     "owner": owner,
                     "hp": 100,
@@ -2994,7 +2994,7 @@ mod tests {
             MapPosition::from(position),
             Unit(unit),
             Faction(faction),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(id)),
+            UnitId(awvm::semantic::UnitId::new(id)),
         ));
         if active {
             entity.insert(UnitActive);
@@ -4793,7 +4793,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbw_types::AwbwUnitId::new(42)));
+            .insert(UnitId(awvm::semantic::UnitId::new(42)));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -4856,7 +4856,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(transport)
-            .insert(AwbwUnitId(awbw_types::AwbwUnitId::new(42)));
+            .insert(UnitId(awvm::semantic::UnitId::new(42)));
 
         app.world_mut().resource_mut::<SelectedUnit>().0 = Some(SelectedUnitSelection {
             entity: transport,
@@ -4920,7 +4920,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbw_types::AwbwUnitId::new(42)));
+            .insert(UnitId(awvm::semantic::UnitId::new(42)));
 
         let menus = Arc::new(Mutex::new(Vec::new()));
         let menus_by_sink = std::sync::Arc::clone(&menus);
@@ -5006,7 +5006,7 @@ mod tests {
         app.world_mut().spawn((
             Unit(awbrn_types::Unit::Infantry),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbw_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             CarriedBy(transport),
         ));
         let mut observations = awbrn_bevy::replay::RecipientObservations::default();
@@ -5073,7 +5073,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbw_types::AwbwUnitId::new(42)));
+            .insert(UnitId(awvm::semantic::UnitId::new(42)));
         app.world_mut()
             .insert_resource(EventSink::<MoveCommandRequested>::new(|_| {}));
 

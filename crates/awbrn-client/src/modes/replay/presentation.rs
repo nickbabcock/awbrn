@@ -17,9 +17,10 @@ use crate::features::player_roster::{
 use crate::modes::replay::navigation::PendingCourseArrows;
 use crate::render::animation::UnitPathAnimation;
 use awbrn_bevy::replay::{
-    AwbwUnitId, NewDay, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint, TransitionApplyError,
+    NewDay, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint, TransitionApplyError,
     apply_observed_transition, apply_observed_transitions,
 };
+use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{BoardIndex, CarriedBy, StrongIdMap};
 use awbrn_types::UnitExt;
 
@@ -480,14 +481,14 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
     }
 }
 
-fn collect_player_roster_unit_cost_updates(action: &Action) -> Vec<(AwbwUnitId, u32)> {
+fn collect_player_roster_unit_cost_updates(action: &Action) -> Vec<(UnitId, u32)> {
     match action {
         Action::Build { new_unit, .. } => new_unit
             .values()
             .find_map(|unit| unit.get_value())
             .map(|unit| {
                 vec![(
-                    AwbwUnitId(unit.units_id),
+                    UnitId(awvm_awbw::unit_id(unit.units_id)),
                     unit.units_cost
                         .unwrap_or(unit_kind(unit.units_name).base_cost()),
                 )]
@@ -501,7 +502,7 @@ fn collect_player_roster_unit_cost_updates(action: &Action) -> Vec<(AwbwUnitId, 
             .flat_map(|group| {
                 group.units.iter().map(|unit| {
                     (
-                        AwbwUnitId(unit.units_id),
+                        UnitId(awvm_awbw::unit_id(unit.units_id)),
                         unit_kind(group.unit_name).base_cost(),
                     )
                 })
@@ -644,10 +645,7 @@ fn entity_for_observed_unit(
 ) -> Option<Entity> {
     match unit {
         ObservedUnitRef::Friendly { unit } => {
-            let id = awbw_types::AwbwUnitId::new(unit.get());
-            world
-                .resource::<StrongIdMap<AwbwUnitId>>()
-                .get(&AwbwUnitId(id))
+            world.resource::<StrongIdMap<UnitId>>().get(&UnitId(unit))
         }
         ObservedUnitRef::Enemy { .. } => world
             .resource::<BoardIndex>()

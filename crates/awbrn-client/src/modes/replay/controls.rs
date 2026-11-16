@@ -203,7 +203,7 @@ mod tests {
     use crate::render::animation::UnitPathAnimation;
     use awbrn_bevy::GameWorldPlugin;
     use awbrn_bevy::MapPosition;
-    use awbrn_bevy::replay::AwbwUnitId;
+    use awbrn_bevy::world::UnitId;
     use awbrn_bevy::world::{GameMap, StrongIdMap};
     use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
     use awbw_replay::AwbwReplay;
@@ -512,7 +512,7 @@ mod tests {
         app.add_systems(Update, handle_replay_controls);
         app.insert_resource(ReplayState::default());
         app.insert_resource(ReplayAdvanceLock::default());
-        app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
+        app.insert_resource(StrongIdMap::<UnitId>::default());
         app.insert_resource(LoadedReplay(crate::replay_archive::ReplayArchive::Awbw(
             AwbwReplay {
                 games: Vec::new(),
