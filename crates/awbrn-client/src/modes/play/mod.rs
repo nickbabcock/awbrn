@@ -3902,9 +3902,9 @@ mod tests {
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
