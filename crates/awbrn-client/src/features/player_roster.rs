@@ -27,7 +27,7 @@ pub struct PlayerRosterConfig {
 pub struct PlayerRosterPlayer {
     pub player_id: PlayerId,
     /// The AWBW account that played the seat, which only an archive has.
-    pub user_id: Option<awbw_types::AwbwPlayerId>,
+    pub user_id: Option<awbw_replay::AwbwPlayerId>,
     pub turn_order: u32,
     pub team: Option<String>,
     pub eliminated: bool,
@@ -513,7 +513,7 @@ pub fn player_id_for_faction(
 mod tests {
     use super::*;
     use awbrn_bevy::GameWorldPlugin;
-    use awbw_types::AwbwPlayerId;
+    use awbw_replay::AwbwPlayerId;
 
     #[test]
     fn active_power_meter_reports_active_power() {

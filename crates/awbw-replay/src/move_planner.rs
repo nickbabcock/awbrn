@@ -9,10 +9,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use awbw_types::{
-    AwbwCoId, AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain,
-    AwbwUnitId, AwbwUnitKind, PlayerFaction,
-};
+use crate::{AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwPlayerId, AwbwUnitId};
+use awbw_types::{AwbwCoId, AwbwMapId, AwbwTerrain, AwbwUnitKind, PlayerFaction};
 use serde::Deserialize;
 
 use crate::AwbwReplay;

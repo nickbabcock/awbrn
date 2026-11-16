@@ -640,8 +640,8 @@ mod tests {
     use super::*;
     use awbrn_map::Dimensions;
     use awbrn_types::{AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property};
+    use awbw_replay::AwbwDateTime;
     use awbw_replay::game_models::{AwbwGame, CoPower, MatchType};
-    use awbw_types::AwbwDateTime;
     use std::collections::HashMap;
 
     struct MappingStaticAssetPathResolver {
@@ -744,10 +744,10 @@ mod tests {
     fn replay_loaded_event_resolves_cos_and_sorts_players() {
         let replay = AwbwReplay {
             games: vec![AwbwGame {
-                id: awbw_types::AwbwGameId::new(7),
+                id: awbw_replay::AwbwGameId::new(7),
                 name: "Test Replay".to_string(),
                 password: None,
-                creator: awbw_types::AwbwPlayerId::new(99),
+                creator: awbw_replay::AwbwPlayerId::new(99),
                 start_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 end_date: None,
                 activity_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
@@ -822,10 +822,10 @@ mod tests {
     fn replay_loaded_event_uses_null_for_unknown_cos() {
         let replay = AwbwReplay {
             games: vec![AwbwGame {
-                id: awbw_types::AwbwGameId::new(9),
+                id: awbw_replay::AwbwGameId::new(9),
                 name: "Unknown CO Replay".to_string(),
                 password: None,
-                creator: awbw_types::AwbwPlayerId::new(99),
+                creator: awbw_replay::AwbwPlayerId::new(99),
                 start_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 end_date: None,
                 activity_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
@@ -887,9 +887,9 @@ mod tests {
         team: &str,
     ) -> AwbwPlayer {
         AwbwPlayer {
-            id: awbw_types::AwbwGamePlayerId::new(player_id),
-            users_id: awbw_types::AwbwPlayerId::new(100 + player_id),
-            games_id: awbw_types::AwbwGameId::new(1),
+            id: awbw_replay::AwbwGamePlayerId::new(player_id),
+            users_id: awbw_replay::AwbwPlayerId::new(100 + player_id),
+            games_id: awbw_replay::AwbwGameId::new(1),
             faction,
             co_id,
             funds: 0,

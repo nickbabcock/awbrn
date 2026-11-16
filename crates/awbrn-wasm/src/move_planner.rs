@@ -6,9 +6,10 @@
 //! opens the board.
 
 use awbrn_types::{Co, CoExt};
+use awbw_replay::AwbwGamePlayerId;
 use awbw_replay::game_models::CoPower;
 use awbw_replay::move_planner::{MovePlanner, PlannerSeat, PlannerSetup};
-use awbw_types::{AwbwCoId, AwbwGamePlayerId, AwbwMapId};
+use awbw_types::{AwbwCoId, AwbwMapId};
 use serde::{Deserialize, Serialize};
 use tsify::{Ts, Tsify};
 use wasm_bindgen::prelude::*;

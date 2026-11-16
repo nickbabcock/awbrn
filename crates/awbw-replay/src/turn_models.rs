@@ -1,7 +1,6 @@
 use crate::de::{Hidden, Masked, bool_ynstr_map};
-use awbw_types::{
-    AwbwDate, AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, AwbwUnitKind, PlayerFaction,
-};
+use crate::{AwbwDate, AwbwGamePlayerId, AwbwUnitId};
+use awbw_types::{AwbwTerrain, AwbwUnitKind, PlayerFaction};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 

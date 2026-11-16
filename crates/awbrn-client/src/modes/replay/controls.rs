@@ -212,10 +212,10 @@ mod tests {
     use awbrn_bevy::world::UnitId;
     use awbrn_bevy::world::{GameMap, StrongIdMap};
     use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
+    use awbw_replay::AwbwGamePlayerId;
     use awbw_replay::AwbwReplay;
     use awbw_replay::ReplayParser;
     use awbw_replay::turn_models::{Action, PowerAction};
-    use awbw_types::AwbwGamePlayerId;
     use awvm_awbw::RecordedAdapter;
     use bevy::input::keyboard::{Key, NativeKey};
     use std::path::Path;
@@ -611,7 +611,7 @@ mod tests {
             unit: [(
                 TargetedPlayer::Global,
                 Hidden::Visible(UnitProperty {
-                    units_id: awbw_types::AwbwUnitId::new(1),
+                    units_id: awbw_replay::AwbwUnitId::new(1),
                     units_games_id: Some(1),
                     units_players_id: AwbwGamePlayerId::new(1),
                     units_name: awbw_types::AwbwUnitKind::Infantry,

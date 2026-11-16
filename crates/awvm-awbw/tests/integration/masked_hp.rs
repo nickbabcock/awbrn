@@ -101,7 +101,7 @@ fn combat_resolves_only_matching_hit_points_and_preserves_selected_properties() 
                 attacker.units_hit_points = hp(recipient_hp);
                 attacker.units_ammo = selected_ammo + 1;
                 if mismatched_id {
-                    attacker.units_id = awbw_types::AwbwUnitId::new(id.get() + 1);
+                    attacker.units_id = awbw_replay::AwbwUnitId::new(id.get() + 1);
                 }
             }
         }
@@ -229,7 +229,7 @@ fn moves_and_repairs_preserve_known_hit_points_when_values_are_masked() {
         repaired: IndexMap::from([(
             TargetedPlayer::Global,
             RepairedUnit {
-                units_id: awbw_types::AwbwUnitId::new(id.get()),
+                units_id: awbw_replay::AwbwUnitId::new(id.get()),
                 units_hit_points: Masked::Masked,
             },
         )]),
@@ -245,7 +245,7 @@ fn moves_and_repairs_preserve_known_hit_points_when_values_are_masked() {
     repair.repaired.insert(
         owner,
         RepairedUnit {
-            units_id: awbw_types::AwbwUnitId::new(id.get()),
+            units_id: awbw_replay::AwbwUnitId::new(id.get()),
             units_hit_points: serde_json::from_value(serde_json::json!(7)).unwrap(),
         },
     );
@@ -283,7 +283,7 @@ fn owner_hit_points_do_not_require_recipient_coordinates() {
     assert_eq!(adapter.state().units.get(id).unwrap().hp, 60);
 
     // A row for a different unit cannot disclose this unit's HP.
-    owner_unit.units_id = awbw_types::AwbwUnitId::new(id.get() + 1);
+    owner_unit.units_id = awbw_replay::AwbwUnitId::new(id.get() + 1);
     owner_unit.units_hit_points = serde_json::from_value(serde_json::json!(3)).unwrap();
     movement.unit.insert(owner, Hidden::Visible(owner_unit));
     adapter.advance(&Action::Move(movement)).unwrap();

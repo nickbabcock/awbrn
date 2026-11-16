@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 use awbrn_map::AwbwMapData;
 use awbrn_types::{AwbwTerrain, UnitExt};
+use awbw_replay::AwbwGamePlayerId;
 use awbw_replay::AwbwReplay;
-use awbw_types::AwbwGamePlayerId;
 use indexmap::IndexMap;
 
 use awbw_replay::turn_models::{

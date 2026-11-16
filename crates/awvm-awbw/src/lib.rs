@@ -12,7 +12,8 @@ use awbrn_map::{AwbwMap, AwbwMapData};
 use awbrn_types::{AwbwTerrain, Co, CoExt, Faction, MissileSiloStatus, PlayerFaction, Property};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::{AwbwGame, AwbwPlayer, AwbwUnit, CoPower, MatchType};
-use awbw_types::{AwbwGamePlayerId, AwbwUnitId, AwbwUnitKind};
+use awbw_replay::{AwbwGamePlayerId, AwbwUnitId};
+use awbw_types::AwbwUnitKind;
 use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, UnitKind, WeatherKind};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,

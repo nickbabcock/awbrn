@@ -1,8 +1,6 @@
 use crate::de::{bool_ynstr, deserialize_sub_dive, non_negative_u32, values_only};
-use awbw_types::{
-    AwbwCoId, AwbwDate, AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId,
-    AwbwTerrain, AwbwUnitId, AwbwUnitKind, PlayerFaction,
-};
+use crate::{AwbwDate, AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwPlayerId, AwbwUnitId};
+use awbw_types::{AwbwCoId, AwbwMapId, AwbwTerrain, AwbwUnitKind, PlayerFaction};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
