@@ -3,10 +3,11 @@ use std::path::Path;
 use awbrn_bevy::GameWorldPlugin;
 use awbrn_bevy::replay::{
     ReplayPlayerRegistry, ReplayTerrainKnowledge, ReplayViewpoint, apply_observed_transitions,
-    initialize_replay_semantic_world, refresh_viewer_visibility,
+    refresh_viewer_visibility,
 };
 use awbrn_bevy::snapshot::{canonicalize_replay_semantic_snapshot, capture_game_snapshot};
 use awbrn_bevy::world::{GameMap, GraphicalHp, UnitId, ViewerVisibility};
+use awbrn_client::modes::replay::bootstrap::initialize_replay_semantic_world;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbrn_types::VisualHp;
 use awbw_replay::ReplayParser;

@@ -442,10 +442,7 @@ version = "0.1.0"
 dependencies = [
  "awbrn-map",
  "awbrn-types",
- "awbw-replay",
- "awbw-types",
  "awvm",
- "awvm-awbw",
  "bevy",
  "indexmap",
  "insta",

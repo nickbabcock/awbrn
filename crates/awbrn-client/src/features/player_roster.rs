@@ -7,12 +7,10 @@ use crate::loading::LiveMatchPlayer;
 use awbrn_bevy::replay::ReplayState;
 use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{Faction, GraphicalHp, TerrainTile, Unit, ViewerVisibility};
-use awbrn_content::{CoPortraitMetadata, co_portrait_by_awbw_id, co_portraits};
+use awbrn_content::{CoPortraitMetadata, co_portraits};
 use awbrn_types::{
     Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, PropertyKind, UnitExt,
 };
-use awbw_replay::AwbwReplay;
-use awbw_replay::game_models::AwbwPlayer;
 use awvm::semantic::{Observation, ObservedPlayer, PlayerId};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -28,7 +26,8 @@ pub struct PlayerRosterConfig {
 #[derive(Debug, Clone)]
 pub struct PlayerRosterPlayer {
     pub player_id: PlayerId,
-    pub user_id: awbw_types::AwbwPlayerId,
+    /// The AWBW account that played the seat, which only an archive has.
+    pub user_id: Option<awbw_types::AwbwPlayerId>,
     pub turn_order: u32,
     pub team: Option<String>,
     pub eliminated: bool,
@@ -102,43 +101,6 @@ impl PlayerUnitCosts {
     }
 }
 
-pub fn player_roster_seed_from_replay(
-    replay: &AwbwReplay,
-) -> Option<(PlayerRosterConfig, PlayerFunds, PlayerUnitCosts)> {
-    let first_game = replay.games.first()?;
-    let mut players = first_game.players.clone();
-    players.sort_by_key(|player| player.order);
-
-    let config_players = players
-        .iter()
-        .map(|player| player_roster_player(player, first_game.team))
-        .collect::<Vec<_>>();
-    let funds = PlayerFunds(
-        players
-            .iter()
-            .map(|player| (awvm_awbw::player_id(player.id), player.funds))
-            .collect::<HashMap<_, _>>(),
-    );
-    let unit_costs = PlayerUnitCosts(
-        first_game
-            .units
-            .iter()
-            .map(|unit| (UnitId(awvm_awbw::unit_id(unit.id)), unit.cost))
-            .collect::<HashMap<_, _>>(),
-    );
-
-    Some((
-        PlayerRosterConfig {
-            match_id: first_game.id.as_u32(),
-            map_id: first_game.maps_id.as_u32(),
-            funds_per_property: first_game.funds,
-            players: config_players,
-        },
-        funds,
-        unit_costs,
-    ))
-}
-
 /// Seed the roster for a live match from its bootstrap observation.
 ///
 /// A live match has no AWBW replay record to read, so identity comes from the
@@ -193,9 +155,8 @@ pub fn player_roster_seed_from_live_match(
 
         config_players.push(PlayerRosterPlayer {
             player_id,
-            // A live match carries no AWBW user account, and turn order follows
-            // the bootstrap player list.
-            user_id: awbw_types::AwbwPlayerId::new(0),
+            // Turn order follows the bootstrap player list.
+            user_id: None,
             turn_order: index as u32,
             team: team_game
                 .then(|| observed.map(|observed| observed_player_team(observed).to_string()))
@@ -331,26 +292,6 @@ fn co_portrait_for_commander(kind: awvm::semantic::CommanderId) -> Option<CoPort
         .iter()
         .copied()
         .find(|portrait| portrait.key() == key)
-}
-
-fn player_roster_player(player: &AwbwPlayer, team_game: bool) -> PlayerRosterPlayer {
-    let co = co_portrait_by_awbw_id(player.co_id);
-    let tag_co = player.tags_co_id.and_then(co_portrait_by_awbw_id);
-
-    PlayerRosterPlayer {
-        player_id: awvm_awbw::player_id(player.id),
-        user_id: player.users_id,
-        turn_order: player.order,
-        team: team_game.then(|| player.team.clone()),
-        eliminated: player.eliminated,
-        faction: player.faction,
-        faction_code: player.faction.country_code().to_string(),
-        faction_name: player.faction.name().to_string(),
-        co_key: co.map(|portrait| portrait.key().to_string()),
-        co_name: co.map(|portrait| portrait.display_name().to_string()),
-        tag_co_key: tag_co.map(|portrait| portrait.key().to_string()),
-        tag_co_name: tag_co.map(|portrait| portrait.display_name().to_string()),
-    }
 }
 
 pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot> {
@@ -502,7 +443,8 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                 let power_meter = power_meters.get(&player.player_id);
                 PlayerRosterEntry {
                     player_id: js_player_id(&player.player_id),
-                    user_id: player.user_id.as_u32(),
+                    // JavaScript reads 0 as no account.
+                    user_id: player.user_id.map_or(0, |id| id.as_u32()),
                     turn_order: player.turn_order,
                     team: player.team.clone(),
                     eliminated: player.eliminated,
@@ -608,7 +550,7 @@ mod tests {
             players: vec![
                 PlayerRosterPlayer {
                     player_id: PlayerId::from("1"),
-                    user_id: AwbwPlayerId::new(10),
+                    user_id: Some(AwbwPlayerId::new(10)),
                     turn_order: 1,
                     team: None,
                     eliminated: false,
@@ -622,7 +564,7 @@ mod tests {
                 },
                 PlayerRosterPlayer {
                     player_id: PlayerId::from("2"),
-                    user_id: AwbwPlayerId::new(20),
+                    user_id: Some(AwbwPlayerId::new(20)),
                     turn_order: 2,
                     team: None,
                     eliminated: false,

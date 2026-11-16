@@ -12,9 +12,10 @@ use bevy::{log, prelude::*};
 use crate::features::event_bus::{EventSink, NewDay as ExternalNewDay};
 use crate::features::player_roster::{
     PlayerFunds, PlayerPowerMeters, PlayerRosterConfig, PlayerUnitCosts, active_power_meter,
-    emit_player_roster_updated, player_roster_seed_from_replay, power_meters_from_observation,
+    emit_player_roster_updated, power_meters_from_observation,
 };
 use crate::modes::replay::navigation::PendingCourseArrows;
+use crate::modes::replay::roster::player_roster_seed_from_replay;
 use crate::render::animation::UnitPathAnimation;
 use awbrn_bevy::replay::{
     NewDay, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint, TransitionApplyError,
