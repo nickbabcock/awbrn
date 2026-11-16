@@ -26,6 +26,7 @@ export interface MatchArmy {
 export function buildArmies(
   participants: MatchParticipantSnapshot[],
   playerRoster: PlayerRosterSnapshot | null,
+  teams: readonly number[] = [],
 ): MatchArmy[] {
   const liveEntries = new Map(
     (playerRoster?.players ?? []).map((player) => [player.playerId, player]),
@@ -35,7 +36,7 @@ export function buildArmies(
     const liveEntry = liveEntries.get(participant.slotIndex);
 
     return {
-      entry: liveEntry ?? seatEntry(participant, index),
+      entry: liveEntry ?? seatEntry(participant, index, teams[participant.slotIndex]),
       hasLiveStats: liveEntry !== undefined,
       isActive: playerRoster?.activePlayerId === participant.slotIndex,
       name: participant.userName,
@@ -61,7 +62,11 @@ export function recordedSeat(
  * A seat as the match record describes it, with every statistic still unknown.
  * The readouts render their own "--" until the engine reports real values.
  */
-function seatEntry(participant: MatchParticipantSnapshot, index: number): PlayerRosterEntry {
+function seatEntry(
+  participant: MatchParticipantSnapshot,
+  index: number,
+  team: number | undefined,
+): PlayerRosterEntry {
   const faction = getFactionById(participant.factionId);
   const factionCode = faction?.code ?? "os";
   const factionName = faction?.displayName ?? "Orange Star";
@@ -71,7 +76,7 @@ function seatEntry(participant: MatchParticipantSnapshot, index: number): Player
     playerId: participant.slotIndex,
     userId: 0,
     turnOrder: index,
-    team: undefined,
+    team: team === undefined ? undefined : `team-${team}`,
     eliminated: false,
     actualFactionCode: factionCode,
     actualFactionName: factionName,
@@ -95,6 +100,7 @@ function seatEntry(participant: MatchParticipantSnapshot, index: number): Player
       unitValue: undefined,
       properties: undefined,
       comTowers: undefined,
+      labs: undefined,
     },
   };
 }

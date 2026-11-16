@@ -79,6 +79,8 @@ export const awbrnVars = stylex.defineConsts({
   text17: "var(--text-17-size)",
   text26: "var(--text-26-size)",
   currentMark: "var(--size-current-mark)",
+  /** A sheet's sticky head, which content pinned under it sits below. */
+  sheetHead: "var(--size-sheet-head)",
   fontUi: "var(--font-family-body)",
   fontFigure: "var(--font-family-code)",
 });

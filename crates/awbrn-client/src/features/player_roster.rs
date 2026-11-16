@@ -403,6 +403,11 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
         .iter()
         .map(|player| (player.player_id, 0_u32))
         .collect::<HashMap<_, _>>();
+    let mut lab_counts = config
+        .players
+        .iter()
+        .map(|player| (player.player_id, 0_u32))
+        .collect::<HashMap<_, _>>();
 
     {
         let mut unit_query = world.query::<(&AwbwUnitId, &Faction, Option<&GraphicalHp>, &Unit)>();
@@ -433,8 +438,10 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
             };
             if let Some(player_id) = player_id_for_faction(&config, faction) {
                 *income_counts.entry(player_id).or_default() += 1;
-                if property.kind() == PropertyKind::ComTower {
-                    *tower_counts.entry(player_id).or_default() += 1;
+                match property.kind() {
+                    PropertyKind::ComTower => *tower_counts.entry(player_id).or_default() += 1,
+                    PropertyKind::Lab => *lab_counts.entry(player_id).or_default() += 1,
+                    _ => {}
                 }
             }
         }
@@ -457,6 +464,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                         income: None,
                         properties: None,
                         com_towers: None,
+                        labs: None,
                     }
                 } else {
                     PlayerRosterStats {
@@ -488,6 +496,12 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                         ),
                         com_towers: Some(
                             tower_counts
+                                .get(&player.player_id)
+                                .copied()
+                                .unwrap_or_default(),
+                        ),
+                        labs: Some(
+                            lab_counts
                                 .get(&player.player_id)
                                 .copied()
                                 .unwrap_or_default(),

@@ -391,6 +391,7 @@ const airmailTokens: Record<string, string> = {
   "--text-17-size": "17px",
   "--text-26-size": "26px",
   "--size-current-mark": "3px",
+  "--size-sheet-head": "56px",
 };
 
 /** Width comes from `font-stretch` on the heading component. */

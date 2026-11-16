@@ -11,7 +11,7 @@ import {
   typeScaleVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { coTierBands, type CoTierList } from "#/co_tiers.ts";
 import { CoStamp } from "#/components/CoStamp.tsx";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
@@ -50,6 +50,16 @@ type TierPickerProps = {
       mode: "ban";
       onToggleBan: (coId: number) => void;
       onSetTierBanned: (coIds: number[], isBanned: boolean) => void;
+      /**
+       * Bans a seat inherits from All: drawn banned and locked, since a press
+       * here could only move them between lists.
+       */
+      inheritedCoIds?: ReadonlySet<number>;
+      /**
+       * A corner mark on a stamp some of the chosen seats ban, and who those
+       * seats are in words (`Team A`, `seat 2`), for the key's name.
+       */
+      partialMarks?: ReadonlyMap<number, { label: string; mark: ReactNode }>;
     }
 );
 
@@ -71,8 +81,11 @@ export function TierPicker(props: TierPickerProps) {
     <VStack xstyle={styles.tiers}>
       {bands.map((band) => {
         const isFolded = !isExpanded && band.tier >= openTiers;
+        const inherited = props.mode === "ban" ? props.inheritedCoIds : undefined;
         const bandIds = band.cos.map((co) => co.awbwId);
-        const isBandBanned = bandIds.every((coId) => props.bannedCoIds.has(coId));
+        const isBandBanned = bandIds.every(
+          (coId) => props.bannedCoIds.has(coId) || inherited?.has(coId),
+        );
         return (
           <VStack
             aria-label={`Tier ${band.tier}, ${band.name}`}
@@ -86,7 +99,12 @@ export function TierPicker(props: TierPickerProps) {
                   aria-label={`${isBandBanned ? "Lift the bans on" : "Ban"} tier ${band.tier}`}
                   aria-pressed={isBandBanned}
                   disabled={props.isDisabled}
-                  onClick={() => props.onSetTierBanned(bandIds, !isBandBanned)}
+                  onClick={() =>
+                    props.onSetTierBanned(
+                      bandIds.filter((coId) => !inherited?.has(coId)),
+                      !isBandBanned,
+                    )
+                  }
                   title={`${isBandBanned ? "Lift the bans on" : "Ban"} tier ${band.tier}`}
                   type="button"
                   {...stylex.props(styles.tierNumber, styles.key, styles.tierButton)}
@@ -105,10 +123,45 @@ export function TierPicker(props: TierPickerProps) {
             <HStack xstyle={styles.cos}>
               {band.cos.map((co) => {
                 const isBanned = props.bannedCoIds.has(co.awbwId);
-                if (props.mode === "ban") {
+                if (props.mode === "ban" && inherited?.has(co.awbwId)) {
                   return (
                     <button
-                      aria-label={`${co.displayName}${isBanned ? ", banned" : ""}`}
+                      aria-disabled="true"
+                      aria-label={`${co.displayName}, banned for every seat`}
+                      key={co.key}
+                      title="Banned for every seat"
+                      type="button"
+                      {...stylex.props(styles.key, styles.pick, styles.pickInherited)}
+                    >
+                      <CoStamp
+                        coKey={co.key}
+                        isDecorative
+                        size="md"
+                        xstyle={styles.stampInherited}
+                      />
+                      <Text
+                        color="inherit"
+                        type="inherit"
+                        xstyle={[styles.name, styles.nameBanned]}
+                      >
+                        {co.displayName}
+                      </Text>
+                      <Text
+                        color="inherit"
+                        type="inherit"
+                        aria-hidden="true"
+                        xstyle={styles.allMark}
+                      >
+                        All
+                      </Text>
+                    </button>
+                  );
+                }
+                if (props.mode === "ban") {
+                  const partial = isBanned ? undefined : props.partialMarks?.get(co.awbwId);
+                  return (
+                    <button
+                      aria-label={`${co.displayName}${isBanned ? ", banned" : partial ? `, banned for ${partial.label}` : ""}`}
                       aria-pressed={isBanned}
                       disabled={props.isDisabled}
                       key={co.key}
@@ -129,6 +182,11 @@ export function TierPicker(props: TierPickerProps) {
                       >
                         {co.displayName}
                       </Text>
+                      {partial ? (
+                        <VStack aria-hidden="true" as="span" xstyle={styles.partialMark}>
+                          {partial.mark}
+                        </VStack>
+                      ) : null}
                     </button>
                   );
                 }
@@ -325,6 +383,29 @@ const styles = stylex.create({
   picked: {
     backgroundColor: awbrnVars.ink900,
     color: awbrnVars.textOnInkStrong,
+  },
+  // Locked, in the one look every locked thing in the ban editor takes.
+  pickInherited: {
+    backgroundColor: awbrnVars.paperWell,
+    color: awbrnVars.textTertiary,
+    cursor: "default",
+  },
+  stampInherited: {
+    filter: "grayscale(1)",
+  },
+  allMark: {
+    position: "absolute",
+    insetBlockStart: spacingVars["--spacing-0-5"],
+    insetInlineEnd: spacingVars["--spacing-1-5"],
+    color: awbrnVars.violet,
+    fontSize: awbrnVars.text11_5,
+    fontWeight: 750,
+    lineHeight: 1,
+  },
+  partialMark: {
+    position: "absolute",
+    insetBlockStart: 0,
+    insetInlineEnd: spacingVars["--spacing-1"],
   },
   pickBanned: {
     cursor: "not-allowed",

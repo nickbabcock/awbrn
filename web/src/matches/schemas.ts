@@ -5,13 +5,16 @@ import { MAP_ID_LENGTH } from "#/maps/map_id.ts";
 import { mapRefSchema } from "#/maps/schemas.ts";
 import { moderationReasonSchema } from "#/moderation/schemas.ts";
 import { matchIdSchema } from "./match_id.ts";
+import type { UnitKind } from "#/wasm/awbrn_wasm.js";
+import { MAX_SIDES } from "./teams.ts";
+import { isUnitKind, unitList } from "./unit_rules.ts";
 
 /**
- * The COs no seat in the match may take.
+ * The COs no seat in the match may take (All).
  *
  * The host sets the list once, when the lobby is opened, and it does not
  * change after that: a ban that could arrive after a player picked would take
- * a CO out from under them. Ids are written once each and in ascending order,
+ * a CO out from under them. Seats may add their own bans on top of it. Ids are written once each and in ascending order,
  * so two hosts who ban the same COs store the same setting.
  *
  * A ban list that names every CO would leave a lobby nobody can ready in, so
@@ -24,6 +27,11 @@ export const bannedCoIdsSchema = z
     (ids) => ids.length < coRoster.length,
     "at least one CO has to be left for the players to choose",
   );
+
+const unitKindSchema = z.custom<UnitKind>(isUnitKind, "unknown unit kind");
+
+/** Unit kinds, written once each and in catalog order. */
+const unitKindsSchema = z.array(unitKindSchema).transform(unitList);
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -86,16 +94,30 @@ export const seatOccupantSchema = z.discriminatedUnion("kind", [
 
 export type SeatOccupant = z.infer<typeof seatOccupantSchema>;
 
-export const matchSettingsSchema = z.object({
-  fogEnabled: z.boolean(),
-  startingFunds: z.number().int().nonnegative(),
-  hotseatEnabled: z.boolean().default(false),
-  // Matches created before COs could be banned have no list, and read as a
-  // match where nothing is banned.
-  bannedCoIds: bannedCoIdsSchema.default([]),
-  // Every match runs on a clock, so the settings always name one.
-  clock: matchClockSchema,
-});
+export const matchSettingsSchema = z
+  .object({
+    fogEnabled: z.boolean(),
+    startingFunds: z.number().int().nonnegative(),
+    hotseatEnabled: z.boolean().default(false),
+    // Matches created before COs could be banned have no list, and read as a
+    // match where nothing is banned.
+    bannedCoIds: bannedCoIdsSchema.default([]),
+    // Each seat's own bans on top of All, by slot index. Absent while no seat
+    // adds any. `co_bans.ts` keeps them sorted and apart from All.
+    seatBannedCoIds: z.array(z.array(z.number().int().positive())).optional(),
+    // Each seat's side, by slot index (1 is A). Absent in a free-for-all.
+    teams: z.array(z.number().int().min(1).max(MAX_SIDES)).optional(),
+    // Unit kinds nobody may build, and those a player builds only while they
+    // own a Lab. Both are fixed once the lobby opens; absent is empty.
+    unitBans: unitKindsSchema.optional(),
+    labUnits: unitKindsSchema.optional(),
+    // Every match runs on a clock, so the settings always name one.
+    clock: matchClockSchema,
+  })
+  .refine(
+    (settings) => !settings.labUnits?.some((kind) => settings.unitBans?.includes(kind)),
+    "a unit kind cannot be both banned and a Lab unit",
+  );
 
 /**
  * A seat the host fills as the match is made.
@@ -149,6 +171,18 @@ export const matchMutationRequestSchema = z.discriminatedUnion("action", [
     joinSlug: z.string().nullable().optional(),
   }),
   z.object({ action: z.literal("leave"), slotIndex: z.number().int().nonnegative() }),
+  // Host only, in the lobby: move a seat to another side.
+  z.object({
+    action: z.literal("setTeam"),
+    slotIndex: z.number().int().nonnegative(),
+    team: z.number().int().min(1).max(MAX_SIDES),
+  }),
+  // Host only, in the lobby: an open or CPU seat's own bans.
+  z.object({
+    action: z.literal("setSeatBans"),
+    slotIndex: z.number().int().nonnegative(),
+    coIds: z.array(z.number().int().positive()),
+  }),
   z.object({
     action: z.literal("updateParticipant"),
     slotIndex: z.number().int().nonnegative(),
@@ -385,7 +419,8 @@ export const matchSetupPlayerSchema = z.object({
   userId: z.string().nullable().default(null),
   aiProfileId: aiProfileIdSchema.nullable().default(null),
   factionId: z.number().int(),
-  team: z.null(),
+  /** The seat's side (1 is A), or null in a free-for-all. */
+  team: z.number().int().min(1).max(MAX_SIDES).nullable(),
   startingFunds: z.number().int().nonnegative(),
   coId: z.number().int(),
 });
@@ -398,6 +433,8 @@ export const matchSetupSchema = z.object({
   players: z.array(matchSetupPlayerSchema),
   fogEnabled: z.boolean(),
   startingFunds: z.number().int().nonnegative(),
+  unitBans: z.array(unitKindSchema).default([]),
+  labUnits: z.array(unitKindSchema).default([]),
   creatorUserId: z.string(),
   pool: rankedPoolSchema.nullable().default(null),
   season: z.number().int().positive().nullable().default(null),

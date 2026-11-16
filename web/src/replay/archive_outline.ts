@@ -1,6 +1,7 @@
 import { getCoAbilities } from "#/co_abilities.ts";
 import { getCoPortraitByAwbwId } from "#/components/co_portraits.ts";
 import type { ActionSummary, LogBoundary } from "#/matches/components/turn_log.ts";
+import { isUnitKind } from "#/matches/unit_rules.ts";
 import type { UnitKind } from "#/wasm/awbrn_wasm.js";
 
 /**
@@ -405,38 +406,6 @@ async function decompress(bytes: Uint8Array, format: CompressionFormat): Promise
 }
 
 /* ---------------------------------------------------------------- shared */
-
-const UNIT_KINDS: ReadonlySet<string> = new Set<UnitKind>([
-  "anti-air",
-  "apc",
-  "artillery",
-  "b-copter",
-  "battleship",
-  "black-boat",
-  "black-bomb",
-  "bomber",
-  "carrier",
-  "cruiser",
-  "fighter",
-  "infantry",
-  "lander",
-  "md-tank",
-  "mech",
-  "mega-tank",
-  "missile",
-  "neo-tank",
-  "piperunner",
-  "recon",
-  "rocket",
-  "stealth",
-  "sub",
-  "t-copter",
-  "tank",
-]);
-
-function isUnitKind(value: unknown): value is UnitKind {
-  return typeof value === "string" && UNIT_KINDS.has(value);
-}
 
 function readTile(value: unknown): { x: number; y: number } | null {
   if (!isRecord(value)) return null;

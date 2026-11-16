@@ -1,5 +1,6 @@
 import { Stack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
+import type { ReactNode } from "react";
 
 /**
  * A picture of a map, drawn at a whole multiple of its own pixels.
@@ -16,6 +17,7 @@ import * as stylex from "@stylexjs/stylex";
 export function MapPicture({
   alt,
   maxScale,
+  overlay,
   sourceHeight,
   sourceWidth,
   src,
@@ -23,6 +25,8 @@ export function MapPicture({
   alt: string;
   /** The largest whole multiple the picture may take (a map's page opens at 2x). */
   maxScale?: number;
+  /** Drawn over the picture, sized to it (marks placed by percent). */
+  overlay?: ReactNode;
   /** The picture's own size, which the map's size already states. */
   sourceHeight: number;
   sourceWidth: number;
@@ -31,16 +35,21 @@ export function MapPicture({
   return (
     <Stack direction="horizontal" xstyle={styles.hugging}>
       {/* A raw image: it must take a whole multiple of its own pixels, which no Astryx image component draws. */}
-      <img
-        alt={alt}
-        height={sourceHeight}
-        src={src}
-        width={sourceWidth}
+      <span
         {...stylex.props(
-          styles.picture,
+          styles.overlaid,
           styles.width(wholeScaleWidth("100%", sourceWidth, maxScale)),
         )}
-      />
+      >
+        <img
+          alt={alt}
+          height={sourceHeight}
+          src={src}
+          width={sourceWidth}
+          {...stylex.props(styles.picture, styles.width("100%"))}
+        />
+        {overlay}
+      </span>
     </Stack>
   );
 }
@@ -65,6 +74,11 @@ const styles = stylex.create({
     display: "flex",
     justifyContent: "center",
     width: "100%",
+  },
+  overlaid: {
+    position: "relative",
+    display: "block",
+    flexShrink: 0,
   },
   picture: {
     display: "block",

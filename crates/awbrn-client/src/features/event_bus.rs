@@ -277,6 +277,10 @@ pub struct ProductionOption {
     /// Whether the player's funds reach `cost`. An unaffordable unit is still
     /// listed, priced, and struck through, the way the source game lists it.
     pub affordable: bool,
+    /// A Lab unit the player cannot build until they own a Lab. The menu
+    /// lists it after what they can build, so the reward of a capture is in
+    /// view where it is spent.
+    pub lab_locked: bool,
 }
 
 /// What the player still has in hand this turn.
@@ -630,6 +634,9 @@ pub struct PlayerRosterStats {
     /// How many of those properties are com towers, which is the one property
     /// kind that changes what a unit deals and takes.
     pub com_towers: Option<u32>,
+    /// How many of those properties are Labs, which is what lets the army
+    /// build the match's Lab units.
+    pub labs: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

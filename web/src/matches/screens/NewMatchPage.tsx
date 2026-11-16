@@ -9,13 +9,13 @@ import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { coRoster, getCoById } from "#/co_roster.ts";
 import { coTierListFor } from "#/co_tiers.ts";
 import { CoStamp } from "#/components/CoStamp.tsx";
 import { UiSprite } from "#/components/UiSprite.tsx";
-import { defaultFactionIdForSlot, factions } from "#/factions.ts";
+import { defaultFactionIdForSlot, factions, getFactionById } from "#/factions.ts";
 import { seatArmies } from "#/matches/seat_armies.ts";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
 import {
@@ -36,16 +36,29 @@ import {
   mapRevisionQueryOptions,
 } from "#/maps/maps.queries.ts";
 import type { MapCatalogEntry, MapCatalogFilter } from "#/maps/schemas.ts";
+import { aiSeatName } from "#/matches/ai_profiles.ts";
+import { banDraft, seatBans, seatListsFor, seatsAlike, type BanDraft } from "#/matches/co_bans.ts";
 import { ClockSettings, validateClock } from "#/matches/components/ClockSettings.tsx";
+import { BanEditor, BanLines } from "#/matches/components/SeatBans.tsx";
+import {
+  RuleTabs,
+  CoRow,
+  RuleWell,
+  UnitEditor,
+  UnitRow,
+  ruleTabId,
+} from "#/matches/components/UnitRules.tsx";
+import { TeamShape } from "#/matches/components/Teams.tsx";
 import { NO_AI_SEATS, SeatRoster } from "#/matches/components/SeatRoster.tsx";
 import { createMatchFn, mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { defaultMatchClock, type AiProfileId, type MatchClock } from "#/matches/schemas.ts";
+import { splitTeams } from "#/matches/teams.ts";
+import { labTiles, NO_UNIT_RULES, unitRulesForMap, type UnitRules } from "#/matches/unit_rules.ts";
 import { MatchThumb } from "#/play/MatchThumb.tsx";
 import { Postage } from "#/play/Postage.tsx";
 import { setupStyles } from "#/play/setup.tsx";
 import { TaskDock } from "#/play/TaskDock.tsx";
-import { TierPicker } from "#/play/TierPicker.tsx";
 import { clockTerms } from "#/play/terms.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
@@ -55,6 +68,7 @@ import { IconCheck, IconFog, IconLock, IconNext, IconOpenSeat } from "#/ui/icons
 import { ModalSheet } from "#/ui/ModalSheet.tsx";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { onRadioGroupKeyDown } from "#/ui/radioGroup.ts";
 import { Sheet, SheetBody, SheetFoot } from "#/ui/Sheet.tsx";
 import { Terms } from "#/ui/Terms.tsx";
 
@@ -65,7 +79,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 const NO_MAP_FILTERS: Required<MapCatalogFilter> = { playerCounts: [], ranks: [], tags: [] };
 
 /** A match that takes no CO away. */
-const EMPTY_CO_BANS: ReadonlySet<number> = new Set<number>();
+const NO_BANS: BanDraft = { all: [], seats: [] };
 
 /** How many banned stamps the Banned well shows before it counts the rest. */
 const BANNED_STAMPS_SHOWN = 8;
@@ -102,6 +116,10 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const [pickedMap, setPickedMap] = useState<MapCatalogEntry | null>(null);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isBansOpen, setIsBansOpen] = useState(false);
+  // Which tab the Restrictions dialog shows, and the Units tab's brush on opening.
+  const [rulesTab, setRulesTab] = useState<"cos" | "units">("cos");
+  const rulesPanelId = useId();
+  const [unitBrush, setUnitBrush] = useState<"banned" | "lab">("banned");
   const nameRef = useRef<HTMLInputElement>(null);
   const fundsRef = useRef<HTMLInputElement>(null);
 
@@ -112,7 +130,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const [isPrivate, setIsPrivate] = useState(false);
   const [hotseatEnabled, setHotseatEnabled] = useState(false);
   const [clock, setClock] = useState<MatchClock>(defaultMatchClock);
-  const [bannedCoIds, setBannedCoIds] = useState<ReadonlySet<number>>(EMPTY_CO_BANS);
+  // All, and each seat's own bans by slot index.
+  const [bans, setBans] = useState<BanDraft>(NO_BANS);
+  const [units, setUnits] = useState<UnitRules>(NO_UNIT_RULES);
+  // Each seat's side by slot index; null in a free-for-all.
+  const [teams, setTeams] = useState<readonly number[] | null>(null);
   // The opponent in each seat, by slot index. A seat with no entry is open.
   const [aiSeats, setAiSeats] = useState<ReadonlyMap<number, AiProfileId>>(NO_AI_SEATS);
   const [hostSlot, setHostSlot] = useState(0);
@@ -154,6 +176,8 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
     setAiSeats(NO_AI_SEATS);
     setHostSlot(0);
     setPickedArmies(null);
+    setTeams(null);
+    setBans((current) => ({ all: current.all, seats: [] }));
     // A name the player cleared follows the map again.
     if (!ownName?.trim()) setOwnName(null);
   }
@@ -179,6 +203,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
     ...mapRevisionQueryOptions(selectedMap?.mapId ?? "", selectedMap?.revision ?? 0),
     enabled: selectedMap !== null,
   });
+  // Unknown (null) until the map's terrain arrives.
+  const hasLab = revision ? labTiles(revision.terrain).length > 0 : null;
+  // A map with no Lab turns Lab units into bans, at once and for good: going
+  // back to a map with a Lab restores nothing the host cannot see.
+  if (hasLab === false && units.labUnits.length > 0) setUnits(unitRulesForMap(units, false));
   const mapArmies =
     revision?.slotFactionIds ??
     Array.from({ length: selectedMap?.playerCount ?? 0 }, (_, slotIndex) =>
@@ -232,7 +261,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
       setCreateError("Name the match before it opens.");
       return;
     }
-    if (bannedCoIds.size >= coRoster.length) {
+    if (bans.all.length >= coRoster.length) {
       setCreateError("Leave at least one CO for the players to choose.");
       return;
     }
@@ -248,13 +277,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
 
     setCreateError(null);
     try {
-      const armies = armiesFor(
-        (
-          await queryClient.fetchQuery(
-            mapRevisionQueryOptions(selectedMap.mapId, selectedMap.revision),
-          )
-        ).slotFactionIds,
+      const chosenRevision = await queryClient.fetchQuery(
+        mapRevisionQueryOptions(selectedMap.mapId, selectedMap.revision),
       );
+      const armies = armiesFor(chosenRevision.slotFactionIds);
+      const unitRules = unitRulesForMap(units, labTiles(chosenRevision.terrain).length > 0);
       const match = await createMatchMutation.mutateAsync({
         data: {
           name: matchName.trim(),
@@ -264,7 +291,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             fogEnabled,
             startingFunds,
             hotseatEnabled,
-            bannedCoIds: [...bannedCoIds],
+            bannedCoIds: bans.all,
+            seatBannedCoIds: seatListsFor(bans.seats, selectedMap.playerCount),
+            teams: teams ? [...teams] : undefined,
+            unitBans: [...unitRules.unitBans],
+            labUnits: [...unitRules.labUnits],
             clock,
           },
           aiSeats: [...aiSeats].map(([slotIndex, profileId]) => ({
@@ -308,6 +339,17 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
     search,
   });
   const isSignedIn = session !== null;
+  const seatCount = selectedMap?.playerCount ?? 0;
+  const draft = banDraft({ bannedCoIds: bans.all, seatBannedCoIds: bans.seats }, seatCount);
+  const lists = { bannedCoIds: draft.all, seatBannedCoIds: draft.seats };
+  const shownFactionCodes = shownArmies.map((factionId) => getFactionById(factionId)?.code ?? "os");
+  const tierList = coTierListFor({ fogEnabled, playerCount: selectedMap?.playerCount ?? 2 });
+  const hostFactionCode = shownFactionCodes[hostSlot] ?? "os";
+  function openBans(tab: "cos" | "units", brush: "banned" | "lab" = "banned"): void {
+    setRulesTab(tab);
+    setUnitBrush(brush);
+    setIsBansOpen(true);
+  }
 
   const filterBar = (
     <MapFilterBar
@@ -426,23 +468,103 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
                 />
               </VStack>
               {selectedMap ? (
-                <SeatRoster
-                  aiSeats={aiSeats}
-                  factionIds={shownArmies}
-                  hostSlot={hostSlot}
-                  onChange={(seats) => {
-                    setCreateError(null);
-                    // Every seat keeps the army it shows now: a seat that
-                    // takes a CPU, or the host, takes that army with it.
-                    setPickedArmies(shownArmies);
-                    setAiSeats(seats.aiSeats);
-                    setHostSlot(seats.hostSlot);
-                  }}
-                  onHostArmyChange={pickArmy}
-                  viewerName={session?.user.name ?? null}
-                />
+                <VStack xstyle={styles.seats}>
+                  {seatCount > 2 ? (
+                    <HStack xstyle={styles.mode}>
+                      <HStack
+                        aria-label="Sides"
+                        onKeyDown={onRadioGroupKeyDown}
+                        role="radiogroup"
+                        xstyle={styles.segments}
+                      >
+                        {[false, true].map((isTeams) => (
+                          <button
+                            aria-checked={(teams !== null) === isTeams}
+                            key={String(isTeams)}
+                            onClick={() => {
+                              if ((teams !== null) !== isTeams) {
+                                setTeams(isTeams ? splitTeams(seatCount) : null);
+                              }
+                            }}
+                            role="radio"
+                            tabIndex={(teams !== null) === isTeams ? 0 : -1}
+                            type="button"
+                            {...stylex.props(
+                              styles.segment,
+                              (teams !== null) === isTeams && styles.segmentOn,
+                            )}
+                          >
+                            {isTeams ? "Teams" : "Free-for-all"}
+                          </button>
+                        ))}
+                      </HStack>
+                      {teams ? <TeamShape teams={teams} /> : null}
+                    </HStack>
+                  ) : null}
+                  <SeatRoster
+                    aiSeats={aiSeats}
+                    factionIds={shownArmies}
+                    hostSlot={hostSlot}
+                    onChange={(seats) => {
+                      setCreateError(null);
+                      // Every seat keeps the army it shows now: a seat that
+                      // takes a CPU, or the host, takes that army with it.
+                      setPickedArmies(shownArmies);
+                      setAiSeats(seats.aiSeats);
+                      setHostSlot(seats.hostSlot);
+                    }}
+                    onHostArmyChange={pickArmy}
+                    onTeamChange={(teams) => setTeams(teams)}
+                    teams={teams}
+                    viewerName={session?.user.name ?? null}
+                  />
+                </VStack>
               ) : null}
-              <BannedWell bannedCoIds={bannedCoIds} onEdit={() => setIsBansOpen(true)} />
+              {!seatsAlike(lists, seatCount) ? (
+                <VStack aria-label="Banned" role="group" xstyle={styles.field}>
+                  <HStack xstyle={styles.bannedHead}>
+                    <Text color="inherit" type="inherit" xstyle={styles.fieldLabel}>
+                      Banned
+                    </Text>
+                    <Button label="Edit" onClick={() => openBans("cos")} size="sm" />
+                  </HStack>
+                  <BanLines
+                    factionCodes={shownFactionCodes}
+                    lists={lists}
+                    teams={teams ?? []}
+                    tierList={tierList}
+                    viewerSlots={[hostSlot]}
+                    viewerTeam={teams?.[hostSlot] ?? null}
+                  />
+                  {units.unitBans.length > 0 ? (
+                    <RuleWell>
+                      <UnitRow factionCode={hostFactionCode} kinds={units.unitBans} label="Units" />
+                    </RuleWell>
+                  ) : null}
+                </VStack>
+              ) : units.unitBans.length > 0 ? (
+                <RuleWell label="Banned">
+                  <CoRow
+                    coIds={[...seatBans(lists, 0)]}
+                    edit={<Button label="Edit" onClick={() => openBans("cos")} size="sm" />}
+                  />
+                  <UnitRow factionCode={hostFactionCode} kinds={units.unitBans} label="Units" />
+                </RuleWell>
+              ) : (
+                <BannedWell bannedCoIds={seatBans(lists, 0)} onEdit={() => openBans("cos")} />
+              )}
+              {units.labUnits.length > 0 ? (
+                <RuleWell label="Lab units">
+                  <UnitRow
+                    edit={
+                      <Button label="Edit" onClick={() => openBans("units", "lab")} size="sm" />
+                    }
+                    factionCode={hostFactionCode}
+                    isLab
+                    kinds={units.labUnits}
+                  />
+                </RuleWell>
+              ) : null}
               <VStack xstyle={styles.switches}>
                 <SwitchRow
                   icon={IconFog}
@@ -559,38 +681,48 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
         ) : null}
       </ModalSheet>
 
-      <ModalSheet isOpen={isBansOpen} onOpenChange={setIsBansOpen} title="Banned" width={760}>
-        {isBansOpen ? (
-          <VStack xstyle={styles.bansBody}>
-            <TierPicker
-              bannedCoIds={bannedCoIds}
-              mode="ban"
-              onSetTierBanned={(coIds, isBanned) => {
+      <ModalSheet
+        head={<RuleTabs onChange={setRulesTab} panelId={rulesPanelId} tab={rulesTab} />}
+        isOpen={isBansOpen}
+        onOpenChange={setIsBansOpen}
+        title="Restrictions"
+        width={760}
+      >
+        <VStack
+          aria-labelledby={ruleTabId(rulesPanelId, rulesTab)}
+          gap={0}
+          id={rulesPanelId}
+          role="tabpanel"
+        >
+          {isBansOpen && rulesTab === "units" ? (
+            <UnitEditor
+              factionCode={hostFactionCode}
+              hasLab={hasLab === true}
+              initialBrush={unitBrush}
+              onChange={(next) => {
                 setCreateError(null);
-                setBannedCoIds((banned) => {
-                  const next = new Set(banned);
-                  for (const coId of coIds) {
-                    if (isBanned) next.add(coId);
-                    else next.delete(coId);
-                  }
-                  return next;
-                });
+                setUnits(next);
               }}
-              onToggleBan={(coId) => {
-                setCreateError(null);
-                setBannedCoIds((banned) => {
-                  const next = new Set(banned);
-                  if (!next.delete(coId)) next.add(coId);
-                  return next;
-                });
-              }}
-              tierList={coTierListFor({
-                fogEnabled,
-                playerCount: selectedMap?.playerCount ?? 2,
-              })}
+              rules={units}
             />
-          </VStack>
-        ) : null}
+          ) : isBansOpen ? (
+            <BanEditor
+              draft={draft}
+              factionCodes={shownFactionCodes}
+              names={shownFactionCodes.map((_, slotIndex) => {
+                if (slotIndex === hostSlot) return session?.user.name ?? "You";
+                const profileId = aiSeats.get(slotIndex);
+                return profileId ? aiSeatName(profileId) : null;
+              })}
+              onChange={(next) => {
+                setCreateError(null);
+                setBans(next);
+              }}
+              teams={teams ?? []}
+              tierList={tierList}
+            />
+          ) : null}
+        </VStack>
       </ModalSheet>
     </Page>
   );
@@ -1046,8 +1178,41 @@ const styles = stylex.create({
     boxShadow: awbrnVars.shadowSheet,
     color: awbrnVars.ink900,
   },
-  bansBody: {
-    padding: "16px 20px 20px",
+  seats: {
+    display: "grid",
+    gap: "12px",
+  },
+  mode: {
+    alignItems: "center",
+    gap: "16px",
+  },
+  segments: {
+    padding: "3px",
+    borderRadius: "6px",
+    backgroundColor: awbrnVars.paperWell,
+  },
+  segment: {
+    minBlockSize: {
+      default: "34px",
+      [pageLayout.phoneMedia]: "44px",
+    },
+    paddingInline: "14px",
+    borderStyle: "none",
+    borderRadius: "4px",
+    backgroundColor: "transparent",
+    color: colorVars["--color-text-secondary"],
+    font: "inherit",
+    fontSize: awbrnVars.text14,
+    fontWeight: 650,
+    cursor: "pointer",
+  },
+  segmentOn: {
+    backgroundColor: awbrnVars.ink900,
+    color: awbrnVars.textOnInkStrong,
+  },
+  bannedHead: {
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   dockText: {
     display: "grid",

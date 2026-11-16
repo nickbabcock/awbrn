@@ -123,11 +123,14 @@ export function SetupClock({ children }: { children: ReactNode }) {
  */
 export function BattlefieldPeek({
   facts,
+  marked,
   mapId,
   mapName,
   revision,
 }: {
   facts: ReactNode;
+  /** Tiles the picture marks with the board's cursor, by index into the map's terrain. */
+  marked?: readonly number[];
   mapId: string;
   mapName: string;
   revision: number;
@@ -153,7 +156,7 @@ export function BattlefieldPeek({
         />
       </summary>
       <VStack xstyle={styles.peekOpen}>
-        <BattlefieldPicture mapId={mapId} revision={revision} />
+        <BattlefieldPicture mapId={mapId} marked={marked} revision={revision} />
       </VStack>
     </details>
   );
@@ -169,15 +172,36 @@ export function Fact({ children, isStrong = false }: { children: ReactNode; isSt
 }
 
 /** The whole battlefield at 1x on its ink well. */
-export function BattlefieldPicture({ mapId, revision }: { mapId: string; revision: number }) {
+export function BattlefieldPicture({
+  mapId,
+  marked = [],
+  revision,
+}: {
+  mapId: string;
+  marked?: readonly number[];
+  revision: number;
+}) {
   const { data: map } = useQuery(mapCatalogEntryQueryOptions(mapId, revision));
   if (!map) return <Skeleton height={280} radius="none" width="100%" />;
   const picture = mapScreenshotSize("full", map.width, map.height);
+  // The full picture has one row above the board, for the tall sprites.
+  const rows = map.height + 1;
   return (
     <VStack xstyle={styles.well}>
       <MapPicture
         alt={`The battlefield of ${map.name}, ${map.width} by ${map.height}`}
         maxScale={1}
+        overlay={
+          marked.length > 0
+            ? marked.map((tile) => (
+                <TileCursor
+                  key={tile}
+                  left={`${(((tile % map.width) + 0.5) / map.width) * 100}%`}
+                  top={`${((Math.floor(tile / map.width) + 1.5) / rows) * 100}%`}
+                />
+              ))
+            : undefined
+        }
         sourceHeight={picture.height}
         sourceWidth={picture.width}
         src={map.screenshot.full}
@@ -186,7 +210,43 @@ export function BattlefieldPicture({ mapId, revision }: { mapId: string; revisio
   );
 }
 
+/** The board's tile cursor, drawn heavier so a 16px tile is found at a glance. */
+function TileCursor({ left, top }: { left: string; top: string }) {
+  const corners = "M2 10V2h8M22 2h8v8M30 22v8h-8M10 30H2v-8";
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 32 32"
+      {...stylex.props(styles.cursor, styles.cursorAt(left, top))}
+    >
+      <path d={corners} {...stylex.props(styles.cursorEdge)} />
+      <path d={corners} {...stylex.props(styles.cursorMark)} />
+    </svg>
+  );
+}
+
 const styles = stylex.create({
+  cursor: {
+    position: "absolute",
+    inlineSize: "32px",
+    blockSize: "32px",
+    transform: "translate(-50%, -50%)",
+    overflow: "visible",
+  },
+  cursorEdge: {
+    fill: "none",
+    stroke: awbrnVars.ink950,
+    strokeWidth: 5,
+  },
+  cursorMark: {
+    fill: "none",
+    stroke: awbrnVars.stampWhite,
+    strokeWidth: 3,
+  },
+  cursorAt: (left: string, top: string) => ({
+    insetInlineStart: left,
+    insetBlockStart: top,
+  }),
   clock: {
     position: "relative",
     alignItems: "center",

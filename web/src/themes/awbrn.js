@@ -299,6 +299,7 @@ export const awbrnTheme = {
     "--text-17-size": "17px",
     "--text-26-size": "26px",
     "--size-current-mark": "3px",
+    "--size-sheet-head": "56px",
     "--color-faction-os-accent": "#ff4f4e",
     "--color-faction-os-soft": "#ff4f4e33",
     "--color-faction-os-text": "#8a1420",

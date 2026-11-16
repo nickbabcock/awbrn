@@ -1234,6 +1234,12 @@ pub struct MatchSetupInput {
     #[serde(default)]
     #[tsify(optional)]
     pub rng_seed: Option<u64>,
+    #[serde(default)]
+    #[tsify(optional)]
+    pub unit_bans: Vec<awvm::ruleset::UnitKind>,
+    #[serde(default)]
+    #[tsify(optional)]
+    pub lab_units: Vec<awvm::ruleset::UnitKind>,
 }
 
 #[derive(Debug, Tsify, Deserialize)]
@@ -1289,6 +1295,8 @@ impl TryFrom<MatchSetupInput> for GameSetup {
             players,
             fog_enabled: value.fog_enabled,
             rng_seed: value.rng_seed.unwrap_or(0),
+            unit_bans: value.unit_bans,
+            lab_units: value.lab_units,
         })
     }
 }

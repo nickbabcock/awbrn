@@ -43,8 +43,8 @@ export function MatchReplayPage({
   // Bumped to read the archive again after a failure.
   const [attempt, setAttempt] = useState(0);
   const armies = useMemo(
-    () => buildArmies(match.participants, playerRoster),
-    [match.participants, playerRoster],
+    () => buildArmies(match.participants, playerRoster, match.settings.teams),
+    [match.participants, match.settings.teams, playerRoster],
   );
   // This account's army reads as YOU and keeps its pinned row in a long
   // roster, as it did while the match was played.

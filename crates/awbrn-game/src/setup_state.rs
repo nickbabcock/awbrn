@@ -80,8 +80,8 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
             powers: Toggle::Enabled,
             tags: false,
             weather: WeatherSetting::Clear,
-            lab_units: Vec::new(),
-            unit_bans: Vec::new(),
+            lab_units: setup.lab_units.clone(),
+            unit_bans: setup.unit_bans.clone(),
             commander_bans: CommanderBans {
                 lead: Vec::new(),
                 backup: Vec::new(),
@@ -290,6 +290,8 @@ mod tests {
                 .collect(),
             fog_enabled: false,
             rng_seed: 1,
+            unit_bans: Vec::new(),
+            lab_units: Vec::new(),
         }
     }
 

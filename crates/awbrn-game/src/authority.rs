@@ -628,6 +628,8 @@ mod tests {
             ],
             fog_enabled: false,
             rng_seed: 1,
+            unit_bans: Vec::new(),
+            lab_units: Vec::new(),
         })
         .expect("the setup is valid")
     }

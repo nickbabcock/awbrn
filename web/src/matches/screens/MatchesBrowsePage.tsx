@@ -27,6 +27,8 @@ import { Page, PageHeader } from "#/ui/Page.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { Sheet } from "#/ui/Sheet.tsx";
 import { Terms } from "#/ui/Terms.tsx";
+import { TeamShape } from "#/matches/components/Teams.tsx";
+import { sidesOf, slotsOn } from "#/matches/teams.ts";
 
 /**
  * On desktop every row shares one set of tracks (subgrid), so the terms follow
@@ -125,7 +127,9 @@ function LobbyRow({
     enabled: isMine,
   });
   const ownCoId = detail?.participants.find((seat) => seat.userId === viewerId)?.coId ?? null;
-  const names = lobby.seats.map((seat) => seat.userName);
+  const teams = lobby.settings.teams ?? [];
+  // A team row names nobody, so a name never reads as a side's name.
+  const names = teams.length > 0 ? [] : lobby.seats.map((seat) => seat.userName);
 
   return (
     <li {...stylex.props(styles.row)}>
@@ -158,6 +162,7 @@ function LobbyRow({
           funds={lobby.settings.startingFunds}
           hasFog={lobby.settings.fogEnabled}
         />
+        {teams.length > 0 ? <TeamShape teams={teams} xstyle={styles.shape} /> : null}
       </HStack>
       <HStack as="span" xstyle={styles.seats}>
         <SeatStamps lobby={lobby} ownCoId={ownCoId} viewerId={viewerId} />
@@ -192,6 +197,38 @@ function SeatStamps({
   const open = Array.from({ length: lobby.maxPlayers }, (_, slotIndex) => slotIndex).filter(
     (slotIndex) => !taken.has(slotIndex),
   );
+  const teams = lobby.settings.teams ?? [];
+
+  // A team row draws the shape: each side's seats together, a `v` between.
+  if (teams.length > 0) {
+    const bySlot = new Map(lobby.seats.map((seat) => [seat.slotIndex, seat]));
+    return (
+      <HStack as="span" aria-hidden="true" xstyle={[styles.stamps, styles.sides]}>
+        {sidesOf(teams).map((team, index) => (
+          <HStack as="span" key={team} xstyle={styles.side}>
+            {index > 0 ? (
+              <Text color="inherit" type="inherit" xstyle={styles.versus}>
+                v
+              </Text>
+            ) : null}
+            {slotsOn(teams, team).map((slotIndex) => {
+              const seat = bySlot.get(slotIndex);
+              return seat ? (
+                <SeatStamp
+                  coId={viewerId !== null && seat.userId === viewerId ? ownCoId : null}
+                  factionCode={getFactionById(seat.factionId)?.code ?? null}
+                  isDecorative
+                  key={slotIndex}
+                />
+              ) : (
+                <CoStamp isDecorative isOpenSeat key={slotIndex} />
+              );
+            })}
+          </HStack>
+        ))}
+      </HStack>
+    );
+  }
 
   return (
     <HStack as="span" aria-hidden="true" xstyle={styles.stamps}>
@@ -363,6 +400,24 @@ const styles = stylex.create({
     flexWrap: "wrap",
     alignItems: "center",
     rowGap: "4px",
+  },
+  shape: {
+    marginInlineStart: "12px",
+  },
+  // Whole sides wrap to a new line rather than splitting.
+  sides: {
+    columnGap: "8px",
+  },
+  side: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+  },
+  versus: {
+    marginInlineEnd: "4px",
+    color: colorVars["--color-text-secondary"],
+    fontSize: awbrnVars.text13,
+    fontWeight: 650,
   },
   takenStamp: {
     marginInlineStart: {

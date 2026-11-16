@@ -32,6 +32,7 @@ function entry(power: Partial<PlayerRosterEntry>): PlayerRosterEntry {
       unitValue: undefined,
       properties: undefined,
       comTowers: undefined,
+      labs: undefined,
     },
     ...power,
   };

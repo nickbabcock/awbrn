@@ -23,6 +23,8 @@ import { FactionCrest } from "#/components/FactionCrest.tsx";
 import { UiSprite } from "#/components/UiSprite.tsx";
 import { getCoAbilities } from "#/co_abilities.ts";
 import type { MatchArmy } from "#/matches/match_armies.ts";
+import { TeamTag } from "#/matches/components/Teams.tsx";
+import { teamFromId, teamLetter } from "#/matches/teams.ts";
 import { PlayerLink } from "#/players/components/PlayerLink.tsx";
 import type { ArmyFall } from "#/matches/components/army_falls.ts";
 import { matchLayout, matchType } from "#/matches/components/matchLayout.stylex.ts";
@@ -90,7 +92,14 @@ function coName(entry: PlayerRosterEntry): string {
 
 /** `Team A`, or null outside a team game. */
 function teamName(entry: PlayerRosterEntry): string | null {
-  return entry.team ? `Team ${entry.team}` : null;
+  const team = teamFromId(entry.team);
+  return team === null ? null : `Team ${teamLetter(team)}`;
+}
+
+/** The viewer's side, so their tag is the filled one. */
+function viewerTeamOf(views: readonly ArmyView[]): number | null {
+  const viewer = views.find((view) => view.isViewer);
+  return viewer ? teamFromId(viewer.army.entry.team) : null;
 }
 
 /** An army's faction color mixed into the ink under it. */
@@ -505,6 +514,7 @@ export function Ledger({
   views: ArmyView[];
 }) {
   const isLong = views.length >= 7;
+  const viewerTeam = viewerTeamOf(views);
   const listRef = useRef<HTMLOListElement>(null);
   const more = useScrollEdges(listRef, "block");
   useKeepMoverInView(listRef, views, "block");
@@ -524,6 +534,7 @@ export function Ledger({
       {views.map((view, index) => {
         const { army, clock, fall, isViewer } = view;
         const entry = army.entry;
+        const team = teamFromId(entry.team);
         const isRowOwed = isOwed && isViewer;
         const { funds, unitCount } = entry.stats;
         const endTop =
@@ -540,6 +551,7 @@ export function Ledger({
             key={entry.playerId}
             {...stylex.props(
               ledgerStyles.row,
+              team !== null && ledgerStyles.rowTeams,
               armyWash(entry.displayFactionCode, army.isActive ? 16 : 8, isRowOwed),
               entry.eliminated && ledgerStyles.rowOut,
               isLong && isViewer && ledgerStyles.pinned,
@@ -553,6 +565,9 @@ export function Ledger({
             >
               {index + 1}
             </Text>
+            {team !== null ? (
+              <TeamTag isDecorative isMine={team === viewerTeam} onInk team={team} />
+            ) : null}
             <StampKey
               entry={entry}
               name={army.name}
@@ -808,6 +823,7 @@ export function TurnOrderRow({
 }) {
   const rowRef = useRef<HTMLElement>(null);
   const isLong = views.length >= 7;
+  const viewerTeam = viewerTeamOf(views);
   const more = useScrollEdges(rowRef, "inline");
   useKeepMoverInView(rowRef, views, "inline");
 
@@ -825,10 +841,11 @@ export function TurnOrderRow({
         {views.map((view, index) => {
           const { army, isViewer } = view;
           const entry = army.entry;
+          const team = teamFromId(entry.team);
           return (
             <button
               aria-haspopup="dialog"
-              aria-label={`${index + 1}. ${army.name}${isViewer ? " (you)" : ""}, ${coName(entry)}${army.isActive ? ", on the move" : ""}${entry.eliminated ? ", out" : ""}: open army details`}
+              aria-label={`${index + 1}. ${army.name}${isViewer ? " (you)" : ""}, ${coName(entry)}${teamName(entry) ? `, ${teamName(entry)}` : ""}${army.isActive ? ", on the move" : ""}${entry.eliminated ? ", out" : ""}: open army details`}
               data-pinned={isLong && isViewer ? "" : undefined}
               data-player={entry.playerId}
               key={entry.playerId}
@@ -843,6 +860,17 @@ export function TurnOrderRow({
             >
               <Stack as="span" xstyle={orderStyles.stampWrap}>
                 <ArmyStamp entry={entry} size="sm" />
+                {team !== null ? (
+                  <Stack as="span" xstyle={orderStyles.teamCorner}>
+                    <TeamTag
+                      isDecorative
+                      isMine={team === viewerTeam}
+                      onInk
+                      size={18}
+                      team={team}
+                    />
+                  </Stack>
+                ) : null}
                 {entry.eliminated || isViewer ? (
                   <Text
                     color="inherit"
@@ -1399,6 +1427,9 @@ const ledgerStyles = stylex.create({
     },
     color: awbrnVars.textOnInk,
   },
+  rowTeams: {
+    gridTemplateColumns: `${matchLayout.ledgerNumber} auto auto minmax(0, 1fr) auto`,
+  },
   rowOut: {
     backgroundColor: awbrnVars.ink900,
   },
@@ -1608,6 +1639,12 @@ const orderStyles = stylex.create({
   stampWrap: {
     position: "relative",
     display: "inline-grid",
+  },
+  teamCorner: {
+    position: "absolute",
+    insetBlockStart: `calc(-1 * ${spacingVars["--spacing-1-5"]})`,
+    insetInlineStart: `calc(-1 * ${awbrnVars.spacing2_5})`,
+    zIndex: 1,
   },
   tag: {
     position: "absolute",

@@ -2,11 +2,14 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
-import { matchParticipants, mapRevisions, maps, user } from "#/db/global.ts";
+import { matches, matchParticipants, mapRevisions, maps, user } from "#/db/global.ts";
 import { defaultMatchClock, matchCreateRequestSchema } from "./schemas.ts";
 import { createMatch, mutateMatch } from "./matches.server.ts";
 import { canonicalizeAwbwMap } from "#/server_wasm.ts";
 import awbwMap from "../../../assets/maps/61748.json";
+import foreignInvasion from "../../../assets/maps/162795.json";
+import normandie from "../../../assets/maps/67073.json";
+import { coRoster } from "#/co_roster.ts";
 import { awbwMapDataSchema } from "#/awbw/schemas.ts";
 
 const db = drizzle(env.DB);
@@ -27,6 +30,13 @@ const request = {
 let mapRef: { mapId: string; revision: number };
 
 async function seed(): Promise<void> {
+  mapRef = await seedMap(awbwMap, "cmtestmap001");
+}
+
+async function seedMap(
+  source: unknown,
+  mapId: string,
+): Promise<{ mapId: string; revision: number }> {
   await db
     .insert(user)
     .values({
@@ -37,8 +47,7 @@ async function seed(): Promise<void> {
       updatedAt: new Date(),
     })
     .onConflictDoNothing();
-  const imported = canonicalizeAwbwMap(awbwMapDataSchema.parse(awbwMap));
-  const mapId = "cmtestmap001";
+  const imported = canonicalizeAwbwMap(awbwMapDataSchema.parse(source));
   const now = new Date();
   await env.CONTENT.put(
     `maps/doc/v1/${imported.contentHash}`,
@@ -75,7 +84,7 @@ async function seed(): Promise<void> {
       lastSeenAt: now,
     })
     .onConflictDoNothing();
-  mapRef = { mapId, revision: 1 };
+  return { mapId, revision: 1 };
 }
 
 describe("createMatch", () => {
@@ -189,5 +198,185 @@ describe("createMatch", () => {
       factionId: aiArmy,
     });
     expect(switched.ok ? null : switched.error.code).toBe("participantInvalid");
+  });
+});
+
+describe("teams and per-seat bans", () => {
+  const guest = { id: "create-match-test-guest", name: "Guest" };
+  const [first, second, third] = coRoster.map((co) => co.awbwId) as [number, number, number];
+
+  /** Foreign Invasion as a 4v1: seats 1 to 4 on A, a CPU in seat 4, the host alone on B. */
+  async function fourVersusOne(seatBannedCoIds?: number[][]) {
+    await seed();
+    await db
+      .insert(user)
+      .values({ ...guest, email: "guest@example.com", emailVerified: true, updatedAt: new Date() })
+      .onConflictDoNothing();
+    const map = await seedMap(foreignInvasion, "cmtestmap005");
+    const created = await createMatch(
+      matchCreateRequestSchema.parse({
+        ...request,
+        map,
+        settings: { ...request.settings, teams: [1, 1, 1, 1, 2], seatBannedCoIds },
+        aiSeats: [{ slotIndex: 3, profileId: "ai-hard-v5" }],
+      }),
+      creator,
+    );
+    if (!created.ok) throw new Error(created.error.message);
+    return created.value.matchId;
+  }
+
+  async function settingsOf(matchId: string) {
+    return (await db.select().from(matches).where(eq(matches.id, matchId)).get())!.settings;
+  }
+
+  async function seat(matchId: string, slotIndex: number) {
+    return db
+      .select()
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, matchId))
+      .all()
+      .then((seats) => seats.find((entry) => entry.slotIndex === slotIndex)!);
+  }
+
+  it("stores a CO every seat bans in All when the match is made", async () => {
+    const matchId = await fourVersusOne([[first, second], [second], [second], [second], [second]]);
+    const settings = await settingsOf(matchId);
+    expect(settings.bannedCoIds).toEqual([second]);
+    expect(settings.seatBannedCoIds).toEqual([[first], [], [], [], []]);
+    expect(settings.teams).toEqual([1, 1, 1, 1, 2]);
+  });
+
+  it("refuses teams that leave a single side", async () => {
+    await seed();
+    const map = await seedMap(foreignInvasion, "cmtestmap005");
+    const created = await createMatch(
+      matchCreateRequestSchema.parse({
+        ...request,
+        map,
+        settings: { ...request.settings, teams: [1, 1, 1, 1, 1] },
+      }),
+      creator,
+    );
+    expect(created.ok ? null : created.error.code).toBe("participantInvalid");
+  });
+
+  it("refuses a seat whose own bans leave it no CO", async () => {
+    await seed();
+    const map = await seedMap(foreignInvasion, "cmtestmap005");
+    const created = await createMatch(
+      matchCreateRequestSchema.parse({
+        ...request,
+        map,
+        settings: {
+          ...request.settings,
+          seatBannedCoIds: [coRoster.map((co) => co.awbwId), [], [], [], []],
+        },
+      }),
+      creator,
+    );
+    expect(created.ok ? null : created.error.code).toBe("participantInvalid");
+  });
+
+  it("keeps a seat from picking a CO its own list bans", async () => {
+    const matchId = await fourVersusOne([[first], [], [], [], []]);
+    await mutateMatch(matchId, guest, { action: "join", slotIndex: 0, factionId: 1 });
+    const picked = await mutateMatch(matchId, guest, {
+      action: "updateParticipant",
+      slotIndex: 0,
+      coId: first,
+    });
+    expect(picked.ok ? null : picked.error.code).toBe("participantInvalid");
+  });
+
+  it("lets only the host move a seat, and clears every human Ready but a CPU's", async () => {
+    const matchId = await fourVersusOne();
+    await mutateMatch(matchId, guest, { action: "join", slotIndex: 0, factionId: 1 });
+    await mutateMatch(matchId, guest, { action: "updateParticipant", slotIndex: 0, coId: third });
+    await mutateMatch(matchId, guest, { action: "updateParticipant", slotIndex: 0, ready: true });
+    expect((await seat(matchId, 0)).ready).toBe(true);
+
+    const byGuest = await mutateMatch(matchId, guest, { action: "setTeam", slotIndex: 3, team: 2 });
+    expect(byGuest.ok ? null : byGuest.error.code).toBe("notHost");
+
+    const moved = await mutateMatch(matchId, creator, { action: "setTeam", slotIndex: 3, team: 2 });
+    expect(moved.ok).toBe(true);
+    expect((await settingsOf(matchId)).teams).toEqual([1, 1, 1, 2, 2]);
+    expect((await seat(matchId, 0)).ready).toBe(false);
+    expect((await seat(matchId, 3)).ready).toBe(true);
+  });
+
+  it("refuses ban edits from a guest and on a seat a person holds", async () => {
+    const matchId = await fourVersusOne();
+    await mutateMatch(matchId, guest, { action: "join", slotIndex: 0, factionId: 1 });
+
+    const byGuest = await mutateMatch(matchId, guest, {
+      action: "setSeatBans",
+      slotIndex: 1,
+      coIds: [first],
+    });
+    expect(byGuest.ok ? null : byGuest.error.code).toBe("notHost");
+
+    const onPerson = await mutateMatch(matchId, creator, {
+      action: "setSeatBans",
+      slotIndex: 0,
+      coIds: [first],
+    });
+    expect(onPerson.ok ? null : onPerson.error.code).toBe("participantInvalid");
+  });
+
+  it("has a CPU whose CO is banned pick again and stay ready", async () => {
+    const matchId = await fourVersusOne();
+    const before = await seat(matchId, 3);
+
+    const banned = await mutateMatch(matchId, creator, {
+      action: "setSeatBans",
+      slotIndex: 3,
+      coIds: [before.coId!],
+    });
+    expect(banned.ok).toBe(true);
+    const after = await seat(matchId, 3);
+    expect(after.coId).not.toBe(before.coId);
+    expect(after.ready).toBe(true);
+    expect((await settingsOf(matchId)).seatBannedCoIds?.[3]).toEqual([before.coId]);
+  });
+});
+
+describe("unit settings", () => {
+  const units = { unitBans: ["piperunner"], labUnits: ["neo-tank"] };
+
+  it("refuses Lab units on a map with no Lab", async () => {
+    await seed();
+    const result = await createMatch(
+      matchCreateRequestSchema.parse({
+        ...request,
+        map: mapRef,
+        settings: { ...request.settings, ...units },
+      }),
+      creator,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "participantInvalid",
+        message: "this map has no Lab, so it can have no Lab units",
+      },
+    });
+  });
+
+  it("keeps both lists on a map with a Lab", async () => {
+    await seed();
+    const map = await seedMap(normandie, "cmtestmap009");
+    const result = await createMatch(
+      matchCreateRequestSchema.parse({
+        ...request,
+        map,
+        settings: { ...request.settings, ...units },
+      }),
+      creator,
+    );
+    if (!result.ok) throw new Error(result.error.message);
+    const row = await db.select().from(matches).where(eq(matches.id, result.value.matchId)).get();
+    expect(row!.settings).toMatchObject(units);
   });
 });

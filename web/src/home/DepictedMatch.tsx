@@ -248,6 +248,7 @@ function rosterEntry({
       income: undefined,
       properties: undefined,
       comTowers: undefined,
+      labs: undefined,
     },
   };
 }
