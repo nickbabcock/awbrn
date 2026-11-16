@@ -30,7 +30,6 @@ use awbrn_bevy::world::GameMap;
 use awbrn_map::Pos;
 use awbrn_types::{ExactHp, GraphicalHp, UnitExt};
 use awbw_replay::AwbwReplay;
-use awbw_types::AwbwGamePlayerId;
 use awvm::commander::{AreaStrikePolicy, PowerLevel};
 use awvm::event::Event;
 use awvm::query::{AreaStrike, area_strikes};
@@ -47,7 +46,7 @@ pub use board::{EditOutcome, EditRefused, PlannerBoard, PlannerEdit, PlannerLuck
 
 use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::core::{AppState, GameMode, LoadingState, RenderLayer, SpriteSize};
-use crate::features::event_bus::EventSink;
+use crate::features::event_bus::{EventSink, js_player_id};
 use crate::loading::{LiveMatchPlayer, MapAssetHandle};
 use crate::modes::play::PendingCommandRejected;
 use crate::modes::play::inspect::InspectedUnit;
@@ -61,9 +60,9 @@ use crate::render::units::HealthOverlayOverride;
 pub(crate) struct PlannerToOpen {
     /// A replay with one game entry, which holds the board, and no turns.
     pub replay: AwbwReplay,
-    pub previewed_player: Option<AwbwGamePlayerId>,
+    pub previewed_player: Option<PlayerId>,
     /// How many powers each player's CO used before.
-    pub power_uses: Vec<(AwbwGamePlayerId, u64)>,
+    pub power_uses: Vec<(PlayerId, u64)>,
 }
 
 /// The player whose area-strike power the board shows, if there is one.
@@ -71,9 +70,9 @@ pub(crate) struct PlannerToOpen {
 /// This player does not have to be the one whose turn it is. While another
 /// army plays, the strikes aim again after each order, so the board shows
 /// where they would land if this player's super power started now.
-#[derive(Debug, Resource, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Resource, Clone, PartialEq, Eq, Default)]
 pub struct AreaStrikePreview {
-    pub player: Option<AwbwGamePlayerId>,
+    pub player: Option<PlayerId>,
 }
 
 /// Whether each unit's health overlay shows the HP it keeps after all the
@@ -82,7 +81,7 @@ pub struct AreaStrikePreview {
 pub struct PlannerAfterStrikes(pub bool);
 
 /// The preview and the view that the strikes on the screen were drawn for.
-#[derive(Debug, Resource, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Resource, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ShownStrikeView {
     preview: AreaStrikePreview,
     after_strikes: PlannerAfterStrikes,
@@ -294,7 +293,7 @@ pub(crate) fn open_planner_board(world: &mut World) {
         return;
     };
     world.insert_resource(AreaStrikePreview {
-        player: planner.previewed_player,
+        player: planner.previewed_player.clone(),
     });
     world.init_resource::<PlannerAfterStrikes>();
     world.remove_resource::<PlannerBoard>();
@@ -317,7 +316,7 @@ pub(crate) fn open_planner_board(world: &mut World) {
         Err(error) => {
             error!("Could not open the planner board: {error}");
             if let Some(sink) = world.get_resource::<EventSink<AreaStrikesPreviewed>>() {
-                sink.emit(not_opened(planner.previewed_player, error));
+                sink.emit(not_opened(planner.previewed_player.as_ref(), error));
             }
         }
     }
@@ -340,14 +339,14 @@ pub(crate) fn report_failed_planner_map(
     commands.remove_resource::<PlannerToOpen>();
     commands.remove_resource::<MapAssetHandle>();
     if let Some(sink) = sink {
-        sink.emit(not_opened(planner.previewed_player, error));
+        sink.emit(not_opened(planner.previewed_player.as_ref(), error));
     }
 }
 
 /// The report of a planner board that did not open.
-fn not_opened(previewed_player: Option<AwbwGamePlayerId>, error: String) -> AreaStrikesPreviewed {
+fn not_opened(previewed_player: Option<&PlayerId>, error: String) -> AreaStrikesPreviewed {
     AreaStrikesPreviewed {
-        player_id: previewed_player.map(|player| player.as_u32()),
+        player_id: previewed_player.map(js_player_id),
         strikes: Vec::new(),
         error: Some(error),
         can_undo: false,
@@ -359,14 +358,11 @@ fn not_opened(previewed_player: Option<AwbwGamePlayerId>, error: String) -> Area
 ///
 /// An AWBW game records the count only as the raised power costs, so the
 /// planner sets it after the board is made.
-fn with_power_uses(
-    mut state: State,
-    power_uses: &[(AwbwGamePlayerId, u64)],
-) -> Result<State, String> {
+fn with_power_uses(mut state: State, power_uses: &[(PlayerId, u64)]) -> Result<State, String> {
     for (player, uses) in power_uses {
         let seat = state
-            .player_index(&PlayerId::from(player.as_u32().to_string()))
-            .ok_or_else(|| format!("player {} is not on the board", player.as_u32()))?;
+            .player_index(player)
+            .ok_or_else(|| format!("player {player} is not on the board"))?;
         for commander in &mut state.player_mut(seat).commanders {
             if commander.active {
                 commander.power_uses = *uses;
@@ -495,16 +491,10 @@ fn present_next_change(world: &mut World) {
         return;
     };
     // The army whose turn it is plays the board.
-    if let Some(active) = transitions.first().and_then(|transition| {
-        transition
-            .post
-            .turn
-            .active_player
-            .as_str()
-            .parse::<u32>()
-            .ok()
-    }) {
-        world.insert_resource(ReplayViewpoint::Player(AwbwGamePlayerId::new(active)));
+    if let Some(transition) = transitions.first() {
+        world.insert_resource(ReplayViewpoint::Player(
+            transition.post.turn.active_player.clone(),
+        ));
     }
     CompleteTransitionCommand { transitions }.apply(world);
     if let Err(error) = world.run_system_once(crate::modes::play::settle_committed_unload) {
@@ -525,7 +515,7 @@ pub(crate) fn refresh_strike_view(world: &mut World) {
     if !world.resource::<PlannerPresentations>().0.is_empty() {
         return;
     }
-    if world.get_resource::<ShownStrikeView>().copied() != Some(strike_view(world)) {
+    if world.get_resource::<ShownStrikeView>() != Some(&strike_view(world)) {
         present_strikes(world);
     }
 }
@@ -534,7 +524,7 @@ fn strike_view(world: &World) -> ShownStrikeView {
     ShownStrikeView {
         preview: world
             .get_resource::<AreaStrikePreview>()
-            .copied()
+            .cloned()
             .unwrap_or_default(),
         after_strikes: world
             .get_resource::<PlannerAfterStrikes>()
@@ -561,14 +551,17 @@ fn present_strikes(world: &mut World) {
         world.entity_mut(entity).remove::<HealthOverlayOverride>();
     }
     let view = strike_view(world);
+    let (preview, after_strikes) = (view.preview.clone(), view.after_strikes);
     world.insert_resource(view);
-    let preview = view.preview;
 
     let (strikes, can_undo, can_redo) = match world.get_resource::<PlannerBoard>() {
         Some(board) => (
-            preview.player.map_or(Ok(Default::default()), |player| {
-                preview_strikes(board.current(), player)
-            }),
+            preview
+                .player
+                .as_ref()
+                .map_or(Ok(Default::default()), |player| {
+                    preview_strikes(board.current(), player)
+                }),
             board.can_undo(),
             board.can_redo(),
         ),
@@ -585,7 +578,7 @@ fn present_strikes(world: &mut World) {
                 spawn_strikes(&mut commands, &strikes, &game_map);
             });
             world.flush();
-            if view.after_strikes.0 {
+            if after_strikes.0 {
                 show_hp_after_strikes(world, &after);
             }
             (strikes, None)
@@ -597,7 +590,7 @@ fn present_strikes(world: &mut World) {
     };
     if let Some(sink) = world.get_resource::<EventSink<AreaStrikesPreviewed>>() {
         sink.emit(AreaStrikesPreviewed {
-            player_id: preview.player.map(|player| player.as_u32()),
+            player_id: preview.player.as_ref().map(js_player_id),
             strikes,
             error,
             can_undo,
@@ -675,10 +668,7 @@ pub(crate) fn emit_planner_selection(
             let Location::Board { position } = unit.location else {
                 return None;
             };
-            let player_id = state
-                .players
-                .get(unit.owner.get())
-                .and_then(|owner| owner.id().as_str().parse().ok())?;
+            let player_id = js_player_id(state.players.get(unit.owner.get())?.id());
             Some(PlannerSelectedUnit {
                 unit_id: unit.id.get(),
                 unit_name: unit.kind.name().to_string(),
@@ -703,20 +693,19 @@ pub(crate) fn emit_planner_selection(
 /// strikes has none.
 fn preview_strikes(
     state: &State,
-    player: AwbwGamePlayerId,
+    player: &PlayerId,
 ) -> Result<(Vec<PreviewedAreaStrike>, HashMap<UnitId, u8>), String> {
-    let player = PlayerId::from(player.as_u32().to_string());
     let seat = state
-        .player_index(&player)
+        .player_index(player)
         .ok_or_else(|| "the previewed player is not on the board".to_string())?;
     // On its own turn, a player whose power is on already fired its strikes,
     // and cannot start a power again this turn. On another army's turn, the
     // power ends before this player moves again, so the strikes show where
     // they land if the super power starts now.
-    if state.turn.active_player == player && state.player(seat).power_state != PowerState::None {
+    if state.turn.active_player == *player && state.player(seat).power_state != PowerState::None {
         return Ok((Vec::new(), HashMap::new()));
     }
-    let strikes = area_strikes(state, &player, PowerLevel::Scop).map_err(|e| e.to_string())?;
+    let strikes = area_strikes(state, player, PowerLevel::Scop).map_err(|e| e.to_string())?;
     let (units, after) = struck_units(state, &strikes);
     let previewed = strikes
         .iter()
@@ -758,10 +747,7 @@ fn struck_units(
                     if !strike.covers(position) {
                         return None;
                     }
-                    let player_id = state
-                        .players
-                        .get(unit.owner.get())
-                        .and_then(|owner| owner.id().as_str().parse().ok())?;
+                    let player_id = js_player_id(state.players.get(unit.owner.get())?.id());
                     let current = hp.get_mut(&unit.id)?;
                     let before = *current;
                     *current = before.saturating_sub(strike.damage).max(1);
@@ -984,7 +970,7 @@ mod tests {
     struct PlannerApp {
         app: App,
         reports: Arc<Mutex<Vec<AreaStrikesPreviewed>>>,
-        player: AwbwGamePlayerId,
+        player: PlayerId,
     }
 
     /// A play app with the cowboy planner board open, on Blue Moon's turn,
@@ -992,7 +978,7 @@ mod tests {
     /// Blue Moon's strikes.
     fn planner_app_as(co_id: AwbwCoId, stars: u64) -> PlannerApp {
         let fixture = cowboy(co_id, stars);
-        let player = fixture.player;
+        let player = fixture.player.clone();
         planner_app_with(fixture, Some(player), Vec::new())
     }
 
@@ -1000,8 +986,8 @@ mod tests {
     /// `previewed`, with the power use counts of `power_uses`.
     fn planner_app_with(
         fixture: Cowboy,
-        previewed: Option<AwbwGamePlayerId>,
-        power_uses: Vec<(AwbwGamePlayerId, u64)>,
+        previewed: Option<PlayerId>,
+        power_uses: Vec<(PlayerId, u64)>,
     ) -> PlannerApp {
         let mut app = App::new();
         app.add_plugins((
@@ -1338,7 +1324,7 @@ mod tests {
                 games: Vec::new(),
                 turns: Vec::new(),
             },
-            previewed_player: Some(AwbwGamePlayerId::new(7)),
+            previewed_player: Some(PlayerId::from("7")),
             power_uses: Vec::new(),
         });
 
@@ -1443,18 +1429,15 @@ mod tests {
 
         assert_eq!(meter(&app).active_power, Some(PowerLevel::Cop));
         assert_eq!(meter(&app).charge, 0);
-        assert_eq!(viewpoint(&app), ReplayViewpoint::Player(player));
+        assert_eq!(viewpoint(&app), ReplayViewpoint::Player(player.clone()));
 
         app.world_mut()
             .write_message(PlannerEdit::Order(GameCommand::EndTurn));
         app.update();
 
-        let next = board(&app).turn.active_player.as_str().parse().unwrap();
-        assert_ne!(next, player.as_u32());
-        assert_eq!(
-            viewpoint(&app),
-            ReplayViewpoint::Player(AwbwGamePlayerId::new(next))
-        );
+        let next = board(&app).turn.active_player.clone();
+        assert_ne!(next, player);
+        assert_eq!(viewpoint(&app), ReplayViewpoint::Player(next));
         // A power lasts until its army's next turn.
         assert_eq!(meter(&app).active_power, Some(PowerLevel::Cop));
     }
@@ -1551,17 +1534,20 @@ mod tests {
             ],
             PlayerFaction::OrangeStar,
         );
-        let (jess, rachel) = (fixture.id(PlayerFaction::OrangeStar), fixture.player);
+        let (jess, rachel) = (
+            fixture.id(PlayerFaction::OrangeStar),
+            fixture.player.clone(),
+        );
         let PlannerApp {
             mut app, reports, ..
-        } = planner_app_with(fixture, Some(rachel), Vec::new());
+        } = planner_app_with(fixture, Some(rachel.clone()), Vec::new());
         let last = |reports: &Arc<Mutex<Vec<AreaStrikesPreviewed>>>| {
             reports.lock().unwrap().last().cloned().unwrap()
         };
 
         assert_eq!(viewpoint(&app), ReplayViewpoint::Player(jess));
         let opening = last(&reports);
-        assert_eq!(opening.player_id, Some(rachel.as_u32()));
+        assert_eq!(opening.player_id, Some(js_player_id(&rachel)));
         assert_eq!(opening.strikes.len(), 3);
         let struck = |report: &AreaStrikesPreviewed, tile: Pos| {
             report
@@ -1593,7 +1579,7 @@ mod tests {
         app.update();
         finish_animation(&mut app, entity);
         let moved = last(&reports);
-        assert_eq!(moved.player_id, Some(rachel.as_u32()));
+        assert_eq!(moved.player_id, Some(js_player_id(&rachel)));
         assert!(!struck(&moved, tank_tile));
         assert_eq!(shades(&mut app).len(), reported_hits(&app, &moved).len());
 
@@ -1632,7 +1618,7 @@ mod tests {
     #[test]
     fn the_previewed_army_can_change_on_an_open_board() {
         let fixture = cowboy(RACHEL, 0);
-        let rachel = fixture.player;
+        let rachel = fixture.player.clone();
         let PlannerApp {
             mut app, reports, ..
         } = planner_app_with(fixture, None, Vec::new());
@@ -1644,10 +1630,10 @@ mod tests {
         assert_eq!(shades(&mut app).len(), 0);
 
         app.insert_resource(AreaStrikePreview {
-            player: Some(rachel),
+            player: Some(rachel.clone()),
         });
         app.update();
-        assert_eq!(last().player_id, Some(rachel.as_u32()));
+        assert_eq!(last().player_id, Some(js_player_id(&rachel)));
         assert_eq!(last().strikes.len(), 3);
         let count = reports.lock().unwrap().len();
 
@@ -1664,8 +1650,9 @@ mod tests {
     #[test]
     fn a_used_power_raises_the_cost_on_the_meter() {
         let fixture = cowboy(RACHEL, 0);
-        let rachel = fixture.player;
-        let PlannerApp { app, .. } = planner_app_with(fixture, Some(rachel), vec![(rachel, 1)]);
+        let rachel = fixture.player.clone();
+        let PlannerApp { app, .. } =
+            planner_app_with(fixture, Some(rachel.clone()), vec![(rachel.clone(), 1)]);
 
         let cost = |uses| {
             awvm::commander::power_activation_cost(

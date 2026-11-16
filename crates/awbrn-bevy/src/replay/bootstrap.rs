@@ -52,13 +52,13 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
                 } else {
                     0
                 };
-                registry.add_player(p.id, p.faction, team);
+                registry.add_player(awvm_awbw::player_id(p.id), p.faction, team);
             }
             let first_player_id = first_game
                 .players
                 .iter()
                 .min_by_key(|p| p.order)
-                .map(|p| p.id);
+                .map(|p| awvm_awbw::player_id(p.id));
 
             let units = first_game
                 .units

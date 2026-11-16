@@ -2,6 +2,7 @@ use crate::features::camera::{CameraScale, compute_map_dimensions};
 use awbrn_bevy::world::GameMap;
 use awbrn_map::Pos;
 pub use awbrn_protocol::PostMoveAction;
+use awvm::semantic::PlayerId;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -29,6 +30,20 @@ impl<T: Send + Sync + 'static> EventSink<T> {
     pub fn emit(&self, payload: T) {
         (self.0)(payload);
     }
+}
+
+/// The number JavaScript knows a player by.
+///
+/// The engine names players with strings, and every one this client meets is
+/// a decimal number: an AWBW game player id in an archive and a seat index
+/// in a live match or on the planner.
+pub fn js_player_id(player: &PlayerId) -> u32 {
+    player.parse().expect("player ids are decimal numbers")
+}
+
+/// The engine's name for the player JavaScript calls `id`.
+pub fn player_id_from_js(id: u32) -> PlayerId {
+    PlayerId::from(id.to_string())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

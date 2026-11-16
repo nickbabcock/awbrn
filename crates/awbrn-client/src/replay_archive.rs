@@ -5,7 +5,7 @@ use awbrn_game::{Authority, GameSetup, PlayerSetup, StoredActionEvent};
 use awbrn_map::{AwbrnMap, ValidatedMapDocument};
 use awbrn_types::{Co, CoExt, PlayerFaction};
 use awbw_types::AwbwCoId;
-use awvm::semantic::{Observation, ObservedTransition};
+use awvm::semantic::{Observation, ObservedTransition, PlayerId};
 use serde::Deserialize;
 
 /// One seat, as the server archived it.
@@ -185,11 +185,11 @@ impl From<awvm_awbw::RecordedAdapter> for ReplayTimeline {
 /// The board is not here. This is what the controls read to label a moment
 /// and to find where a turn begins, so a whole archive's worth of it stays
 /// smaller than a single board would be.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplayBoundary {
     pub day: u32,
     /// The seat holding the turn here, or `None` once the game is over.
-    pub active_player: Option<u32>,
+    pub active_player: Option<PlayerId>,
 }
 
 impl ReplayTimeline {
@@ -421,7 +421,7 @@ impl ReplayTimeline {
 fn boundary(turn: &awvm::semantic::Turn) -> ReplayBoundary {
     ReplayBoundary {
         day: u32::try_from(turn.day).unwrap_or(u32::MAX),
-        active_player: turn.active_player.as_str().parse().ok(),
+        active_player: Some(turn.active_player.clone()),
     }
 }
 

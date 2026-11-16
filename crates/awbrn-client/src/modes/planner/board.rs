@@ -301,7 +301,7 @@ mod tests {
         let cowboy = cowboy(co_id, stars);
         let board = PlannerBoard::new(cowboy.state());
         Fixture {
-            player: PlayerId::from(cowboy.player.as_u32().to_string()),
+            player: cowboy.player,
             board,
         }
     }

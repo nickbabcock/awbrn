@@ -1,3 +1,4 @@
+use awbrn_client::features::event_bus::player_id_from_js;
 use awbrn_client::{
     AreaStrikePreview, AreaStrikesPreviewed, AttackPreviewChanged, AwbrnPlugin, BoardView,
     DeleteUnitCommandRequested, EndTurnRequested, EventSink, LiveMatchPlayer, MapAssetPathResolver,
@@ -13,7 +14,6 @@ use awbrn_client::{
 use awbrn_map::Pos;
 use awbrn_map::ValidatedMapDocument;
 use awbrn_types::PlayerFaction;
-use awbw_types::AwbwGamePlayerId;
 use bevy::{
     app::PluginsState,
     input::{
@@ -573,11 +573,11 @@ impl BevyApp {
         let replay = move_planner::planner_replay(&planner, &setup)?;
         self.app.world_mut().insert_resource(MovePlannerToLoad {
             replay,
-            previewed_player: setup.previewed_player_id.map(AwbwGamePlayerId::new),
+            previewed_player: setup.previewed_player_id.map(player_id_from_js),
             power_uses: setup
                 .seats
                 .iter()
-                .map(|seat| (AwbwGamePlayerId::new(seat.player_id), seat.power_uses))
+                .map(|seat| (player_id_from_js(seat.player_id), seat.power_uses))
                 .collect(),
         });
 
@@ -589,7 +589,7 @@ impl BevyApp {
     #[wasm_bindgen]
     pub fn planner_set_previewed_player(&mut self, player_id: Option<u32>) {
         self.app.world_mut().insert_resource(AreaStrikePreview {
-            player: player_id.map(AwbwGamePlayerId::new),
+            player: player_id.map(player_id_from_js),
         });
     }
 
@@ -743,7 +743,7 @@ impl BevyApp {
 
         self.app.world_mut().write_message(
             awbrn_client::features::player_display::SetPlayerDisplayFaction {
-                player_id: AwbwGamePlayerId::new(player_id),
+                player_id: player_id_from_js(player_id),
                 faction,
             },
         );
@@ -848,7 +848,7 @@ impl BevyApp {
     pub fn set_replay_viewpoint(&mut self, player_id: Option<u32>, follows_active_player: bool) {
         awbrn_client::modes::replay::controls::set_replay_viewpoint(
             self.app.world_mut(),
-            player_id.map(awbw_types::AwbwGamePlayerId::new),
+            player_id.map(player_id_from_js),
             follows_active_player,
         );
     }

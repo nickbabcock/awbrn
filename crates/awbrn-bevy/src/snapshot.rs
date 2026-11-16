@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+use awvm::semantic::PlayerId;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::*;
 use bevy::reflect::TypeRegistry;
@@ -39,7 +40,7 @@ impl<T> bevy::reflect::CreateTypeData<T> for ReplaySemanticResourceType {
 pub struct GameSnapshot {
     pub next_action_index: u32,
     pub day: u32,
-    pub active_player_id: Option<awbw_types::AwbwGamePlayerId>,
+    pub active_player_id: Option<PlayerId>,
     pub scene: DynamicWorld,
 }
 
@@ -57,7 +58,7 @@ impl std::fmt::Debug for GameSnapshot {
 pub struct CanonicalReplaySnapshot {
     pub next_action_index: u32,
     pub day: u32,
-    pub active_player_id: Option<awbw_types::AwbwGamePlayerId>,
+    pub active_player_id: Option<PlayerId>,
     pub resources: Vec<CanonicalSceneEntry>,
     pub entities: Vec<CanonicalReplayEntity>,
 }
@@ -168,7 +169,7 @@ pub fn capture_game_snapshot(world: &mut World) -> Result<GameSnapshot, GameSnap
         (
             replay_state.next_action_index,
             replay_state.day,
-            replay_state.active_player_id,
+            replay_state.active_player_id.clone(),
         )
     };
 
@@ -226,12 +227,12 @@ pub fn restore_game_snapshot(
     if let Some(mut replay_state) = world.get_resource_mut::<ReplayState>() {
         replay_state.next_action_index = snapshot.next_action_index;
         replay_state.day = snapshot.day;
-        replay_state.active_player_id = snapshot.active_player_id;
+        replay_state.active_player_id = snapshot.active_player_id.clone();
     } else {
         world.insert_resource(ReplayState {
             next_action_index: snapshot.next_action_index,
             day: snapshot.day,
-            active_player_id: snapshot.active_player_id,
+            active_player_id: snapshot.active_player_id.clone(),
         });
     }
 
@@ -266,7 +267,7 @@ pub fn canonicalize_replay_semantic_snapshot(
     Ok(CanonicalReplaySnapshot {
         next_action_index: snapshot.next_action_index,
         day: snapshot.day,
-        active_player_id: snapshot.active_player_id,
+        active_player_id: snapshot.active_player_id.clone(),
         resources,
         entities,
     })
@@ -627,7 +628,6 @@ mod tests {
     use crate::world::GameMap;
     use awbrn_map::{AwbrnMap, Dimensions};
     use awbrn_types::{GraphicalTerrain, PlayerFaction};
-    use awbw_types::AwbwGamePlayerId;
     use bevy::{ecs::entity::MapEntities, ecs::reflect::ReflectMapEntities};
 
     #[derive(Component, Reflect, MapEntities)]
@@ -680,7 +680,7 @@ mod tests {
         app.world_mut().insert_resource(ReplayState {
             next_action_index: 7,
             day: 3,
-            active_player_id: Some(AwbwGamePlayerId::new(42)),
+            active_player_id: Some(PlayerId::from("42")),
         });
         app.world_mut().spawn((
             MapPosition::new(0, 0),
@@ -721,18 +721,18 @@ mod tests {
         app.world_mut().insert_resource(ReplayState {
             next_action_index: 7,
             day: 3,
-            active_player_id: Some(AwbwGamePlayerId::new(42)),
+            active_player_id: Some(PlayerId::from("42")),
         });
 
         let snapshot = capture_game_snapshot(app.world_mut()).unwrap();
-        assert_eq!(snapshot.active_player_id, Some(AwbwGamePlayerId::new(42)));
+        assert_eq!(snapshot.active_player_id, Some(PlayerId::from("42")));
 
         let mut restored = snapshot_test_app();
         restore_game_snapshot(restored.world_mut(), &snapshot).unwrap();
 
         assert_eq!(
             restored.world().resource::<ReplayState>().active_player_id,
-            Some(AwbwGamePlayerId::new(42))
+            Some(PlayerId::from("42"))
         );
     }
 

@@ -10,7 +10,6 @@ use std::collections::{BTreeMap, HashMap};
 
 use awbrn_map::Pos;
 use awbrn_types::Faction as MapFaction;
-use awbw_types::AwbwGamePlayerId;
 use awvm::semantic::{
     Location, Observation, ObservedEvent, ObservedTileOwner, ObservedTransition, ObservedUnit,
     ObservedUnitRef, PlayerId, UnitAction, UnitId as VmUnitId,
@@ -155,9 +154,8 @@ fn ensure_players_are_known(
                 awvm::semantic::ObservedPlayer::Private { id, .. }
                 | awvm::semantic::ObservedPlayer::Public { id, .. } => id,
             };
-            let player = parse_player_id(id)?;
-            if registry.faction_for_player(player).is_none() {
-                return Err(TransitionApplyError::UnknownPlayer(player.as_u32()));
+            if registry.faction_for_player(id).is_none() {
+                return Err(TransitionApplyError::UnknownPlayer(id.clone()));
             }
         }
     }
@@ -310,13 +308,12 @@ fn store_observations(world: &mut World, transitions: &[ObservedTransition]) {
 }
 
 fn sync_replay_state(world: &mut World, post: &Observation) -> Result<(), TransitionApplyError> {
-    let active_player_id = parse_player_id(&post.turn.active_player)?;
     let mut state = world
         .get_resource_mut::<ReplayState>()
         .ok_or(TransitionApplyError::MissingResource("ReplayState"))?;
     state.day =
         u32::try_from(post.turn.day).map_err(|_| TransitionApplyError::OutOfRange("turn.day"))?;
-    state.active_player_id = Some(active_player_id);
+    state.active_player_id = Some(post.turn.active_player.clone());
     Ok(())
 }
 
@@ -355,11 +352,10 @@ fn sync_tiles(
                 ObservedTileOwner::NotOwnable => None,
                 ObservedTileOwner::Neutral => Some(MapFaction::Neutral),
                 ObservedTileOwner::Owned(player) => {
-                    let player = parse_player_id(player)?;
                     let faction = world
                         .resource::<ReplayPlayerRegistry>()
                         .faction_for_player(player)
-                        .ok_or_else(|| TransitionApplyError::UnknownPlayer(player.as_u32()))?;
+                        .ok_or_else(|| TransitionApplyError::UnknownPlayer(player.clone()))?;
                     Some(MapFaction::Player(faction))
                 }
             };
@@ -545,11 +541,10 @@ fn sync_unit_components(
     entity: Entity,
     unit: &ObservedUnit,
 ) -> Result<(), TransitionApplyError> {
-    let player = parse_player_id(&unit.owner)?;
     let faction = world
         .resource::<ReplayPlayerRegistry>()
-        .faction_for_player(player)
-        .ok_or_else(|| TransitionApplyError::UnknownPlayer(player.as_u32()))?;
+        .faction_for_player(&unit.owner)
+        .ok_or_else(|| TransitionApplyError::UnknownPlayer(unit.owner.clone()))?;
     let fuel =
         u32::try_from(unit.fuel).map_err(|_| TransitionApplyError::OutOfRange("unit.fuel"))?;
     let ammo =
@@ -606,13 +601,6 @@ fn sync_capture_progress(
     Ok(())
 }
 
-fn parse_player_id(id: &PlayerId) -> Result<AwbwGamePlayerId, TransitionApplyError> {
-    id.as_str()
-        .parse::<u32>()
-        .map(AwbwGamePlayerId::new)
-        .map_err(|_| TransitionApplyError::InvalidPlayerId(id.to_string()))
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum TransitionApplyError {
     #[error("an observed transition set cannot be empty")]
@@ -623,10 +611,8 @@ pub enum TransitionApplyError {
     MissingPlayerTransition(String),
     #[error("recipient post-observations disagree on unit {0}")]
     InconsistentUnit(u32),
-    #[error("invalid AWBW player id {0:?}")]
-    InvalidPlayerId(String),
-    #[error("unknown AWBW player {0}")]
-    UnknownPlayer(u32),
+    #[error("unknown player {0}")]
+    UnknownPlayer(PlayerId),
     #[error("missing unit {0}")]
     MissingUnit(u32),
     #[error("missing terrain at {0}")]

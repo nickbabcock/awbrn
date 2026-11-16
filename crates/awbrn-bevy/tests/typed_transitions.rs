@@ -127,12 +127,12 @@ fn a_viewpoint_sees_what_its_own_projection_listed() {
 
     let owners = projections
         .iter()
-        .map(|projection| awbw_player(&projection.post.recipient))
+        .map(|projection| projection.post.recipient.clone())
         .collect::<Vec<_>>();
     let mut seen_by = Vec::new();
     for owner in &owners {
         app.world_mut()
-            .insert_resource(ReplayViewpoint::Player(*owner));
+            .insert_resource(ReplayViewpoint::Player(owner.clone()));
         refresh_viewer_visibility(app.world_mut());
         let visibility = app.world().resource::<ViewerVisibility>();
         assert!(
@@ -140,13 +140,13 @@ fn a_viewpoint_sees_what_its_own_projection_listed() {
             "a player of a fogged match looks through fog"
         );
         assert!(
-            visibility.player_disclosed(*owner),
+            visibility.player_disclosed(owner),
             "a player's own funds are disclosed to itself"
         );
         for other in &owners {
             if other != owner {
                 assert!(
-                    !visibility.player_disclosed(*other),
+                    !visibility.player_disclosed(other),
                     "an opponent's funds stay hidden under fog"
                 );
             }
@@ -206,15 +206,11 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     let mut app = presentation_app(&replay, &map_data);
     let mut registry = ReplayPlayerRegistry::default();
     registry.add_player(
-        awbw_types::AwbwGamePlayerId::new(1),
+        PlayerId::from("1"),
         awbrn_types::PlayerFaction::OrangeStar,
         0,
     );
-    registry.add_player(
-        awbw_types::AwbwGamePlayerId::new(2),
-        awbrn_types::PlayerFaction::BlueMoon,
-        0,
-    );
+    registry.add_player(PlayerId::from("2"), awbrn_types::PlayerFaction::BlueMoon, 0);
     app.world_mut().insert_resource(registry);
     apply_observed_transitions(app.world_mut(), &transitions).unwrap();
 
@@ -232,9 +228,7 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     );
 
     app.world_mut()
-        .insert_resource(ReplayViewpoint::Player(awbw_types::AwbwGamePlayerId::new(
-            2,
-        )));
+        .insert_resource(ReplayViewpoint::Player(PlayerId::from("2")));
     refresh_viewer_visibility(app.world_mut());
     assert_eq!(
         app.world().get::<GraphicalHp>(unit),
@@ -252,9 +246,7 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     );
 
     app.world_mut()
-        .insert_resource(ReplayViewpoint::Player(awbw_types::AwbwGamePlayerId::new(
-            1,
-        )));
+        .insert_resource(ReplayViewpoint::Player(PlayerId::from("1")));
     refresh_viewer_visibility(app.world_mut());
     assert_eq!(
         app.world()
@@ -275,10 +267,6 @@ fn visible_units(world: &World) -> Vec<u32> {
         .collect::<Vec<_>>();
     visible.sort_unstable();
     visible
-}
-
-fn awbw_player(id: &awvm::semantic::PlayerId) -> awbw_types::AwbwGamePlayerId {
-    awbw_types::AwbwGamePlayerId::new(id.as_str().parse().unwrap())
 }
 
 /// Terrain memory records what the selected viewpoint can currently see.
@@ -310,15 +298,15 @@ fn terrain_memory_follows_the_projections_visibility() {
 
     let mut app = presentation_app(&replay, &map_data);
     apply_observed_transitions(app.world_mut(), &projections).unwrap();
-    let viewer = awbw_player(&projections[0].post.recipient);
+    let viewer = projections[0].post.recipient.clone();
     app.world_mut()
-        .insert_resource(ReplayViewpoint::Player(viewer));
+        .insert_resource(ReplayViewpoint::Player(viewer.clone()));
     refresh_viewer_visibility(app.world_mut());
 
     let key = app
         .world()
         .resource::<ReplayPlayerRegistry>()
-        .knowledge_key_for_player(viewer)
+        .knowledge_key_for_player(&viewer)
         .unwrap();
     let (visible, fogged) = {
         let visibility = app.world().resource::<ViewerVisibility>();

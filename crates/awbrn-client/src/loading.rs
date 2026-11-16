@@ -8,7 +8,7 @@ use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Pos, ValidatedMapDocument};
 use awbw_replay::game_models::AwbwPlayer;
 use awbw_replay::{AwbwReplay, game_models::AwbwBuilding};
-use awvm::semantic::{Observation, ObservedTransition};
+use awvm::semantic::{Observation, ObservedTransition, PlayerId};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -66,10 +66,10 @@ pub struct ReplayToLoad(pub Vec<u8>);
 #[derive(Debug, Resource)]
 pub struct MovePlannerToLoad {
     pub replay: AwbwReplay,
-    pub previewed_player: Option<awbw_types::AwbwGamePlayerId>,
+    pub previewed_player: Option<PlayerId>,
     /// How many powers each player's CO used before, which raises the cost
     /// of the next one. A player without an entry used none.
-    pub power_uses: Vec<(awbw_types::AwbwGamePlayerId, u64)>,
+    pub power_uses: Vec<(PlayerId, u64)>,
 }
 
 /// Resource containing the loaded replay data
@@ -273,7 +273,7 @@ pub(crate) fn detect_move_planner_to_load(
             games: std::mem::take(&mut planner.replay.games),
             turns: Vec::new(),
         },
-        previewed_player: planner.previewed_player,
+        previewed_player: planner.previewed_player.take(),
         power_uses: std::mem::take(&mut planner.power_uses),
     });
     commands.insert_resource(asset_loader.load_pending_ui_atlas());

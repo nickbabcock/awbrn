@@ -1,4 +1,4 @@
-use awbw_types::AwbwGamePlayerId;
+use awvm::semantic::PlayerId;
 use bevy::prelude::*;
 
 /// Event triggered when a new day begins during replay playback.
@@ -8,7 +8,7 @@ pub struct NewDay {
 }
 
 /// Resource tracking the current state of replay playback.
-#[derive(Resource, Reflect, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Reflect, Debug, Clone, PartialEq, Eq)]
 #[reflect(Resource)]
 pub struct ReplayState {
     pub next_action_index: u32,
@@ -16,7 +16,7 @@ pub struct ReplayState {
     /// The player whose turn it currently is. Set at bootstrap from turn order
     /// and updated by `apply_end()` from `UpdatedInfo.next_player_id`.
     #[reflect(ignore)]
-    pub active_player_id: Option<AwbwGamePlayerId>,
+    pub active_player_id: Option<PlayerId>,
 }
 
 impl Default for ReplayState {

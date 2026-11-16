@@ -1,9 +1,10 @@
-use crate::features::event_bus::{EventSink, ReplayViewpointChanged};
+use crate::features::event_bus::{EventSink, ReplayViewpointChanged, js_player_id};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::navigation::action_requires_path_animation;
 use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplaySeekCommand, ReplayTurnCommand};
 use crate::modes::replay::state::ReplayControlState;
 use awbrn_bevy::replay::{ReplayState, ReplayViewpoint};
+use awvm::semantic::PlayerId;
 use bevy::input::{ButtonState, keyboard::KeyboardInput};
 use bevy::prelude::*;
 
@@ -137,7 +138,9 @@ pub(crate) fn handle_replay_controls(
                     _ => unreachable!(),
                 };
                 if let Some(player_id) = registry.player_id_at_index(index) {
-                    viewpoint.set_if_neq(awbrn_bevy::replay::ReplayViewpoint::Player(player_id));
+                    viewpoint.set_if_neq(awbrn_bevy::replay::ReplayViewpoint::Player(
+                        player_id.clone(),
+                    ));
                 }
             }
             _ => {}
@@ -153,7 +156,7 @@ pub(crate) fn handle_replay_controls(
 /// key was pressed on the board.
 pub fn set_replay_viewpoint(
     world: &mut World,
-    player_id: Option<awbw_types::AwbwGamePlayerId>,
+    player_id: Option<PlayerId>,
     follows_active_player: bool,
 ) {
     let next = match (player_id, follows_active_player) {
@@ -180,14 +183,17 @@ pub fn emit_replay_viewpoint(
 
     let (player_id, follows_active_player) = match viewpoint.as_ref() {
         ReplayViewpoint::Spectator => (None, false),
-        ReplayViewpoint::ActivePlayer => {
-            (replay_state.and_then(|state| state.active_player_id), true)
-        }
-        ReplayViewpoint::Player(player) => (Some(*player), false),
+        ReplayViewpoint::ActivePlayer => (
+            replay_state
+                .as_deref()
+                .and_then(|state| state.active_player_id.as_ref()),
+            true,
+        ),
+        ReplayViewpoint::Player(player) => (Some(player), false),
     };
 
     sink.emit(ReplayViewpointChanged {
-        player_id: player_id.map(|player| player.as_u32()),
+        player_id: player_id.map(js_player_id),
         follows_active_player,
     });
 }

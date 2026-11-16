@@ -430,12 +430,7 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
     let updates = transitions
         .iter()
         .flat_map(|transition| transition.post.players.iter())
-        .filter_map(|player| {
-            Some((
-                parse_player_id(player.id())?,
-                u32::try_from(player.funds()?).ok()?,
-            ))
-        })
+        .filter_map(|player| Some((player.id().clone(), u32::try_from(player.funds()?).ok()?)))
         .collect::<Vec<_>>();
     if let Some(mut player_funds) = world.get_resource_mut::<PlayerFunds>() {
         for (player, funds) in updates {
@@ -447,11 +442,9 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
         .first()
         .into_iter()
         .flat_map(|transition| transition.post.players.iter())
-        .filter_map(|player| match player {
+        .map(|player| match player {
             awvm::semantic::ObservedPlayer::Private { id, status, .. }
-            | awvm::semantic::ObservedPlayer::Public { id, status, .. } => {
-                Some((parse_player_id(id)?, *status))
-            }
+            | awvm::semantic::ObservedPlayer::Public { id, status, .. } => (id.clone(), *status),
         })
         .collect::<Vec<_>>();
     // Power meter inputs are public in AWVM, so every transition reports them
@@ -460,7 +453,7 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
         .first()
         .into_iter()
         .flat_map(|transition| transition.post.players.iter())
-        .filter_map(|player| Some((parse_player_id(player.id())?, active_power_meter(player)?)))
+        .filter_map(|player| Some((player.id().clone(), active_power_meter(player)?)))
         .collect::<Vec<_>>();
     if let Some(mut meters) = world.get_resource_mut::<PlayerPowerMeters>() {
         for (player, meter) in power_meters {
@@ -578,10 +571,10 @@ fn movement_for_current_view<'a>(
         transitions.first()
     } else {
         match world.get_resource::<ReplayViewpoint>() {
-            Some(ReplayViewpoint::Player(player)) => transition_for_player(transitions, *player),
+            Some(ReplayViewpoint::Player(player)) => transition_for_player(transitions, player),
             Some(ReplayViewpoint::ActivePlayer) => world
                 .get_resource::<ReplayState>()
-                .and_then(|state| state.active_player_id)
+                .and_then(|state| state.active_player_id.as_ref())
                 .and_then(|player| transition_for_player(transitions, player)),
             Some(ReplayViewpoint::Spectator) | None => None,
         }
@@ -622,20 +615,13 @@ fn movement_for_current_view<'a>(
     })
 }
 
-fn transition_for_player(
-    transitions: &[ObservedTransition],
-    player: awbw_types::AwbwGamePlayerId,
-) -> Option<&ObservedTransition> {
+fn transition_for_player<'a>(
+    transitions: &'a [ObservedTransition],
+    player: &PlayerId,
+) -> Option<&'a ObservedTransition> {
     transitions
         .iter()
-        .find(|transition| parse_player_id(&transition.post.recipient) == Some(player))
-}
-
-fn parse_player_id(id: &PlayerId) -> Option<awbw_types::AwbwGamePlayerId> {
-    id.as_str()
-        .parse()
-        .ok()
-        .map(awbw_types::AwbwGamePlayerId::new)
+        .find(|transition| transition.post.recipient == *player)
 }
 
 fn entity_for_observed_unit(

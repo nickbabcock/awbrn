@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::features::event_bus::player_id_from_js;
 use crate::features::player_display::PlayerDisplayFactionOverrides;
 use crate::features::player_roster::{
     PlayerPowerMeters, emit_player_roster_updated, player_roster_seed_from_replay,
@@ -131,11 +132,7 @@ fn initialize_awbrn_replay_world(world: &mut World) {
     let mut registry = awbrn_bevy::replay::ReplayPlayerRegistry::default();
     for player in &players {
         if let Some(faction) = awbrn_types::PlayerFaction::from_id(player.faction_id) {
-            registry.add_player(
-                awbw_types::AwbwGamePlayerId::new(player.player_id),
-                faction,
-                0,
-            );
+            registry.add_player(player_id_from_js(player.player_id), faction, 0);
         }
     }
     let knowledge = ReplayTerrainKnowledge::from_map_and_registry(

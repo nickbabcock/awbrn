@@ -7,7 +7,7 @@ use crate::features::event_bus::{
     AttackForecast, AttackPreviewChanged, DamageBracket, DeleteUnitCommandRequested, EventSink,
     ForecastTarget, MoveCommandRequested, PostMoveAction, ProductionOption,
     ProductionOptionsChanged, ProductionSite, ScreenPoint, TurnReadinessChanged, UnitActionOption,
-    UnitActionsChanged, UnitBadge, UnitOrder, UnloadCommandRequested,
+    UnitActionsChanged, UnitBadge, UnitOrder, UnloadCommandRequested, player_id_from_js,
 };
 use crate::features::input::{
     BoardCursor, BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerIsCoarse,
@@ -204,7 +204,7 @@ fn scan_buildable_sites(
     let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
         return Vec::new();
     };
-    let Some(observation) = observations.for_player(*player) else {
+    let Some(observation) = observations.for_player(player) else {
         return Vec::new();
     };
     // The same gate the build order itself opens behind. Asking after every
@@ -578,9 +578,7 @@ fn unit_session(
     let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
         return None;
     };
-    let observation = observations.for_player(*player)?;
-    // The AWBW unit id and the AWVM unit id are the same number by
-    // construction. See `awvm_awbw::command::unit_id`.
+    let observation = observations.for_player(player)?;
     let session = awvm::session::Session::from_observation(observation).ok()?;
     let index = session.index_of(id.0)?;
     Some((session, index))
@@ -1307,7 +1305,7 @@ fn emit_production_options(
         close_production_options(Some(sink));
         return;
     };
-    let Some(observation) = observations.for_player(*player) else {
+    let Some(observation) = observations.for_player(player) else {
         close_production_options(Some(sink));
         return;
     };
@@ -1940,18 +1938,8 @@ pub(crate) fn seed_live_presentation(
             );
             continue;
         };
-        registry.add_player(
-            awbw_types::AwbwGamePlayerId::new(player.player_id),
-            faction,
-            0,
-        );
+        registry.add_player(player_id_from_js(player.player_id), faction, 0);
     }
-    let recipient = observation
-        .recipient
-        .as_str()
-        .parse::<u32>()
-        .ok()
-        .map(awbw_types::AwbwGamePlayerId::new);
     let knowledge = awbrn_bevy::replay::ReplayTerrainKnowledge::from_map_and_registry(
         world.resource::<GameMap>(),
         &registry,
@@ -1959,11 +1947,9 @@ pub(crate) fn seed_live_presentation(
     world.insert_resource(registry);
     world.insert_resource(knowledge);
     world.insert_resource(awbrn_bevy::replay::ReplayState::default());
-    world.insert_resource(
-        recipient
-            .map(awbrn_bevy::replay::ReplayViewpoint::Player)
-            .unwrap_or(awbrn_bevy::replay::ReplayViewpoint::Spectator),
-    );
+    world.insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
+        observation.recipient.clone(),
+    ));
 }
 
 pub(crate) fn apply_pending_live_transition(
@@ -2118,14 +2104,12 @@ pub(crate) fn emit_unit_actions(
         return;
     };
     let (Some(observation), Ok(unit_id)) = (
-        observations.for_player(*player),
+        observations.for_player(player),
         unit_selection.unit_ids.get(pending.unit),
     ) else {
         close_unit_actions(Some(sink));
         return;
     };
-    // The AWBW unit id and the AWVM unit id are the same number by
-    // construction; see `awvm_awbw::command::unit_id`.
     let semantic_unit_id = unit_id.0;
     // One session answers the whole menu: what may be done here, what may be
     // put down, whether the unit may go, and what each strike would do.
@@ -2783,7 +2767,7 @@ mod tests {
     use awbrn_map::{AwbwMap, AwbwMapData};
     use awbrn_types::{GraphicalTerrain, PlayerFaction};
     use awbw_replay::ReplayParser;
-    use awvm::semantic::{AwbwVisibility, State, observe};
+    use awvm::semantic::{AwbwVisibility, PlayerId, State, observe};
     use awvm_awbw::RecordedAdapter;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
@@ -2950,9 +2934,9 @@ mod tests {
             .contains_resource::<awbrn_bevy::replay::ReplayViewpoint>()
         {
             app.world_mut()
-                .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                    awbw_types::AwbwGamePlayerId::new(0),
-                ));
+                .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                    "0",
+                )));
         }
     }
 
@@ -3479,7 +3463,7 @@ mod tests {
             .insert_resource(awbrn_bevy::replay::ReplayViewpoint::ActivePlayer);
         app.world_mut()
             .insert_resource(awbrn_bevy::replay::ReplayState {
-                active_player_id: Some(awbw_types::AwbwGamePlayerId::new(0)),
+                active_player_id: Some(PlayerId::from("0")),
                 ..Default::default()
             });
         app.update();
@@ -3837,9 +3821,9 @@ mod tests {
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbw_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -4003,14 +3987,12 @@ mod tests {
         );
 
         // The recipient's own funds are private and only they observe them.
-        let recipient_id =
-            awbw_types::AwbwGamePlayerId::new(recipient.as_str().parse::<u32>().unwrap());
         assert_eq!(
-            app.world().resource::<PlayerFunds>().get(recipient_id),
+            app.world().resource::<PlayerFunds>().get(&recipient),
             replay.games[0]
                 .players
                 .iter()
-                .find(|player| player.id.as_u32() == recipient_id.as_u32())
+                .find(|player| awvm_awbw::player_id(player.id) == recipient)
                 .unwrap()
                 .funds
         );
@@ -4019,9 +4001,9 @@ mod tests {
         let meters = app.world().resource::<PlayerPowerMeters>();
         for player in &config.players {
             assert!(
-                meters.get(player.player_id).is_some(),
+                meters.get(&player.player_id).is_some(),
                 "power meter is public and should be seeded for player {}",
-                player.player_id.as_u32()
+                player.player_id
             );
         }
     }
@@ -4752,9 +4734,9 @@ mod tests {
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbw_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -5013,9 +4995,9 @@ mod tests {
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbw_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -5723,7 +5705,7 @@ mod tests {
         let observation = app
             .world()
             .resource::<awbrn_bevy::replay::RecipientObservations>()
-            .for_player(awbw_types::AwbwGamePlayerId::new(0))
+            .for_player(&PlayerId::from("0"))
             .unwrap()
             .clone();
         app.world_mut()
@@ -5976,9 +5958,9 @@ mod tests {
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbw_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()

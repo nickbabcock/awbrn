@@ -8,12 +8,12 @@ expression: rows
     "action_index": 2,
     "day": 1,
     "action_kind": "End",
-    "checksum": "0x4caf923408eff2691022d25cf5705e69ed879668a1aab6f5773d174b3fbca129"
+    "checksum": "0xd083fdf63a3153aef30c6b6f3a4e5b754cdb1f64b3ad3c343eb009e474f8f080"
   },
   {
     "action_index": 3,
     "day": 2,
     "action_kind": "End",
-    "checksum": "0x00bb865fb55bb6b976e68bf418b64988ce1dd1e27e45c82d8d492f6a370ef710"
+    "checksum": "0xca1ebbdf2a54a3db95f9c31e41a82486b31e50d0101fe90c8038f1f36714c61a"
   }
 ]

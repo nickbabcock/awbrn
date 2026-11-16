@@ -161,9 +161,9 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
 }
 
 /// The turn the world is in: digests are checkpointed when this changes.
-fn turn_key(world: &World) -> (u32, Option<awbw_types::AwbwGamePlayerId>) {
+fn turn_key(world: &World) -> (u32, Option<awvm::semantic::PlayerId>) {
     let replay_state = world.resource::<ReplayState>();
-    (replay_state.day, replay_state.active_player_id)
+    (replay_state.day, replay_state.active_player_id.clone())
 }
 
 /// Digest the canonical replay-semantic form without materializing it: the

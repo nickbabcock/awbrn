@@ -178,10 +178,11 @@ fn rewind_to_start_restores_every_players_opening_power_meter() {
 
     let restored_meters = app.world().resource::<PlayerPowerMeters>();
     for player in &replay.games.first().unwrap().players {
+        let player = awvm_awbw::player_id(player.id);
         let opening = opening_meters
-            .get(player.id)
+            .get(&player)
             .expect("every player should have an opening power meter");
-        assert_eq!(restored_meters.get(player.id), Some(opening));
+        assert_eq!(restored_meters.get(&player), Some(opening));
     }
 }
 
