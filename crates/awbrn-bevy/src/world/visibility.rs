@@ -11,7 +11,8 @@
 use std::collections::HashSet;
 
 use awbrn_map::{Dimensions, Grid, Pos};
-use awbrn_types::{AwbwGamePlayerId, AwbwUnitId, PlayerFaction};
+use awbrn_types::PlayerFaction;
+use awvm::semantic::{PlayerId, UnitId};
 use bevy::prelude::*;
 
 /// The set of factions the viewer commands.
@@ -34,8 +35,8 @@ pub struct ViewerVisibility {
     /// zero-tile board is what no selected observation looks like, and it
     /// reads as fully visible because `fog` is false alongside it.
     tiles: Grid<bool>,
-    units: HashSet<AwbwUnitId>,
-    players: HashSet<AwbwGamePlayerId>,
+    units: HashSet<UnitId>,
+    players: HashSet<PlayerId>,
 }
 
 impl ViewerVisibility {
@@ -61,7 +62,7 @@ impl ViewerVisibility {
     /// Whether the viewer may see `unit` where it currently is.
     ///
     /// Cargo is excluded by the caller, which does not render carried units.
-    pub fn unit_visible(&self, unit: AwbwUnitId) -> bool {
+    pub fn unit_visible(&self, unit: UnitId) -> bool {
         !self.fog || self.units.contains(&unit)
     }
 
@@ -70,8 +71,8 @@ impl ViewerVisibility {
     /// A projection reports a teammate's private state and an opponent's
     /// public state, so this is the observation's own disclosure rule rather
     /// than a second one.
-    pub fn player_disclosed(&self, player: AwbwGamePlayerId) -> bool {
-        !self.fog || self.players.contains(&player)
+    pub fn player_disclosed(&self, player: &PlayerId) -> bool {
+        !self.fog || self.players.contains(player)
     }
 
     /// Forget the selected observation and show everything.
@@ -97,11 +98,11 @@ impl ViewerVisibility {
         }
     }
 
-    pub fn set_unit_visible(&mut self, unit: AwbwUnitId) {
+    pub fn set_unit_visible(&mut self, unit: UnitId) {
         self.units.insert(unit);
     }
 
-    pub fn set_player_disclosed(&mut self, player: AwbwGamePlayerId) {
+    pub fn set_player_disclosed(&mut self, player: PlayerId) {
         self.players.insert(player);
     }
 }
@@ -115,8 +116,8 @@ mod tests {
         let visibility = ViewerVisibility::default();
         assert!(!visibility.fog_active());
         assert!(visibility.tile_visible(Pos::new(4, 9)));
-        assert!(visibility.unit_visible(AwbwUnitId::new(7)));
-        assert!(visibility.player_disclosed(AwbwGamePlayerId::new(3)));
+        assert!(visibility.unit_visible(UnitId::new(7)));
+        assert!(visibility.player_disclosed(&PlayerId::from("3")));
     }
 
     #[test]
@@ -124,17 +125,17 @@ mod tests {
         let mut visibility = ViewerVisibility::default();
         visibility.reset(true, Dimensions::new(3, 3));
         visibility.set_tile_visible(Pos::new(1, 1));
-        visibility.set_unit_visible(AwbwUnitId::new(7));
-        visibility.set_player_disclosed(AwbwGamePlayerId::new(3));
+        visibility.set_unit_visible(UnitId::new(7));
+        visibility.set_player_disclosed(PlayerId::from("3"));
 
         assert!(visibility.tile_visible(Pos::new(1, 1)));
         assert!(visibility.is_fogged(Pos::new(0, 0)));
         // Off the board is never visible, and never panics.
         assert!(visibility.is_fogged(Pos::new(9, 9)));
-        assert!(visibility.unit_visible(AwbwUnitId::new(7)));
-        assert!(!visibility.unit_visible(AwbwUnitId::new(8)));
-        assert!(visibility.player_disclosed(AwbwGamePlayerId::new(3)));
-        assert!(!visibility.player_disclosed(AwbwGamePlayerId::new(4)));
+        assert!(visibility.unit_visible(UnitId::new(7)));
+        assert!(!visibility.unit_visible(UnitId::new(8)));
+        assert!(visibility.player_disclosed(&PlayerId::from("3")));
+        assert!(!visibility.player_disclosed(&PlayerId::from("4")));
     }
 
     #[test]
@@ -143,7 +144,7 @@ mod tests {
         visibility.reset(false, Dimensions::new(3, 3));
 
         assert!(visibility.tile_visible(Pos::new(2, 2)));
-        assert!(visibility.unit_visible(AwbwUnitId::new(1)));
-        assert!(visibility.player_disclosed(AwbwGamePlayerId::new(1)));
+        assert!(visibility.unit_visible(UnitId::new(1)));
+        assert!(visibility.player_disclosed(&PlayerId::from("1")));
     }
 }

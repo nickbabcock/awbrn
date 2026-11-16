@@ -1,21 +1,22 @@
 use crate::features::player_roster::{
     PlayerRosterConfig, emit_player_roster_updated, player_id_for_faction,
 };
-use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
+use awbrn_types::PlayerFaction;
+use awvm::semantic::PlayerId;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
-#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub struct SetPlayerDisplayFaction {
-    pub player_id: AwbwGamePlayerId,
+    pub player_id: PlayerId,
     pub faction: Option<PlayerFaction>,
 }
 
 #[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
-pub struct PlayerDisplayFactionOverrides(pub HashMap<AwbwGamePlayerId, PlayerFaction>);
+pub struct PlayerDisplayFactionOverrides(pub HashMap<PlayerId, PlayerFaction>);
 
 impl PlayerDisplayFactionOverrides {
-    pub fn set(&mut self, player_id: AwbwGamePlayerId, faction: Option<PlayerFaction>) -> bool {
+    pub fn set(&mut self, player_id: PlayerId, faction: Option<PlayerFaction>) -> bool {
         match faction {
             Some(faction) => self.0.insert(player_id, faction) != Some(faction),
             None => self.0.remove(&player_id).is_some(),
@@ -24,16 +25,16 @@ impl PlayerDisplayFactionOverrides {
 
     pub fn display_faction_for_player(
         &self,
-        player_id: AwbwGamePlayerId,
+        player_id: &PlayerId,
         actual_faction: PlayerFaction,
     ) -> PlayerFaction {
-        self.0.get(&player_id).copied().unwrap_or(actual_faction)
+        self.0.get(player_id).copied().unwrap_or(actual_faction)
     }
 }
 
 pub fn display_faction_for_player(
     overrides: Option<&PlayerDisplayFactionOverrides>,
-    player_id: AwbwGamePlayerId,
+    player_id: &PlayerId,
     actual_faction: PlayerFaction,
 ) -> PlayerFaction {
     overrides
@@ -61,7 +62,7 @@ fn apply_player_display_faction_commands(
     mut messages: MessageReader<SetPlayerDisplayFaction>,
     mut overrides: ResMut<PlayerDisplayFactionOverrides>,
 ) {
-    for command in messages.read().copied() {
+    for command in messages.read().cloned() {
         overrides.set(command.player_id, command.faction);
     }
 }

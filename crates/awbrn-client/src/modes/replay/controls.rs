@@ -1,9 +1,10 @@
-use crate::features::event_bus::{EventSink, ReplayViewpointChanged};
+use crate::features::event_bus::{EventSink, ReplayViewpointChanged, js_player_id};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::navigation::action_requires_path_animation;
 use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplaySeekCommand, ReplayTurnCommand};
 use crate::modes::replay::state::ReplayControlState;
 use awbrn_bevy::replay::{ReplayState, ReplayViewpoint};
+use awvm::semantic::PlayerId;
 use bevy::input::{ButtonState, keyboard::KeyboardInput};
 use bevy::prelude::*;
 
@@ -137,7 +138,9 @@ pub(crate) fn handle_replay_controls(
                     _ => unreachable!(),
                 };
                 if let Some(player_id) = registry.player_id_at_index(index) {
-                    viewpoint.set_if_neq(awbrn_bevy::replay::ReplayViewpoint::Player(player_id));
+                    viewpoint.set_if_neq(awbrn_bevy::replay::ReplayViewpoint::Player(
+                        player_id.clone(),
+                    ));
                 }
             }
             _ => {}
@@ -153,7 +156,7 @@ pub(crate) fn handle_replay_controls(
 /// key was pressed on the board.
 pub fn set_replay_viewpoint(
     world: &mut World,
-    player_id: Option<awbrn_types::AwbwGamePlayerId>,
+    player_id: Option<PlayerId>,
     follows_active_player: bool,
 ) {
     let next = match (player_id, follows_active_player) {
@@ -180,14 +183,17 @@ pub fn emit_replay_viewpoint(
 
     let (player_id, follows_active_player) = match viewpoint.as_ref() {
         ReplayViewpoint::Spectator => (None, false),
-        ReplayViewpoint::ActivePlayer => {
-            (replay_state.and_then(|state| state.active_player_id), true)
-        }
-        ReplayViewpoint::Player(player) => (Some(*player), false),
+        ReplayViewpoint::ActivePlayer => (
+            replay_state
+                .as_deref()
+                .and_then(|state| state.active_player_id.as_ref()),
+            true,
+        ),
+        ReplayViewpoint::Player(player) => (Some(player), false),
     };
 
     sink.emit(ReplayViewpointChanged {
-        player_id: player_id.map(|player| player.as_u32()),
+        player_id: player_id.map(js_player_id),
         follows_active_player,
     });
 }
@@ -196,17 +202,17 @@ pub fn emit_replay_viewpoint(
 mod tests {
     use super::*;
     use crate::loading::apply_replay_building_overrides;
-    use crate::modes::replay::bootstrap::initialize_replay_semantic_world_for_client;
+    use crate::modes::replay::bootstrap::initialize_loaded_replay_world;
     use crate::modes::replay::timeline::{
         ReplayNavigate, ReplayOutline, ReplayTarget, handle_replay_navigation,
     };
     use crate::render::animation::UnitPathAnimation;
     use awbrn_bevy::GameWorldPlugin;
     use awbrn_bevy::MapPosition;
-    use awbrn_bevy::replay::AwbwUnitId;
+    use awbrn_bevy::world::UnitId;
     use awbrn_bevy::world::{GameMap, StrongIdMap};
     use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
-    use awbrn_types::AwbwGamePlayerId;
+    use awbw_replay::AwbwGamePlayerId;
     use awbw_replay::AwbwReplay;
     use awbw_replay::ReplayParser;
     use awbw_replay::turn_models::{Action, PowerAction};
@@ -512,7 +518,7 @@ mod tests {
         app.add_systems(Update, handle_replay_controls);
         app.insert_resource(ReplayState::default());
         app.insert_resource(ReplayAdvanceLock::default());
-        app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
+        app.insert_resource(StrongIdMap::<UnitId>::default());
         app.insert_resource(LoadedReplay(crate::replay_archive::ReplayArchive::Awbw(
             AwbwReplay {
                 games: Vec::new(),
@@ -554,7 +560,7 @@ mod tests {
         app.insert_resource(
             crate::modes::replay::presentation::ReplayTransitionSource::new(adapter),
         );
-        initialize_replay_semantic_world_for_client(app.world_mut());
+        initialize_loaded_replay_world(app.world_mut());
         (app, replay)
     }
 
@@ -605,10 +611,10 @@ mod tests {
             unit: [(
                 TargetedPlayer::Global,
                 Hidden::Visible(UnitProperty {
-                    units_id: awbrn_types::AwbwUnitId::new(1),
+                    units_id: awbw_replay::AwbwUnitId::new(1),
                     units_games_id: Some(1),
                     units_players_id: AwbwGamePlayerId::new(1),
-                    units_name: awbrn_types::AwbwUnitKind::Infantry,
+                    units_name: awbw_types::AwbwUnitKind::Infantry,
                     units_movement_points: Some(3),
                     units_vision: Some(2),
                     units_fuel: Some(99),

@@ -3,10 +3,12 @@
 use std::path::Path;
 
 use awbrn_map::AwbwMapData;
-use awbrn_types::{AwbwCoId, AwbwGamePlayerId, AwbwMapId, PlayerFaction};
+use awbrn_types::PlayerFaction;
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::CoPower;
 use awbw_replay::move_planner::{MovePlanner, PlannerPlayer, PlannerSeat, PlannerSetup};
+use awbw_types::{AwbwCoId, AwbwMapId};
+use awvm::semantic::PlayerId;
 
 pub(super) const RACHEL: AwbwCoId = AwbwCoId::new(28);
 pub(super) const ADDER: AwbwCoId = AwbwCoId::new(11);
@@ -15,7 +17,7 @@ pub(super) const JESS: AwbwCoId = AwbwCoId::new(14);
 /// Game 1710706 on map 186800.
 pub(super) struct Cowboy {
     /// The Blue Moon player.
-    pub player: AwbwGamePlayerId,
+    pub player: PlayerId,
     pub players: Vec<PlannerPlayer>,
     pub replay: AwbwReplay,
     pub map: AwbwMapData,
@@ -68,7 +70,7 @@ pub(super) fn cowboy_seated(
     let map =
         serde_json::from_slice(&std::fs::read(root.join("maps/186800.json")).unwrap()).unwrap();
     Cowboy {
-        player: id(PlayerFaction::BlueMoon),
+        player: awvm_awbw::player_id(id(PlayerFaction::BlueMoon)),
         players,
         replay,
         map,
@@ -81,11 +83,13 @@ impl Cowboy {
     }
 
     /// The player of `faction`.
-    pub fn id(&self, faction: PlayerFaction) -> AwbwGamePlayerId {
-        self.players
-            .iter()
-            .find(|player| player.faction == faction)
-            .unwrap()
-            .id
+    pub fn id(&self, faction: PlayerFaction) -> PlayerId {
+        awvm_awbw::player_id(
+            self.players
+                .iter()
+                .find(|player| player.faction == faction)
+                .unwrap()
+                .id,
+        )
     }
 }

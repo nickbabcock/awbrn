@@ -1,7 +1,8 @@
 use awbrn_map::AwbwMapData;
-use awbrn_types::{AwbwCoId, AwbwMapId, PlayerFaction};
+use awbrn_types::PlayerFaction;
 use awbw_replay::game_models::CoPower;
 use awbw_replay::move_planner::{MovePlanner, PlannerSeat, PlannerSetup};
+use awbw_types::{AwbwCoId, AwbwMapId};
 use awvm::commander::{AreaStrikePolicy, PowerLevel};
 use awvm::query::area_strikes;
 use awvm::semantic::{PlayerId, Pos, PowerState};

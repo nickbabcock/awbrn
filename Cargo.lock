@@ -442,9 +442,7 @@ version = "0.1.0"
 dependencies = [
  "awbrn-map",
  "awbrn-types",
- "awbw-replay",
  "awvm",
- "awvm-awbw",
  "bevy",
  "indexmap",
  "insta",
@@ -465,6 +463,7 @@ dependencies = [
  "awbrn-protocol",
  "awbrn-types",
  "awbw-replay",
+ "awbw-types",
  "awvm",
  "awvm-awbw",
  "bevy",
@@ -482,6 +481,7 @@ name = "awbrn-content"
 version = "0.1.0"
 dependencies = [
  "awbrn-types",
+ "awbw-types",
  "insta",
  "serde",
  "serde_json",
@@ -535,7 +535,6 @@ dependencies = [
  "awvm",
  "bevy",
  "insta",
- "jiff",
  "rstest",
  "serde",
  "serde_json",
@@ -563,6 +562,7 @@ dependencies = [
  "awbrn-map",
  "awbrn-protocol",
  "awbrn-types",
+ "awbw-types",
  "awvm",
  "insta",
  "serde",
@@ -593,6 +593,7 @@ dependencies = [
  "awbrn-map",
  "awbrn-types",
  "awbw-replay",
+ "awbw-types",
  "awvm",
  "bevy",
  "js-sys",
@@ -625,7 +626,6 @@ dependencies = [
 name = "awbw-types"
 version = "0.1.0"
 dependencies = [
- "jiff",
  "serde",
  "serde_json",
  "strum",
@@ -649,6 +649,7 @@ dependencies = [
  "awbrn-map",
  "awbrn-types",
  "awbw-replay",
+ "awbw-types",
  "awvm",
  "highway",
  "indexmap",
@@ -6967,6 +6968,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "awbrn-types",
+ "awbw-types",
  "awvm-awbw",
  "image",
  "indexmap",

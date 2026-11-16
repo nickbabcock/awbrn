@@ -6,9 +6,9 @@ use crate::features::player_roster::PlayerRosterConfig;
 use crate::render::units::HealthOverlayOverride;
 use awbrn_bevy::MapPosition;
 use awbrn_bevy::replay::{
-    AwbwUnitId, ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
-    ReplayViewpoint,
+    ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint,
 };
+use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{
     CaptureProgress, CarriedBy, Faction, GraphicalHp, HasCargo, Hiding, TerrainTile, Unit,
     UnitActive, ViewerVisibility,
@@ -72,7 +72,7 @@ type UnitProjectionItem<'a> = (
     Entity,
     &'a Unit,
     &'a Faction,
-    Option<&'a AwbwUnitId>,
+    Option<&'a UnitId>,
     Option<Ref<'a, UnitActive>>,
     Has<CaptureProgress>,
     Has<HasCargo>,
@@ -109,8 +109,9 @@ fn current_knowledge_key(
         ReplayViewpoint::Spectator => None,
         ReplayViewpoint::ActivePlayer => replay_state
             .active_player_id
+            .as_ref()
             .and_then(|id| registry.knowledge_key_for_player(id)),
-        ReplayViewpoint::Player(id) => registry.knowledge_key_for_player(*id),
+        ReplayViewpoint::Player(id) => registry.knowledge_key_for_player(id),
     }
 }
 
@@ -119,7 +120,7 @@ fn active_faction(
     replay_state: Option<&ReplayState>,
     registry: Option<&ReplayPlayerRegistry>,
 ) -> Option<awbrn_types::PlayerFaction> {
-    let player = replay_state?.active_player_id?;
+    let player = replay_state?.active_player_id.as_ref()?;
     registry?.faction_for_player(player)
 }
 
@@ -154,7 +155,7 @@ fn projected_health(hp: Option<&GraphicalHp>) -> Option<GraphicalHp> {
 /// cannot be named by a projection.
 fn unit_visible_to_viewer(
     resources: &UnitProjectionResources,
-    unit_id: Option<&AwbwUnitId>,
+    unit_id: Option<&UnitId>,
     is_carried: bool,
 ) -> bool {
     if is_carried {
@@ -170,7 +171,7 @@ fn unit_visible_to_viewer(
 fn terrain_for_viewer(
     visibility: &ViewerVisibility,
     knowledge: Option<&ReplayTerrainKnowledge>,
-    knowledge_key: Option<ReplayKnowledgeKey>,
+    knowledge_key: Option<&ReplayKnowledgeKey>,
     position: Pos,
     actual: GraphicalTerrain,
 ) -> GraphicalTerrain {
@@ -183,7 +184,7 @@ fn terrain_for_viewer(
     };
 
     knowledge
-        .and_then(|knowledge| knowledge.by_view.get(&knowledge_key))
+        .and_then(|knowledge| knowledge.by_view.get(knowledge_key))
         .and_then(|known| known.get(position).copied())
         .unwrap_or(actual)
 }
@@ -298,7 +299,7 @@ pub(crate) fn project_terrain_render_state(
         let visible_terrain = terrain_for_viewer(
             resources.visibility.as_ref(),
             resources.knowledge.as_deref(),
-            knowledge_key,
+            knowledge_key.as_ref(),
             position.position(),
             terrain_tile.terrain,
         );
@@ -349,7 +350,8 @@ mod tests {
     use awbrn_bevy::world::GameMap;
     use awbrn_map::AwbrnMap;
     use awbrn_map::Dimensions;
-    use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
+    use awbrn_types::PlayerFaction;
+    use awvm::semantic::PlayerId;
 
     /// A fogged property keeps the owner the viewer last saw on it.
     ///
@@ -358,7 +360,7 @@ mod tests {
     /// visible again the actual owner takes over.
     #[test]
     fn a_fogged_property_draws_the_owner_the_viewer_last_saw() {
-        let player = AwbwGamePlayerId::new(1);
+        let player = PlayerId::from("1");
         let remembered = GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
             PlayerFaction::OrangeStar,
         )));
@@ -371,7 +373,7 @@ mod tests {
         app.add_systems(Update, project_terrain_render_state);
 
         let mut registry = ReplayPlayerRegistry::default();
-        registry.add_player(player, PlayerFaction::OrangeStar, 0);
+        registry.add_player(player.clone(), PlayerFaction::OrangeStar, 0);
         app.world_mut()
             .resource_mut::<GameMap>()
             .set(AwbrnMap::new(Dimensions::new(1, 1), remembered));
@@ -382,7 +384,7 @@ mod tests {
         app.world_mut().insert_resource(registry);
         app.world_mut().insert_resource(knowledge);
         app.world_mut()
-            .insert_resource(ReplayViewpoint::Player(player));
+            .insert_resource(ReplayViewpoint::Player(player.clone()));
         app.world_mut().insert_resource(ReplayState {
             active_player_id: Some(player),
             ..ReplayState::default()
@@ -425,11 +427,11 @@ mod tests {
         app.add_plugins(GameWorldPlugin);
         app.add_systems(Update, project_unit_render_state);
 
-        let seen = awbrn_types::AwbwUnitId::new(1);
-        let unseen = awbrn_types::AwbwUnitId::new(2);
+        let seen = awvm::semantic::UnitId::new(1);
+        let unseen = awvm::semantic::UnitId::new(2);
         for id in [seen, unseen] {
             app.world_mut().spawn((
-                AwbwUnitId(id),
+                UnitId(id),
                 Unit(awbrn_types::Unit::Infantry),
                 Faction(PlayerFaction::OrangeStar),
                 MapPosition::new(0, 0),
@@ -444,7 +446,7 @@ mod tests {
 
         let mut query = app
             .world_mut()
-            .query::<(&AwbwUnitId, &ProjectedUnitRenderState)>();
+            .query::<(&UnitId, &ProjectedUnitRenderState)>();
         let mut drawn = query
             .iter(app.world())
             .filter(|(_, state)| state.visible)
@@ -457,15 +459,15 @@ mod tests {
     /// Only the current player has spent units to gray out.
     #[test]
     fn a_waiting_unit_of_another_player_is_still_drawn_ready() {
-        let current = AwbwGamePlayerId::new(1);
-        let other = AwbwGamePlayerId::new(2);
+        let current = PlayerId::from("1");
+        let other = PlayerId::from("2");
 
         let mut app = App::new();
         app.add_plugins(GameWorldPlugin);
         app.add_systems(Update, project_unit_render_state);
 
         let mut registry = ReplayPlayerRegistry::default();
-        registry.add_player(current, PlayerFaction::OrangeStar, 0);
+        registry.add_player(current.clone(), PlayerFaction::OrangeStar, 0);
         registry.add_player(other, PlayerFaction::BlueMoon, 0);
         app.world_mut().insert_resource(registry);
         app.world_mut().insert_resource(ReplayState {

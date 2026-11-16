@@ -2,6 +2,7 @@ pub mod bootstrap;
 pub mod controls;
 pub mod navigation;
 pub mod presentation;
+pub(crate) mod roster;
 pub(crate) mod state;
 pub mod timeline;
 

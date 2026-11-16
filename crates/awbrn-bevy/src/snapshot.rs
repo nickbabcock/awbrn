@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+use awvm::semantic::PlayerId;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::*;
 use bevy::reflect::TypeRegistry;
@@ -11,10 +12,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::MapPosition;
-use crate::replay::{AwbwUnitId, ReplayState};
+use crate::replay::ReplayState;
 use crate::world::{
     Ammo, BoardRoot, CaptureProgress, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, Hiding,
-    TerrainHp, TerrainTile, Unit, UnitActive, VisionRange, adopt_unattached_board_entities,
+    TerrainHp, TerrainTile, Unit, UnitActive, UnitId, VisionRange, adopt_unattached_board_entities,
     board_root,
 };
 
@@ -39,7 +40,7 @@ impl<T> bevy::reflect::CreateTypeData<T> for ReplaySemanticResourceType {
 pub struct GameSnapshot {
     pub next_action_index: u32,
     pub day: u32,
-    pub active_player_id: Option<awbrn_types::AwbwGamePlayerId>,
+    pub active_player_id: Option<PlayerId>,
     pub scene: DynamicWorld,
 }
 
@@ -57,7 +58,7 @@ impl std::fmt::Debug for GameSnapshot {
 pub struct CanonicalReplaySnapshot {
     pub next_action_index: u32,
     pub day: u32,
-    pub active_player_id: Option<awbrn_types::AwbwGamePlayerId>,
+    pub active_player_id: Option<PlayerId>,
     pub resources: Vec<CanonicalSceneEntry>,
     pub entities: Vec<CanonicalReplayEntity>,
 }
@@ -135,8 +136,8 @@ impl Plugin for GameSnapshotPlugin {
             .register_type_data::<Unit, ReplaySemanticComponentType>()
             .register_type::<Faction>()
             .register_type_data::<Faction, ReplaySemanticComponentType>()
-            .register_type::<AwbwUnitId>()
-            .register_type_data::<AwbwUnitId, ReplaySemanticComponentType>()
+            .register_type::<UnitId>()
+            .register_type_data::<UnitId, ReplaySemanticComponentType>()
             .register_type::<UnitActive>()
             .register_type_data::<UnitActive, ReplaySemanticComponentType>()
             .register_type::<CaptureProgress>()
@@ -168,7 +169,7 @@ pub fn capture_game_snapshot(world: &mut World) -> Result<GameSnapshot, GameSnap
         (
             replay_state.next_action_index,
             replay_state.day,
-            replay_state.active_player_id,
+            replay_state.active_player_id.clone(),
         )
     };
 
@@ -226,12 +227,12 @@ pub fn restore_game_snapshot(
     if let Some(mut replay_state) = world.get_resource_mut::<ReplayState>() {
         replay_state.next_action_index = snapshot.next_action_index;
         replay_state.day = snapshot.day;
-        replay_state.active_player_id = snapshot.active_player_id;
+        replay_state.active_player_id = snapshot.active_player_id.clone();
     } else {
         world.insert_resource(ReplayState {
             next_action_index: snapshot.next_action_index,
             day: snapshot.day,
-            active_player_id: snapshot.active_player_id,
+            active_player_id: snapshot.active_player_id.clone(),
         });
     }
 
@@ -266,7 +267,7 @@ pub fn canonicalize_replay_semantic_snapshot(
     Ok(CanonicalReplaySnapshot {
         next_action_index: snapshot.next_action_index,
         day: snapshot.day,
-        active_player_id: snapshot.active_player_id,
+        active_player_id: snapshot.active_player_id.clone(),
         resources,
         entities,
     })
@@ -528,8 +529,8 @@ fn semantic_id_for_entity(entity: &DynamicEntity) -> Result<String, GameSnapshot
     let mut map_position = None;
 
     for component in &entity.components {
-        if let Some(unit_id) = component.try_downcast_ref::<AwbwUnitId>() {
-            return Ok(format!("unit:{}", unit_id.0.as_u32()));
+        if let Some(unit_id) = component.try_downcast_ref::<UnitId>() {
+            return Ok(format!("unit:{}", unit_id.0.get()));
         }
         if component.try_downcast_ref::<TerrainTile>().is_some() {
             terrain_entity = true;
@@ -626,7 +627,7 @@ mod tests {
     use crate::GameWorldPlugin;
     use crate::world::GameMap;
     use awbrn_map::{AwbrnMap, Dimensions};
-    use awbrn_types::{AwbwGamePlayerId, GraphicalTerrain, PlayerFaction};
+    use awbrn_types::{GraphicalTerrain, PlayerFaction};
     use bevy::{ecs::entity::MapEntities, ecs::reflect::ReflectMapEntities};
 
     #[derive(Component, Reflect, MapEntities)]
@@ -652,7 +653,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
             UnitActive,
         ));
@@ -679,7 +680,7 @@ mod tests {
         app.world_mut().insert_resource(ReplayState {
             next_action_index: 7,
             day: 3,
-            active_player_id: Some(AwbwGamePlayerId::new(42)),
+            active_player_id: Some(PlayerId::from("42")),
         });
         app.world_mut().spawn((
             MapPosition::new(0, 0),
@@ -691,7 +692,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
             UnitActive,
             Fuel(60),
@@ -720,18 +721,18 @@ mod tests {
         app.world_mut().insert_resource(ReplayState {
             next_action_index: 7,
             day: 3,
-            active_player_id: Some(AwbwGamePlayerId::new(42)),
+            active_player_id: Some(PlayerId::from("42")),
         });
 
         let snapshot = capture_game_snapshot(app.world_mut()).unwrap();
-        assert_eq!(snapshot.active_player_id, Some(AwbwGamePlayerId::new(42)));
+        assert_eq!(snapshot.active_player_id, Some(PlayerId::from("42")));
 
         let mut restored = snapshot_test_app();
         restore_game_snapshot(restored.world_mut(), &snapshot).unwrap();
 
         assert_eq!(
             restored.world().resource::<ReplayState>().active_player_id,
-            Some(AwbwGamePlayerId::new(42))
+            Some(PlayerId::from("42"))
         );
     }
 
@@ -749,7 +750,7 @@ mod tests {
             .spawn((
                 MapPosition::new(0, 0),
                 Faction(PlayerFaction::OrangeStar),
-                AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+                UnitId(awvm::semantic::UnitId::new(1)),
                 Unit(awbrn_types::Unit::Apc),
                 UnitActive,
             ))
@@ -759,7 +760,7 @@ mod tests {
             .spawn((
                 MapPosition::new(0, 0),
                 Faction(PlayerFaction::OrangeStar),
-                AwbwUnitId(awbrn_types::AwbwUnitId::new(2)),
+                UnitId(awvm::semantic::UnitId::new(2)),
                 Unit(awbrn_types::Unit::Infantry),
                 TestEntityRef(transport),
             ))
@@ -856,7 +857,7 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(7)),
+            UnitId(awvm::semantic::UnitId::new(7)),
             Unit(awbrn_types::Unit::Tank),
             Fuel(37),
             Ammo(5),
@@ -907,13 +908,13 @@ mod tests {
         app.world_mut().spawn((
             MapPosition::new(0, 0),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             Unit(awbrn_types::Unit::Infantry),
         ));
         app.world_mut().spawn((
             MapPosition::new(1, 0),
             Faction(PlayerFaction::BlueMoon),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             Unit(awbrn_types::Unit::Mech),
         ));
 

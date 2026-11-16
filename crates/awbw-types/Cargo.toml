@@ -7,7 +7,6 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-jiff.workspace = true
 serde.workspace = true
 strum.workspace = true
 

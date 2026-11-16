@@ -11,7 +11,8 @@
 use awbrn_ai::{AiTier, profile_for_tier};
 use awbrn_map::{AwbrnMap, AwbwMapData, ValidatedMapDocument};
 use awbrn_server::{Co, GameServer, GameSetup, PlayerSetup, StoredActionEvent, play_ai_turn};
-use awbrn_types::{AwbwCoId, CoExt, PlayerFaction};
+use awbrn_types::{CoExt, PlayerFaction};
+use awbw_types::AwbwCoId;
 
 /// Amber Valley, the board the arena plays.
 const MAP: &str = include_str!("../../../assets/maps/61748.json");

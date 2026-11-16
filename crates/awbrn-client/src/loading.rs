@@ -8,7 +8,7 @@ use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Pos, ValidatedMapDocument};
 use awbw_replay::game_models::AwbwPlayer;
 use awbw_replay::{AwbwReplay, game_models::AwbwBuilding};
-use awvm::semantic::{Observation, ObservedTransition};
+use awvm::semantic::{Observation, ObservedTransition, PlayerId};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -66,10 +66,10 @@ pub struct ReplayToLoad(pub Vec<u8>);
 #[derive(Debug, Resource)]
 pub struct MovePlannerToLoad {
     pub replay: AwbwReplay,
-    pub previewed_player: Option<awbrn_types::AwbwGamePlayerId>,
+    pub previewed_player: Option<PlayerId>,
     /// How many powers each player's CO used before, which raises the cost
     /// of the next one. A player without an entry used none.
-    pub power_uses: Vec<(awbrn_types::AwbwGamePlayerId, u64)>,
+    pub power_uses: Vec<(PlayerId, u64)>,
 }
 
 /// Resource containing the loaded replay data
@@ -273,7 +273,7 @@ pub(crate) fn detect_move_planner_to_load(
             games: std::mem::take(&mut planner.replay.games),
             turns: Vec::new(),
         },
-        previewed_player: planner.previewed_player,
+        previewed_player: planner.previewed_player.take(),
         power_uses: std::mem::take(&mut planner.power_uses),
     });
     commands.insert_resource(asset_loader.load_pending_ui_atlas());
@@ -639,9 +639,8 @@ impl Plugin for LoadingPlugin {
 mod tests {
     use super::*;
     use awbrn_map::Dimensions;
-    use awbrn_types::{
-        AwbwDateTime, AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property,
-    };
+    use awbrn_types::{AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property};
+    use awbw_replay::AwbwDateTime;
     use awbw_replay::game_models::{AwbwGame, CoPower, MatchType};
     use std::collections::HashMap;
 
@@ -745,14 +744,14 @@ mod tests {
     fn replay_loaded_event_resolves_cos_and_sorts_players() {
         let replay = AwbwReplay {
             games: vec![AwbwGame {
-                id: awbrn_types::AwbwGameId::new(7),
+                id: awbw_replay::AwbwGameId::new(7),
                 name: "Test Replay".to_string(),
                 password: None,
-                creator: awbrn_types::AwbwPlayerId::new(99),
+                creator: awbw_replay::AwbwPlayerId::new(99),
                 start_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 end_date: None,
                 activity_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
-                maps_id: awbrn_types::AwbwMapId::new(162795),
+                maps_id: awbw_types::AwbwMapId::new(162795),
                 weather_type: "Clear".to_string(),
                 weather_start: None,
                 weather_code: "C".to_string(),
@@ -780,15 +779,15 @@ mod tests {
                         2,
                         2,
                         PlayerFaction::BlueMoon,
-                        awbrn_types::AwbwCoId::new(30),
-                        Some(awbrn_types::AwbwCoId::new(31)),
+                        awbw_types::AwbwCoId::new(30),
+                        Some(awbw_types::AwbwCoId::new(31)),
                         "B",
                     ),
                     test_player(
                         1,
                         1,
                         PlayerFaction::OrangeStar,
-                        awbrn_types::AwbwCoId::new(11),
+                        awbw_types::AwbwCoId::new(11),
                         None,
                         "A",
                     ),
@@ -823,14 +822,14 @@ mod tests {
     fn replay_loaded_event_uses_null_for_unknown_cos() {
         let replay = AwbwReplay {
             games: vec![AwbwGame {
-                id: awbrn_types::AwbwGameId::new(9),
+                id: awbw_replay::AwbwGameId::new(9),
                 name: "Unknown CO Replay".to_string(),
                 password: None,
-                creator: awbrn_types::AwbwPlayerId::new(99),
+                creator: awbw_replay::AwbwPlayerId::new(99),
                 start_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 end_date: None,
                 activity_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
-                maps_id: awbrn_types::AwbwMapId::new(162795),
+                maps_id: awbw_types::AwbwMapId::new(162795),
                 weather_type: "Clear".to_string(),
                 weather_start: None,
                 weather_code: "C".to_string(),
@@ -857,8 +856,8 @@ mod tests {
                     1,
                     1,
                     PlayerFaction::OrangeStar,
-                    awbrn_types::AwbwCoId::new(999),
-                    Some(awbrn_types::AwbwCoId::new(888)),
+                    awbw_types::AwbwCoId::new(999),
+                    Some(awbw_types::AwbwCoId::new(888)),
                     "A",
                 )],
                 buildings: Vec::new(),
@@ -883,14 +882,14 @@ mod tests {
         player_id: u32,
         order: u32,
         faction: PlayerFaction,
-        co_id: awbrn_types::AwbwCoId,
-        tag_co_id: Option<awbrn_types::AwbwCoId>,
+        co_id: awbw_types::AwbwCoId,
+        tag_co_id: Option<awbw_types::AwbwCoId>,
         team: &str,
     ) -> AwbwPlayer {
         AwbwPlayer {
-            id: awbrn_types::AwbwGamePlayerId::new(player_id),
-            users_id: awbrn_types::AwbwPlayerId::new(100 + player_id),
-            games_id: awbrn_types::AwbwGameId::new(1),
+            id: awbw_replay::AwbwGamePlayerId::new(player_id),
+            users_id: awbw_replay::AwbwPlayerId::new(100 + player_id),
+            games_id: awbw_replay::AwbwGameId::new(1),
             faction,
             co_id,
             funds: 0,

@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 awbrn-types = { path = "../awbrn-types" }
+awbw-types = { path = "../awbw-types" }
 awvm-awbw = { path = "../awvm-awbw" }
 # The country logos and the power stars are GIFs; everything else the
 # pipeline reads is a PNG.

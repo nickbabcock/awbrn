@@ -16,7 +16,8 @@ use std::collections::HashSet;
 use awbrn_bevy::MapPosition;
 use awbrn_bevy::world::{GameMap, Unit};
 use awbrn_map::Pos;
-use awbrn_types::{AwbwGamePlayerId, UnitExt};
+use awbrn_types::UnitExt;
+use awvm::semantic::PlayerId;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -364,12 +365,14 @@ fn unit_at(state: &awvm::semantic::State, position: Pos) -> Option<&awvm::semant
 /// A replay following the turn is a seat that changes hands rather than no
 /// seat at all: the board it draws is fogged to whoever is playing, and a
 /// reading that answered past that fog would contradict the picture around it.
-fn seated_player(unit_selection: &PlayUnitSelectionParams<'_, '_>) -> Option<AwbwGamePlayerId> {
+fn seated_player<'a>(unit_selection: &'a PlayUnitSelectionParams<'_, '_>) -> Option<&'a PlayerId> {
     match unit_selection.viewpoint.as_deref()? {
-        awbrn_bevy::replay::ReplayViewpoint::Player(player) => Some(*player),
-        awbrn_bevy::replay::ReplayViewpoint::ActivePlayer => {
-            unit_selection.replay_state.as_deref()?.active_player_id
-        }
+        awbrn_bevy::replay::ReplayViewpoint::Player(player) => Some(player),
+        awbrn_bevy::replay::ReplayViewpoint::ActivePlayer => unit_selection
+            .replay_state
+            .as_deref()?
+            .active_player_id
+            .as_ref(),
         awbrn_bevy::replay::ReplayViewpoint::Spectator => None,
     }
 }
@@ -479,8 +482,8 @@ pub(crate) fn follow_selection(selected: Res<SelectedUnit>, mut inspected: ResMu
 /// Held rather than read off the board each frame because the clearing is
 /// wanted on the change and not on the value: a reading opened on day three
 /// stays up for the rest of day three.
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) struct InspectionTurn(Option<(u32, Option<AwbwGamePlayerId>)>);
+#[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct InspectionTurn(Option<(u32, Option<PlayerId>)>);
 
 /// Put a reading down when the turn passes.
 ///
@@ -498,8 +501,8 @@ pub(crate) fn clear_inspection_on_turn_boundary(
     let Some(replay_state) = replay_state else {
         return;
     };
-    let now = (replay_state.day, replay_state.active_player_id);
-    if turn.0 == Some(now) {
+    let now = (replay_state.day, replay_state.active_player_id.clone());
+    if turn.0.as_ref() == Some(&now) {
         return;
     }
     // The first turn the client ever sees is not a boundary. Clearing there

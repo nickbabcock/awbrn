@@ -20,7 +20,7 @@ pub use id_index::StrongIdMap;
 pub use map::{GameMap, TerrainHp, TerrainTile, initialize_terrain_semantic_world};
 pub use units::{
     Ammo, CaptureProgress, CaptureResolution, Cargo, CarriedBy, Faction, Fuel, GraphicalHp,
-    HasCargo, Hiding, Unit, UnitActive, UnitDestroyed, UnitHp, VisionRange,
+    HasCargo, Hiding, Unit, UnitActive, UnitDestroyed, UnitHp, UnitId, VisionRange,
 };
 pub use visibility::{FriendlyFactions, ViewerVisibility};
 pub use weather::CurrentWeather;

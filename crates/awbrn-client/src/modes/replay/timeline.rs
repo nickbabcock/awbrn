@@ -11,7 +11,7 @@
 
 use bevy::prelude::*;
 
-use crate::features::event_bus::{EventSink, ReplayPositionChanged};
+use crate::features::event_bus::{EventSink, ReplayPositionChanged, js_player_id};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::controls::advance_replay_action;
 use crate::modes::replay::presentation::{
@@ -20,6 +20,7 @@ use crate::modes::replay::presentation::{
 use crate::render::animation::UnitPathAnimation;
 use crate::replay_archive::ReplayBoundary;
 use awbrn_bevy::replay::ReplayState;
+use awvm::semantic::PlayerId;
 
 /// Every boundary the loaded archive can be read at, opening included, so
 /// `0` is the position before the first action.
@@ -29,10 +30,10 @@ pub struct ReplayOutline(pub Vec<ReplayBoundary>);
 impl ReplayOutline {
     /// The turn a boundary falls in. Two boundaries in the same turn answer
     /// with the same value.
-    fn turn_at(&self, index: usize) -> Option<(u32, Option<u32>)> {
+    fn turn_at(&self, index: usize) -> Option<(u32, &PlayerId)> {
         self.0
             .get(index)
-            .map(|boundary| (boundary.day, boundary.active_player))
+            .map(|boundary| (boundary.day, &boundary.active_player))
     }
 
     /// Where the turn holding this boundary began.
@@ -208,7 +209,9 @@ pub(crate) fn emit_replay_position(
             .turn_at(index)
             .map(|(day, _)| day)
             .unwrap_or(replay_state.day),
-        active_player_id: outline.turn_at(index).and_then(|(_, player)| player),
+        active_player_id: outline
+            .turn_at(index)
+            .map(|(_, player)| js_player_id(player)),
         previous_turn_index: outline.previous_turn_start(index).map(|start| start as u32),
         next_turn_index: outline.next_turn_start(index).map(|start| start as u32),
     });
@@ -220,13 +223,13 @@ mod tests {
 
     /// Two seats, three actions each, over two days.
     fn outline() -> ReplayOutline {
-        let turns = [(1, 0), (1, 1), (2, 0), (2, 1)];
+        let turns = [(1, "0"), (1, "1"), (2, "0"), (2, "1")];
         let mut boundaries = Vec::new();
         for (day, player) in turns {
             for _ in 0..3 {
                 boundaries.push(ReplayBoundary {
                     day,
-                    active_player: Some(player),
+                    active_player: PlayerId::from(player),
                 });
             }
         }

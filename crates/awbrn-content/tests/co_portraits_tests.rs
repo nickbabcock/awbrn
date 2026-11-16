@@ -1,5 +1,5 @@
 use awbrn_content::{co_portrait_by_awbw_id, co_portraits};
-use awbrn_types::AwbwCoId;
+use awbw_types::AwbwCoId;
 use std::collections::HashSet;
 
 #[test]

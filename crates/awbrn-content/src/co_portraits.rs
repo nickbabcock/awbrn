@@ -1,4 +1,4 @@
-use awbrn_types::AwbwCoId;
+use awbw_types::AwbwCoId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CoPortraitMetadata {

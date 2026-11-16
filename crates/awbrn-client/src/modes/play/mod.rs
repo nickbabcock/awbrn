@@ -7,7 +7,7 @@ use crate::features::event_bus::{
     AttackForecast, AttackPreviewChanged, DamageBracket, DeleteUnitCommandRequested, EventSink,
     ForecastTarget, MoveCommandRequested, PostMoveAction, ProductionOption,
     ProductionOptionsChanged, ProductionSite, ScreenPoint, TurnReadinessChanged, UnitActionOption,
-    UnitActionsChanged, UnitBadge, UnitOrder, UnloadCommandRequested,
+    UnitActionsChanged, UnitBadge, UnitOrder, UnloadCommandRequested, player_id_from_js,
 };
 use crate::features::input::{
     BoardCursor, BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerIsCoarse,
@@ -16,7 +16,7 @@ use crate::features::input::{
 use crate::render::UiAtlas;
 use crate::render::course_arrow::{COURSE_ARROW_SPRITE_SIZE, build_course_arrow_spawns};
 use awbrn_bevy::MapPosition;
-use awbrn_bevy::replay::AwbwUnitId;
+use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{
     BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, HasCargo, Unit,
     UnitActive,
@@ -204,7 +204,7 @@ fn scan_buildable_sites(
     let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
         return Vec::new();
     };
-    let Some(observation) = observations.for_player(*player) else {
+    let Some(observation) = observations.for_player(player) else {
         return Vec::new();
     };
     // The same gate the build order itself opens behind. Asking after every
@@ -423,7 +423,7 @@ pub(crate) struct PlayUnitSelectionParams<'w, 's> {
     game_map: Res<'w, GameMap>,
     friendly_factions: Res<'w, FriendlyFactions>,
     units: Query<'w, 's, UnitSelectionQueryItem<'static>, With<Unit>>,
-    unit_ids: Query<'w, 's, &'static AwbwUnitId, With<Unit>>,
+    unit_ids: Query<'w, 's, &'static UnitId, With<Unit>>,
     graphical_hp: Query<'w, 's, &'static GraphicalHp, With<Unit>>,
     observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
     viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
@@ -578,11 +578,9 @@ fn unit_session(
     let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
         return None;
     };
-    let observation = observations.for_player(*player)?;
-    // The AWBW unit id and the AWVM unit id are the same number by
-    // construction. See `awvm_awbw::command::unit_id`.
+    let observation = observations.for_player(player)?;
     let session = awvm::session::Session::from_observation(observation).ok()?;
-    let index = session.index_of(awvm::semantic::UnitId::new(id.0.as_u32()))?;
+    let index = session.index_of(id.0)?;
     Some((session, index))
 }
 
@@ -1307,7 +1305,7 @@ fn emit_production_options(
         close_production_options(Some(sink));
         return;
     };
-    let Some(observation) = observations.for_player(*player) else {
+    let Some(observation) = observations.for_player(player) else {
         close_production_options(Some(sink));
         return;
     };
@@ -1968,18 +1966,8 @@ pub(crate) fn seed_live_presentation(
             );
             continue;
         };
-        registry.add_player(
-            awbrn_types::AwbwGamePlayerId::new(player.player_id),
-            faction,
-            0,
-        );
+        registry.add_player(player_id_from_js(player.player_id), faction, 0);
     }
-    let recipient = observation
-        .recipient
-        .as_str()
-        .parse::<u32>()
-        .ok()
-        .map(awbrn_types::AwbwGamePlayerId::new);
     let knowledge = awbrn_bevy::replay::ReplayTerrainKnowledge::from_map_and_registry(
         world.resource::<GameMap>(),
         &registry,
@@ -1987,11 +1975,9 @@ pub(crate) fn seed_live_presentation(
     world.insert_resource(registry);
     world.insert_resource(knowledge);
     world.insert_resource(awbrn_bevy::replay::ReplayState::default());
-    world.insert_resource(
-        recipient
-            .map(awbrn_bevy::replay::ReplayViewpoint::Player)
-            .unwrap_or(awbrn_bevy::replay::ReplayViewpoint::Spectator),
-    );
+    world.insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
+        observation.recipient.clone(),
+    ));
 }
 
 pub(crate) fn apply_pending_live_transition(
@@ -2146,15 +2132,13 @@ pub(crate) fn emit_unit_actions(
         return;
     };
     let (Some(observation), Ok(unit_id)) = (
-        observations.for_player(*player),
+        observations.for_player(player),
         unit_selection.unit_ids.get(pending.unit),
     ) else {
         close_unit_actions(Some(sink));
         return;
     };
-    // The AWBW unit id and the AWVM unit id are the same number by
-    // construction; see `awvm_awbw::command::unit_id`.
-    let semantic_unit_id = awvm::semantic::UnitId::new(unit_id.0.as_u32());
+    let semantic_unit_id = unit_id.0;
     // One session answers the whole menu: what may be done here, what may be
     // put down, whether the unit may go, and what each strike would do.
     let Ok(session) = awvm::session::Session::from_observation(observation) else {
@@ -2511,7 +2495,7 @@ fn unit_id_at_position(
         .unit_ids
         .get(entity)
         .ok()
-        .map(|id| id.0.as_u32())
+        .map(|id| id.0.get())
 }
 
 /// Send the chosen order, and remember enough to undo the sending.
@@ -2559,7 +2543,7 @@ pub(crate) fn handle_unit_action_chosen(
                 return;
             };
             sink.emit(DeleteUnitCommandRequested {
-                unit_id: unit_id.0.as_u32(),
+                unit_id: unit_id.0.get(),
             });
         }
         UnitOrder::Move { action } => {
@@ -2568,7 +2552,7 @@ pub(crate) fn handle_unit_action_chosen(
                 return;
             };
             sink.emit(MoveCommandRequested {
-                unit_id: unit_id.0.as_u32(),
+                unit_id: unit_id.0.get(),
                 path: pending.path.clone(),
                 action: action.clone(),
             });
@@ -2579,7 +2563,7 @@ pub(crate) fn handle_unit_action_chosen(
                 return;
             };
             sink.emit(UnloadCommandRequested {
-                transport_id: unit_id.0.as_u32(),
+                transport_id: unit_id.0.get(),
                 cargo_id: *cargo_id,
                 position: *position,
             });
@@ -2811,7 +2795,7 @@ mod tests {
     use awbrn_map::{AwbwMap, AwbwMapData};
     use awbrn_types::{GraphicalTerrain, PlayerFaction};
     use awbw_replay::ReplayParser;
-    use awvm::semantic::{AwbwVisibility, State, observe};
+    use awvm::semantic::{AwbwVisibility, PlayerId, State, observe};
     use awvm_awbw::RecordedAdapter;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
@@ -2857,7 +2841,7 @@ mod tests {
         app.init_resource::<BoardIndex>();
         app.init_resource::<GameMap>();
         app.init_resource::<FriendlyFactions>();
-        app.init_resource::<StrongIdMap<AwbwUnitId>>();
+        app.init_resource::<StrongIdMap<UnitId>>();
         app.init_resource::<ButtonInput<KeyCode>>();
         app.init_resource::<crate::features::input::KeyboardCursor>();
         app.add_message::<bevy::input::keyboard::KeyboardInput>();
@@ -2915,14 +2899,14 @@ mod tests {
             &Faction,
             Option<&Fuel>,
             Has<UnitActive>,
-            &AwbwUnitId,
+            &UnitId,
         )>();
         let units: Vec<_> = query
             .iter(app.world())
             .map(|(position, unit, faction, fuel, active, id)| {
                 let owner = if faction.0 == PlayerFaction::OrangeStar { "0" } else { "1" };
                 serde_json::json!({
-                    "id": id.0.as_u32(),
+                    "id": id.0.get(),
                     "kind": unit.0,
                     "owner": owner,
                     "hp": 100,
@@ -2978,9 +2962,9 @@ mod tests {
             .contains_resource::<awbrn_bevy::replay::ReplayViewpoint>()
         {
             app.world_mut()
-                .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                    awbrn_types::AwbwGamePlayerId::new(0),
-                ));
+                .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                    "0",
+                )));
         }
     }
 
@@ -3022,7 +3006,7 @@ mod tests {
             MapPosition::from(position),
             Unit(unit),
             Faction(faction),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(id)),
+            UnitId(awvm::semantic::UnitId::new(id)),
         ));
         if active {
             entity.insert(UnitActive);
@@ -3507,7 +3491,7 @@ mod tests {
             .insert_resource(awbrn_bevy::replay::ReplayViewpoint::ActivePlayer);
         app.world_mut()
             .insert_resource(awbrn_bevy::replay::ReplayState {
-                active_player_id: Some(awbrn_types::AwbwGamePlayerId::new(0)),
+                active_player_id: Some(PlayerId::from("0")),
                 ..Default::default()
             });
         app.update();
@@ -3865,9 +3849,9 @@ mod tests {
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -4097,14 +4081,12 @@ mod tests {
         );
 
         // The recipient's own funds are private and only they observe them.
-        let recipient_id =
-            awbrn_types::AwbwGamePlayerId::new(recipient.as_str().parse::<u32>().unwrap());
         assert_eq!(
-            app.world().resource::<PlayerFunds>().get(recipient_id),
+            app.world().resource::<PlayerFunds>().get(&recipient),
             replay.games[0]
                 .players
                 .iter()
-                .find(|player| player.id.as_u32() == recipient_id.as_u32())
+                .find(|player| awvm_awbw::player_id(player.id) == recipient)
                 .unwrap()
                 .funds
         );
@@ -4113,9 +4095,9 @@ mod tests {
         let meters = app.world().resource::<PlayerPowerMeters>();
         for player in &config.players {
             assert!(
-                meters.get(player.player_id).is_some(),
+                meters.get(&player.player_id).is_some(),
                 "power meter is public and should be seeded for player {}",
-                player.player_id.as_u32()
+                player.player_id
             );
         }
     }
@@ -4846,9 +4828,9 @@ mod tests {
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -4887,7 +4869,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+            .insert(UnitId(awvm::semantic::UnitId::new(42)));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -4950,7 +4932,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(transport)
-            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+            .insert(UnitId(awvm::semantic::UnitId::new(42)));
 
         app.world_mut().resource_mut::<SelectedUnit>().0 = Some(SelectedUnitSelection {
             entity: transport,
@@ -5014,7 +4996,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+            .insert(UnitId(awvm::semantic::UnitId::new(42)));
 
         let menus = Arc::new(Mutex::new(Vec::new()));
         let menus_by_sink = std::sync::Arc::clone(&menus);
@@ -5100,16 +5082,16 @@ mod tests {
         app.world_mut().spawn((
             Unit(awbrn_types::Unit::Infantry),
             Faction(PlayerFaction::OrangeStar),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             CarriedBy(transport),
         ));
         let mut observations = awbrn_bevy::replay::RecipientObservations::default();
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
@@ -5167,7 +5149,7 @@ mod tests {
         );
         app.world_mut()
             .entity_mut(unit)
-            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+            .insert(UnitId(awvm::semantic::UnitId::new(42)));
         app.world_mut()
             .insert_resource(EventSink::<MoveCommandRequested>::new(|_| {}));
 
@@ -5817,7 +5799,7 @@ mod tests {
         let observation = app
             .world()
             .resource::<awbrn_bevy::replay::RecipientObservations>()
-            .for_player(awbrn_types::AwbwGamePlayerId::new(0))
+            .for_player(&PlayerId::from("0"))
             .unwrap()
             .clone();
         app.world_mut()
@@ -6070,9 +6052,9 @@ mod tests {
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
-            ));
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(PlayerId::from(
+                "0",
+            )));
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()

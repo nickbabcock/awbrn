@@ -6,6 +6,8 @@ use bevy::ecs::relationship::RelationshipSourceCollection;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 
+use super::StrongIdMap;
+
 #[derive(Debug, EntityEvent)]
 pub struct UnitDestroyed {
     pub entity: Entity,
@@ -13,6 +15,40 @@ pub struct UnitDestroyed {
 
 pub fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Commands) {
     commands.entity(trigger.entity).despawn();
+}
+
+/// The rules engine's id for a unit, which every snapshot of it keeps.
+///
+/// `awvm` cannot derive Bevy's `Component`, so the ECS holds its id in this
+/// wrapper. An `Entity` is not a substitute: it changes when a snapshot is
+/// restored.
+#[derive(
+    Component,
+    Reflect,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[component(immutable, on_add = on_unit_id_add, on_remove = on_unit_id_remove)]
+#[reflect(opaque)]
+#[reflect(Component, Serialize, Deserialize)]
+pub struct UnitId(pub awvm::semantic::UnitId);
+
+fn on_unit_id_add(mut world: DeferredWorld, context: HookContext) {
+    let unit_id = *world.get::<UnitId>(context.entity).unwrap();
+    world
+        .resource_mut::<StrongIdMap<UnitId>>()
+        .insert(unit_id, context.entity);
+}
+
+fn on_unit_id_remove(mut world: DeferredWorld, context: HookContext) {
+    let unit_id = *world.get::<UnitId>(context.entity).unwrap();
+    world.resource_mut::<StrongIdMap<UnitId>>().remove(unit_id);
 }
 
 #[derive(

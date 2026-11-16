@@ -1,17 +1,17 @@
 use crate::features::event_bus::{
-    EventSink, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
+    EventSink, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats, js_player_id,
+    player_id_from_js,
 };
 use crate::features::player_display::{PlayerDisplayFactionOverrides, display_faction_for_player};
 use crate::loading::LiveMatchPlayer;
-use awbrn_bevy::replay::{AwbwUnitId, ReplayState};
+use awbrn_bevy::replay::ReplayState;
+use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{Faction, GraphicalHp, TerrainTile, Unit, ViewerVisibility};
-use awbrn_content::{CoPortraitMetadata, co_portrait_by_awbw_id, co_portraits};
+use awbrn_content::{CoPortraitMetadata, co_portraits};
 use awbrn_types::{
     Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, PropertyKind, UnitExt,
 };
-use awbw_replay::AwbwReplay;
-use awbw_replay::game_models::AwbwPlayer;
-use awvm::semantic::{Observation, ObservedPlayer};
+use awvm::semantic::{Observation, ObservedPlayer, PlayerId};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
@@ -25,8 +25,9 @@ pub struct PlayerRosterConfig {
 
 #[derive(Debug, Clone)]
 pub struct PlayerRosterPlayer {
-    pub player_id: awbrn_types::AwbwGamePlayerId,
-    pub user_id: awbrn_types::AwbwPlayerId,
+    pub player_id: PlayerId,
+    /// The AWBW account that played the seat, which only an archive has.
+    pub user_id: Option<awbw_replay::AwbwPlayerId>,
     pub turn_order: u32,
     pub team: Option<String>,
     pub eliminated: bool,
@@ -40,20 +41,20 @@ pub struct PlayerRosterPlayer {
 }
 
 #[derive(Debug, Resource, Clone, Default)]
-pub struct PlayerFunds(pub HashMap<awbrn_types::AwbwGamePlayerId, u32>);
+pub struct PlayerFunds(pub HashMap<PlayerId, u32>);
 
 impl PlayerFunds {
-    pub fn set(&mut self, player_id: awbrn_types::AwbwGamePlayerId, funds: u32) {
+    pub fn set(&mut self, player_id: PlayerId, funds: u32) {
         self.0.insert(player_id, funds);
     }
 
-    pub fn subtract(&mut self, player_id: awbrn_types::AwbwGamePlayerId, amount: u32) {
-        let entry = self.0.entry(player_id).or_default();
+    pub fn subtract(&mut self, player_id: &PlayerId, amount: u32) {
+        let entry = self.0.entry(player_id.clone()).or_default();
         *entry = entry.saturating_sub(amount);
     }
 
-    pub fn get(&self, player_id: awbrn_types::AwbwGamePlayerId) -> u32 {
-        self.0.get(&player_id).copied().unwrap_or_default()
+    pub fn get(&self, player_id: &PlayerId) -> u32 {
+        self.0.get(player_id).copied().unwrap_or_default()
     }
 }
 
@@ -75,66 +76,29 @@ pub struct PlayerPowerMeter {
 }
 
 #[derive(Debug, Resource, Clone, Default)]
-pub struct PlayerPowerMeters(pub HashMap<awbrn_types::AwbwGamePlayerId, PlayerPowerMeter>);
+pub struct PlayerPowerMeters(pub HashMap<PlayerId, PlayerPowerMeter>);
 
 impl PlayerPowerMeters {
-    pub fn set(&mut self, player_id: awbrn_types::AwbwGamePlayerId, meter: PlayerPowerMeter) {
+    pub fn set(&mut self, player_id: PlayerId, meter: PlayerPowerMeter) {
         self.0.insert(player_id, meter);
     }
 
-    pub fn get(&self, player_id: awbrn_types::AwbwGamePlayerId) -> Option<PlayerPowerMeter> {
-        self.0.get(&player_id).copied()
+    pub fn get(&self, player_id: &PlayerId) -> Option<PlayerPowerMeter> {
+        self.0.get(player_id).copied()
     }
 }
 
 #[derive(Debug, Resource, Clone, Default)]
-pub struct PlayerUnitCosts(pub HashMap<AwbwUnitId, u32>);
+pub struct PlayerUnitCosts(pub HashMap<UnitId, u32>);
 
 impl PlayerUnitCosts {
-    pub fn set(&mut self, unit_id: AwbwUnitId, cost: u32) {
+    pub fn set(&mut self, unit_id: UnitId, cost: u32) {
         self.0.insert(unit_id, cost);
     }
 
-    pub fn get(&self, unit_id: AwbwUnitId) -> Option<u32> {
+    pub fn get(&self, unit_id: UnitId) -> Option<u32> {
         self.0.get(&unit_id).copied()
     }
-}
-
-pub fn player_roster_seed_from_replay(
-    replay: &AwbwReplay,
-) -> Option<(PlayerRosterConfig, PlayerFunds, PlayerUnitCosts)> {
-    let first_game = replay.games.first()?;
-    let mut players = first_game.players.clone();
-    players.sort_by_key(|player| player.order);
-
-    let config_players = players
-        .iter()
-        .map(|player| player_roster_player(player, first_game.team))
-        .collect::<Vec<_>>();
-    let funds = PlayerFunds(
-        players
-            .iter()
-            .map(|player| (player.id, player.funds))
-            .collect::<HashMap<_, _>>(),
-    );
-    let unit_costs = PlayerUnitCosts(
-        first_game
-            .units
-            .iter()
-            .map(|unit| (AwbwUnitId(unit.id), unit.cost))
-            .collect::<HashMap<_, _>>(),
-    );
-
-    Some((
-        PlayerRosterConfig {
-            match_id: first_game.id.as_u32(),
-            map_id: first_game.maps_id.as_u32(),
-            funds_per_property: first_game.funds,
-            players: config_players,
-        },
-        funds,
-        unit_costs,
-    ))
 }
 
 /// Seed the roster for a live match from its bootstrap observation.
@@ -166,11 +130,11 @@ pub fn player_roster_seed_from_live_match(
         let Some(faction) = PlayerFaction::from_id(player.faction_id) else {
             continue;
         };
-        let player_id = awbrn_types::AwbwGamePlayerId::new(player.player_id);
+        let player_id = player_id_from_js(player.player_id);
         let observed = observation
             .players
             .iter()
-            .find(|candidate| candidate.id().as_str() == player.player_id.to_string());
+            .find(|candidate| *candidate.id() == player_id);
 
         let commanders = observed.map(observed_player_commanders).unwrap_or_default();
         let co = commanders
@@ -182,18 +146,17 @@ pub fn player_roster_seed_from_live_match(
 
         if let Some(observed) = observed {
             if let Some(value) = observed.funds() {
-                funds.set(player_id, u32::try_from(value).unwrap_or(u32::MAX));
+                funds.set(player_id.clone(), u32::try_from(value).unwrap_or(u32::MAX));
             }
             if let Some(meter) = active_power_meter(observed) {
-                power_meters.set(player_id, meter);
+                power_meters.set(player_id.clone(), meter);
             }
         }
 
         config_players.push(PlayerRosterPlayer {
             player_id,
-            // A live match carries no AWBW user account, and turn order follows
-            // the bootstrap player list.
-            user_id: awbrn_types::AwbwPlayerId::new(0),
+            // Turn order follows the bootstrap player list.
+            user_id: None,
             turn_order: index as u32,
             team: team_game
                 .then(|| observed.map(|observed| observed_player_team(observed).to_string()))
@@ -313,13 +276,7 @@ pub fn power_meters_from_observation(observation: &Observation) -> PlayerPowerMe
         observation
             .players
             .iter()
-            .filter_map(|player| {
-                let player_id = player.id().as_str().parse().ok()?;
-                Some((
-                    awbrn_types::AwbwGamePlayerId::new(player_id),
-                    active_power_meter(player)?,
-                ))
-            })
+            .filter_map(|player| Some((player.id().clone(), active_power_meter(player)?)))
             .collect(),
     )
 }
@@ -337,26 +294,6 @@ fn co_portrait_for_commander(kind: awvm::semantic::CommanderId) -> Option<CoPort
         .find(|portrait| portrait.key() == key)
 }
 
-fn player_roster_player(player: &AwbwPlayer, team_game: bool) -> PlayerRosterPlayer {
-    let co = co_portrait_by_awbw_id(player.co_id);
-    let tag_co = player.tags_co_id.and_then(co_portrait_by_awbw_id);
-
-    PlayerRosterPlayer {
-        player_id: player.id,
-        user_id: player.users_id,
-        turn_order: player.order,
-        team: team_game.then(|| player.team.clone()),
-        eliminated: player.eliminated,
-        faction: player.faction,
-        faction_code: player.faction.country_code().to_string(),
-        faction_name: player.faction.name().to_string(),
-        co_key: co.map(|portrait| portrait.key().to_string()),
-        co_name: co.map(|portrait| portrait.display_name().to_string()),
-        tag_co_key: tag_co.map(|portrait| portrait.key().to_string()),
-        tag_co_name: tag_co.map(|portrait| portrait.display_name().to_string()),
-    }
-}
-
 pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot> {
     let config = world.get_resource::<PlayerRosterConfig>()?.clone();
     let funds = world.get_resource::<PlayerFunds>()?.clone();
@@ -365,7 +302,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
         .get_resource::<PlayerPowerMeters>()
         .cloned()
         .unwrap_or_default();
-    let replay_state = *world.get_resource::<ReplayState>()?;
+    let replay_state = world.get_resource::<ReplayState>()?.clone();
     let display_faction_overrides = world
         .get_resource::<PlayerDisplayFactionOverrides>()
         .cloned();
@@ -377,31 +314,31 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
         .filter(|player| {
             world
                 .get_resource::<ViewerVisibility>()
-                .is_none_or(|visibility| visibility.player_disclosed(player.player_id))
+                .is_none_or(|visibility| visibility.player_disclosed(&player.player_id))
         })
-        .map(|player| player.player_id)
+        .map(|player| &player.player_id)
         .collect::<HashSet<_>>();
     let mut unit_counts = config
         .players
         .iter()
-        .map(|player| (player.player_id, 0_u32))
+        .map(|player| (&player.player_id, 0_u32))
         .collect::<HashMap<_, _>>();
     let mut unit_values = config
         .players
         .iter()
-        .map(|player| (player.player_id, 0_u32))
+        .map(|player| (&player.player_id, 0_u32))
         .collect::<HashMap<_, _>>();
     let mut income_counts = config
         .players
         .iter()
-        .map(|player| (player.player_id, 0_u32))
+        .map(|player| (&player.player_id, 0_u32))
         .collect::<HashMap<_, _>>();
     // Counted on the same pass as the income, because a com tower is a property
     // that also happens to change what every unit in the army deals.
     let mut tower_counts = config
         .players
         .iter()
-        .map(|player| (player.player_id, 0_u32))
+        .map(|player| (&player.player_id, 0_u32))
         .collect::<HashMap<_, _>>();
     let mut lab_counts = config
         .players
@@ -410,7 +347,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
         .collect::<HashMap<_, _>>();
 
     {
-        let mut unit_query = world.query::<(&AwbwUnitId, &Faction, Option<&GraphicalHp>, &Unit)>();
+        let mut unit_query = world.query::<(&UnitId, &Faction, Option<&GraphicalHp>, &Unit)>();
         for (unit_id, faction, hp, unit) in unit_query.iter(world) {
             let Some(player_id) = player_id_for_faction(&config, faction.0) else {
                 continue;
@@ -451,7 +388,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
         match_id: config.match_id,
         map_id: config.map_id,
         day: replay_state.day,
-        active_player_id: replay_state.active_player_id.map(|id| id.as_u32()),
+        active_player_id: replay_state.active_player_id.as_ref().map(js_player_id),
         players: config
             .players
             .iter()
@@ -468,7 +405,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                     }
                 } else {
                     PlayerRosterStats {
-                        funds: Some(funds.get(player.player_id)),
+                        funds: Some(funds.get(&player.player_id)),
                         unit_count: Some(
                             unit_counts
                                 .get(&player.player_id)
@@ -512,15 +449,16 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                 let actual_faction_name = player.faction_name.clone();
                 let display_faction = display_faction_for_player(
                     display_faction_overrides.as_ref(),
-                    player.player_id,
+                    &player.player_id,
                     player.faction,
                 );
                 let display_faction_code = display_faction.country_code().to_string();
                 let display_faction_name = display_faction.name().to_string();
-                let power_meter = power_meters.get(player.player_id);
+                let power_meter = power_meters.get(&player.player_id);
                 PlayerRosterEntry {
-                    player_id: player.player_id.as_u32(),
-                    user_id: player.user_id.as_u32(),
+                    player_id: js_player_id(&player.player_id),
+                    // JavaScript reads 0 as no account.
+                    user_id: player.user_id.map_or(0, |id| id.as_u32()),
                     turn_order: player.turn_order,
                     team: player.team.clone(),
                     eliminated: player.eliminated,
@@ -561,7 +499,7 @@ pub fn emit_player_roster_updated(world: &mut World) {
 pub fn player_ids_for_team(
     config: &PlayerRosterConfig,
     team: u8,
-) -> impl Iterator<Item = awbrn_types::AwbwGamePlayerId> + '_ {
+) -> impl Iterator<Item = &PlayerId> + '_ {
     // AWBW encodes teams as single ASCII letters ("A", "B", ...), so the
     // replay-side `team: u8` can be compared against the first team-name byte.
     config.players.iter().filter_map(move |player| {
@@ -570,26 +508,26 @@ pub fn player_ids_for_team(
             .as_deref()
             .and_then(|team_name| team_name.as_bytes().first().copied())
             .filter(|team_id| *team_id == team)
-            .map(|_| player.player_id)
+            .map(|_| &player.player_id)
     })
 }
 
 pub fn player_id_for_faction(
     config: &PlayerRosterConfig,
     faction: PlayerFaction,
-) -> Option<awbrn_types::AwbwGamePlayerId> {
+) -> Option<&PlayerId> {
     config
         .players
         .iter()
         .find(|player| player.faction == faction)
-        .map(|player| player.player_id)
+        .map(|player| &player.player_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use awbrn_bevy::GameWorldPlugin;
-    use awbrn_types::{AwbwGamePlayerId, AwbwPlayerId};
+    use awbw_replay::AwbwPlayerId;
 
     #[test]
     fn active_power_meter_reports_active_power() {
@@ -625,8 +563,8 @@ mod tests {
             funds_per_property: 1000,
             players: vec![
                 PlayerRosterPlayer {
-                    player_id: AwbwGamePlayerId::new(1),
-                    user_id: AwbwPlayerId::new(10),
+                    player_id: PlayerId::from("1"),
+                    user_id: Some(AwbwPlayerId::new(10)),
                     turn_order: 1,
                     team: None,
                     eliminated: false,
@@ -639,8 +577,8 @@ mod tests {
                     tag_co_name: None,
                 },
                 PlayerRosterPlayer {
-                    player_id: AwbwGamePlayerId::new(2),
-                    user_id: AwbwPlayerId::new(20),
+                    player_id: PlayerId::from("2"),
+                    user_id: Some(AwbwPlayerId::new(20)),
                     turn_order: 2,
                     team: None,
                     eliminated: false,
@@ -655,37 +593,37 @@ mod tests {
             ],
         });
         app.world_mut().insert_resource(PlayerFunds(HashMap::from([
-            (AwbwGamePlayerId::new(1), 5000),
-            (AwbwGamePlayerId::new(2), 6000),
+            (PlayerId::from("1"), 5000),
+            (PlayerId::from("2"), 6000),
         ])));
         app.world_mut()
             .insert_resource(PlayerUnitCosts(HashMap::from([
-                (AwbwUnitId(awbrn_types::AwbwUnitId::new(1)), 7000),
-                (AwbwUnitId(awbrn_types::AwbwUnitId::new(2)), 7000),
+                (UnitId(awvm::semantic::UnitId::new(1)), 7000),
+                (UnitId(awvm::semantic::UnitId::new(2)), 7000),
             ])));
         app.world_mut().insert_resource(ReplayState {
             next_action_index: 0,
             day: 1,
-            active_player_id: Some(AwbwGamePlayerId::new(1)),
+            active_player_id: Some(PlayerId::from("1")),
         });
         // Orange Star's own projection reports Orange Star privately and
         // Blue Moon publicly.
         {
             let mut visibility = app.world_mut().resource_mut::<ViewerVisibility>();
             visibility.reset(true, awbrn_map::Dimensions::new(1, 1));
-            visibility.set_player_disclosed(AwbwGamePlayerId::new(1));
+            visibility.set_player_disclosed(PlayerId::from("1"));
         };
 
         app.world_mut().spawn((
             Faction(PlayerFaction::OrangeStar),
             Unit(awbrn_types::Unit::Tank),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            UnitId(awvm::semantic::UnitId::new(1)),
             GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(100)),
         ));
         app.world_mut().spawn((
             Faction(PlayerFaction::BlueMoon),
             Unit(awbrn_types::Unit::Tank),
-            AwbwUnitId(awbrn_types::AwbwUnitId::new(2)),
+            UnitId(awvm::semantic::UnitId::new(2)),
             GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(100)),
         ));
 

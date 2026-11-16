@@ -9,12 +9,11 @@
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::{AwbwMap, AwbwMapData};
-use awbrn_types::{
-    AwbwGamePlayerId, AwbwTerrain, AwbwUnitKind, Co, CoExt, Faction, MissileSiloStatus,
-    PlayerFaction, Property,
-};
+use awbrn_types::{AwbwTerrain, Co, CoExt, Faction, MissileSiloStatus, PlayerFaction, Property};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::{AwbwGame, AwbwPlayer, AwbwUnit, CoPower, MatchType};
+use awbw_replay::{AwbwGamePlayerId, AwbwUnitId};
+use awbw_types::AwbwUnitKind;
 use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, UnitKind, WeatherKind};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
@@ -381,7 +380,7 @@ fn lower_units(
     game: &AwbwGame,
     player_seats: &HashMap<AwbwGamePlayerId, PlayerIdx>,
 ) -> Result<UnitStore, AdapterError> {
-    let mut cargo = HashMap::<awbrn_types::AwbwUnitId, (awbrn_types::AwbwUnitId, usize)>::new();
+    let mut cargo = HashMap::<AwbwUnitId, (AwbwUnitId, usize)>::new();
     for transport in &game.units {
         for (slot, cargo_id) in [transport.cargo1_units_id, transport.cargo2_units_id]
             .into_iter()
@@ -407,7 +406,7 @@ fn lower_units(
 fn lower_unit(
     unit: &AwbwUnit,
     player_seats: &HashMap<AwbwGamePlayerId, PlayerIdx>,
-    cargo: &HashMap<awbrn_types::AwbwUnitId, (awbrn_types::AwbwUnitId, usize)>,
+    cargo: &HashMap<AwbwUnitId, (AwbwUnitId, usize)>,
 ) -> Result<Unit, AdapterError> {
     let owner =
         player_seats
@@ -426,7 +425,7 @@ fn lower_unit(
                     unit: unit.id.as_u32(),
                 })?;
         Location::Cargo {
-            transport: UnitId::new(transport.as_u32()),
+            transport: unit_id(transport),
             slot,
         }
     } else {
@@ -446,7 +445,7 @@ fn lower_unit(
     };
 
     Ok(Unit {
-        id: UnitId::new(unit.id.as_u32()),
+        id: unit_id(unit.id),
         kind: unit_kind(unit.name),
         owner,
         hp: exact_hp(unit)?,
@@ -480,8 +479,14 @@ fn exact_hp(unit: &AwbwUnit) -> Result<u8, AdapterError> {
     Ok(rounded as u8)
 }
 
-pub(crate) fn player_id(id: AwbwGamePlayerId) -> PlayerId {
+/// The engine's id for an AWBW game player.
+pub fn player_id(id: AwbwGamePlayerId) -> PlayerId {
     PlayerId::from(id.as_u32().to_string())
+}
+
+/// The engine's id for an AWBW unit.
+pub fn unit_id(id: AwbwUnitId) -> UnitId {
+    UnitId::new(id.as_u32())
 }
 
 fn team_id(game: &AwbwGame, player: &AwbwPlayer) -> TeamId {

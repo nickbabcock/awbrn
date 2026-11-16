@@ -12,6 +12,7 @@ bevy = ["awbrn-types/bevy"]
 
 [dependencies]
 awbrn-types = { path = "../awbrn-types" }
+awbw-types = { path = "../awbw-types" }
 serde.workspace = true
 
 [dev-dependencies]

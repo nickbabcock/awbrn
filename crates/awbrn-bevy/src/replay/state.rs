@@ -1,9 +1,5 @@
-use awbrn_types::AwbwGamePlayerId;
-use bevy::ecs::lifecycle::HookContext;
-use bevy::ecs::world::DeferredWorld;
+use awvm::semantic::PlayerId;
 use bevy::prelude::*;
-
-use crate::world::StrongIdMap;
 
 /// Event triggered when a new day begins during replay playback.
 #[derive(Event, Debug, Clone)]
@@ -11,39 +7,8 @@ pub struct NewDay {
     pub day: u32,
 }
 
-#[derive(
-    Component,
-    Reflect,
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[component(immutable, on_add = on_awbw_unit_id_add, on_remove = on_awbw_unit_id_remove)]
-#[reflect(opaque)]
-#[reflect(Component, Serialize, Deserialize)]
-pub struct AwbwUnitId(pub awbrn_types::AwbwUnitId);
-
-fn on_awbw_unit_id_add(mut world: DeferredWorld, context: HookContext) {
-    let unit_id = *world.get::<AwbwUnitId>(context.entity).unwrap();
-    world
-        .resource_mut::<StrongIdMap<AwbwUnitId>>()
-        .insert(unit_id, context.entity);
-}
-
-fn on_awbw_unit_id_remove(mut world: DeferredWorld, context: HookContext) {
-    let unit_id = *world.get::<AwbwUnitId>(context.entity).unwrap();
-    world
-        .resource_mut::<StrongIdMap<AwbwUnitId>>()
-        .remove(unit_id);
-}
-
 /// Resource tracking the current state of replay playback.
-#[derive(Resource, Reflect, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Reflect, Debug, Clone, PartialEq, Eq)]
 #[reflect(Resource)]
 pub struct ReplayState {
     pub next_action_index: u32,
@@ -51,7 +16,7 @@ pub struct ReplayState {
     /// The player whose turn it currently is. Set at bootstrap from turn order
     /// and updated by `apply_end()` from `UpdatedInfo.next_player_id`.
     #[reflect(ignore)]
-    pub active_player_id: Option<AwbwGamePlayerId>,
+    pub active_player_id: Option<PlayerId>,
 }
 
 impl Default for ReplayState {

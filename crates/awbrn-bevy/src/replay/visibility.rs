@@ -12,14 +12,15 @@
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::{Dimensions, Pos, TerrainKnowledge};
-use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, PlayerFaction};
+use awbrn_types::PlayerFaction;
 use awvm::semantic::{
-    Observation, ObservedPlayer, ObservedUnitHp, ObservedUnitRef, TileVisibility,
+    Observation, ObservedPlayer, ObservedUnitHp, ObservedUnitRef, PlayerId, TileVisibility,
+    UnitId as VmUnitId,
 };
 use bevy::prelude::*;
 
-use crate::replay::{AwbwUnitId, ReplayState};
-use crate::world::{BoardIndex, FriendlyFactions, GameMap, GraphicalHp, ViewerVisibility};
+use crate::replay::ReplayState;
+use crate::world::{BoardIndex, FriendlyFactions, GameMap, GraphicalHp, UnitId, ViewerVisibility};
 
 /// Selects whose perspective the presentation is drawn from.
 #[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
@@ -29,7 +30,7 @@ pub enum ReplayViewpoint {
     /// Follow the active player each turn.
     ActivePlayer,
     /// Locked to a specific player.
-    Player(AwbwGamePlayerId),
+    Player(PlayerId),
 }
 
 /// The recipient projections the current ECS state was reconciled from.
@@ -45,10 +46,10 @@ impl RecipientObservations {
         self.0 = observations;
     }
 
-    pub fn for_player(&self, player: AwbwGamePlayerId) -> Option<&Observation> {
+    pub fn for_player(&self, player: &PlayerId) -> Option<&Observation> {
         self.0
             .iter()
-            .find(|observation| parse_player_id(observation.recipient.as_str()) == Some(player))
+            .find(|observation| observation.recipient == *player)
     }
 
     /// Every projection held, in the order they were stored.
@@ -72,9 +73,9 @@ impl RecipientObservations {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReplayKnowledgeKey {
-    Player(AwbwGamePlayerId),
+    Player(PlayerId),
     Team(u8),
 }
 
@@ -108,7 +109,7 @@ impl ReplayTerrainKnowledge {
 /// Info about a single player for mapping faction → player → team.
 #[derive(Debug, Clone)]
 struct ReplayPlayerInfo {
-    game_player_id: AwbwGamePlayerId,
+    player_id: PlayerId,
     faction: PlayerFaction,
     /// Team letter from AWBW (e.g., b'A', b'B'). 0 means no team (FFA).
     team: u8,
@@ -124,14 +125,9 @@ impl ReplayPlayerRegistry {
     /// Add a player. Call in turn-order (sorted by `order` field before calling).
     /// `team` should be 0 for FFA games, or the team byte (`b'A'`, `b'B'`, etc.)
     /// for team games.
-    pub fn add_player(
-        &mut self,
-        game_player_id: AwbwGamePlayerId,
-        faction: PlayerFaction,
-        team: u8,
-    ) {
+    pub fn add_player(&mut self, player_id: PlayerId, faction: PlayerFaction, team: u8) {
         self.players.push(ReplayPlayerInfo {
-            game_player_id,
+            player_id,
             faction,
             team,
         });
@@ -139,11 +135,8 @@ impl ReplayPlayerRegistry {
 
     /// Get the set of factions friendly to the given player (same team, or just
     /// the player's own faction if FFA / no team).
-    pub fn friendly_factions_for_player(
-        &self,
-        player_id: AwbwGamePlayerId,
-    ) -> HashSet<PlayerFaction> {
-        let Some(player) = self.players.iter().find(|p| p.game_player_id == player_id) else {
+    pub fn friendly_factions_for_player(&self, player_id: &PlayerId) -> HashSet<PlayerFaction> {
+        let Some(player) = self.players.iter().find(|p| p.player_id == *player_id) else {
             return HashSet::new();
         };
 
@@ -159,10 +152,10 @@ impl ReplayPlayerRegistry {
     }
 
     /// Get the faction for a given player ID.
-    pub fn faction_for_player(&self, player_id: AwbwGamePlayerId) -> Option<PlayerFaction> {
+    pub fn faction_for_player(&self, player_id: &PlayerId) -> Option<PlayerFaction> {
         self.players
             .iter()
-            .find(|p| p.game_player_id == player_id)
+            .find(|p| p.player_id == *player_id)
             .map(|p| p.faction)
     }
 
@@ -170,16 +163,13 @@ impl ReplayPlayerRegistry {
         self.players.len()
     }
 
-    pub fn knowledge_key_for_player(
-        &self,
-        player_id: AwbwGamePlayerId,
-    ) -> Option<ReplayKnowledgeKey> {
+    pub fn knowledge_key_for_player(&self, player_id: &PlayerId) -> Option<ReplayKnowledgeKey> {
         self.players
             .iter()
-            .find(|p| p.game_player_id == player_id)
+            .find(|p| p.player_id == *player_id)
             .map(|p| {
                 if p.team == 0 {
-                    ReplayKnowledgeKey::Player(player_id)
+                    ReplayKnowledgeKey::Player(player_id.clone())
                 } else {
                     ReplayKnowledgeKey::Team(p.team)
                 }
@@ -190,7 +180,7 @@ impl ReplayPlayerRegistry {
         let mut keys = Vec::new();
         for player in &self.players {
             let key = if player.team == 0 {
-                ReplayKnowledgeKey::Player(player.game_player_id)
+                ReplayKnowledgeKey::Player(player.player_id.clone())
             } else {
                 ReplayKnowledgeKey::Team(player.team)
             };
@@ -202,8 +192,8 @@ impl ReplayPlayerRegistry {
     }
 
     /// Get the player ID at the given turn-order index (0-based).
-    pub fn player_id_at_index(&self, index: usize) -> Option<AwbwGamePlayerId> {
-        self.players.get(index).map(|p| p.game_player_id)
+    pub fn player_id_at_index(&self, index: usize) -> Option<&PlayerId> {
+        self.players.get(index).map(|p| &p.player_id)
     }
 }
 
@@ -219,6 +209,7 @@ pub fn refresh_viewer_visibility(world: &mut World) {
 
     let viewer = selected_player(world);
     let observation = viewer
+        .as_ref()
         .and_then(|player| {
             world
                 .resource::<RecipientObservations>()
@@ -228,6 +219,7 @@ pub fn refresh_viewer_visibility(world: &mut World) {
         .or_else(|| world.resource::<RecipientObservations>().sole().cloned());
 
     let friendly = viewer
+        .as_ref()
         .map(|player| {
             world
                 .resource::<ReplayPlayerRegistry>()
@@ -249,11 +241,14 @@ pub fn refresh_viewer_visibility(world: &mut World) {
     refresh_terrain_knowledge(world, viewer);
 }
 
-fn selected_player(world: &World) -> Option<AwbwGamePlayerId> {
+fn selected_player(world: &World) -> Option<PlayerId> {
     match world.get_resource::<ReplayViewpoint>()? {
         ReplayViewpoint::Spectator => None,
-        ReplayViewpoint::ActivePlayer => world.get_resource::<ReplayState>()?.active_player_id,
-        ReplayViewpoint::Player(player) => Some(*player),
+        ReplayViewpoint::ActivePlayer => world
+            .get_resource::<ReplayState>()?
+            .active_player_id
+            .clone(),
+        ReplayViewpoint::Player(player) => Some(player.clone()),
     }
 }
 
@@ -267,15 +262,15 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
         .units
         .iter()
         .filter_map(|unit| match unit.reference {
-            ObservedUnitRef::Friendly { unit: id } => Some((RawAwbwUnitId::new(id.get()), unit.hp)),
+            ObservedUnitRef::Friendly { unit: id } => Some((id, unit.hp)),
             ObservedUnitRef::Enemy { position } => unit_at(world, position).map(|id| (id, unit.hp)),
         })
         .collect::<Vec<_>>();
 
     for (unit, hp) in &visible_units {
         let Some(entity) = world
-            .resource::<crate::world::StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(*unit))
+            .resource::<crate::world::StrongIdMap<UnitId>>()
+            .get(&UnitId(*unit))
         else {
             continue;
         };
@@ -295,10 +290,8 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
     for player in &observation.players {
         // Only a teammate's projection carries commander state (and, under
         // fog, funds), and that is exactly the disclosure the roster reports.
-        if let ObservedPlayer::Private { id, .. } = player
-            && let Some(player) = parse_player_id(id.as_str())
-        {
-            visibility.set_player_disclosed(player);
+        if let ObservedPlayer::Private { id, .. } = player {
+            visibility.set_player_disclosed(id.clone());
         }
     }
 }
@@ -316,7 +309,7 @@ fn restore_spectator_hp(world: &mut World) {
                     (ObservedUnitRef::Friendly { unit: id }, ObservedUnitHp::Exact(hp))
                         if unit.owner == observation.recipient =>
                     {
-                        Some((RawAwbwUnitId::new(id.get()), hp))
+                        Some((id, hp))
                     }
                     _ => None,
                 })
@@ -324,8 +317,8 @@ fn restore_spectator_hp(world: &mut World) {
         .collect::<Vec<_>>();
     for (unit, hp) in exact {
         let Some(entity) = world
-            .resource::<crate::world::StrongIdMap<AwbwUnitId>>()
-            .get(&AwbwUnitId(unit))
+            .resource::<crate::world::StrongIdMap<UnitId>>()
+            .get(&UnitId(unit))
         else {
             continue;
         };
@@ -339,14 +332,14 @@ fn restore_spectator_hp(world: &mut World) {
 ///
 /// A fogged property keeps the owner the viewer last saw on it, which is what
 /// `terrain_for_viewer` draws.
-fn refresh_terrain_knowledge(world: &mut World, viewer: Option<AwbwGamePlayerId>) {
+fn refresh_terrain_knowledge(world: &mut World, viewer: Option<PlayerId>) {
     if !world.resource::<ViewerVisibility>().fog_active() {
         return;
     }
     let Some(key) = viewer.and_then(|player| {
         world
             .get_resource::<ReplayPlayerRegistry>()?
-            .knowledge_key_for_player(player)
+            .knowledge_key_for_player(&player)
     }) else {
         return;
     };
@@ -377,17 +370,13 @@ fn refresh_terrain_knowledge(world: &mut World, viewer: Option<AwbwGamePlayerId>
     }
 }
 
-fn unit_at(world: &World, position: Pos) -> Option<RawAwbwUnitId> {
+fn unit_at(world: &World, position: Pos) -> Option<VmUnitId> {
     let entity = world
         .get_resource::<BoardIndex>()?
         .unit_entity(position)
         .ok()
         .flatten()?;
-    world.get::<AwbwUnitId>(entity).map(|id| id.0)
-}
-
-fn parse_player_id(id: &str) -> Option<AwbwGamePlayerId> {
-    id.parse::<u32>().ok().map(AwbwGamePlayerId::new)
+    world.get::<UnitId>(entity).map(|id| id.0)
 }
 
 #[cfg(test)]
@@ -397,10 +386,10 @@ mod tests {
     #[test]
     fn registry_ffa_returns_single_faction() {
         let mut registry = ReplayPlayerRegistry::default();
-        registry.add_player(AwbwGamePlayerId::new(1), PlayerFaction::OrangeStar, 0);
-        registry.add_player(AwbwGamePlayerId::new(2), PlayerFaction::BlueMoon, 0);
+        registry.add_player(PlayerId::from("1"), PlayerFaction::OrangeStar, 0);
+        registry.add_player(PlayerId::from("2"), PlayerFaction::BlueMoon, 0);
 
-        let friendly = registry.friendly_factions_for_player(AwbwGamePlayerId::new(1));
+        let friendly = registry.friendly_factions_for_player(&PlayerId::from("1"));
         assert_eq!(friendly, HashSet::from([PlayerFaction::OrangeStar]));
         assert!(!friendly.contains(&PlayerFaction::BlueMoon));
     }
@@ -408,11 +397,11 @@ mod tests {
     #[test]
     fn registry_team_returns_all_team_factions() {
         let mut registry = ReplayPlayerRegistry::default();
-        registry.add_player(AwbwGamePlayerId::new(1), PlayerFaction::OrangeStar, b'A');
-        registry.add_player(AwbwGamePlayerId::new(2), PlayerFaction::GreenEarth, b'A');
-        registry.add_player(AwbwGamePlayerId::new(3), PlayerFaction::BlueMoon, b'B');
+        registry.add_player(PlayerId::from("1"), PlayerFaction::OrangeStar, b'A');
+        registry.add_player(PlayerId::from("2"), PlayerFaction::GreenEarth, b'A');
+        registry.add_player(PlayerId::from("3"), PlayerFaction::BlueMoon, b'B');
 
-        let friendly = registry.friendly_factions_for_player(AwbwGamePlayerId::new(1));
+        let friendly = registry.friendly_factions_for_player(&PlayerId::from("1"));
         assert!(friendly.contains(&PlayerFaction::OrangeStar));
         assert!(friendly.contains(&PlayerFaction::GreenEarth));
         assert!(!friendly.contains(&PlayerFaction::BlueMoon));
@@ -422,37 +411,28 @@ mod tests {
     fn registry_player_indices_follow_turn_order() {
         // Caller is responsible for adding in sorted order
         let mut registry = ReplayPlayerRegistry::default();
-        registry.add_player(AwbwGamePlayerId::new(20), PlayerFaction::BlueMoon, 0);
-        registry.add_player(AwbwGamePlayerId::new(30), PlayerFaction::GreenEarth, 0);
-        registry.add_player(AwbwGamePlayerId::new(10), PlayerFaction::OrangeStar, 0);
+        registry.add_player(PlayerId::from("20"), PlayerFaction::BlueMoon, 0);
+        registry.add_player(PlayerId::from("30"), PlayerFaction::GreenEarth, 0);
+        registry.add_player(PlayerId::from("10"), PlayerFaction::OrangeStar, 0);
 
-        assert_eq!(
-            registry.player_id_at_index(0),
-            Some(AwbwGamePlayerId::new(20))
-        );
-        assert_eq!(
-            registry.player_id_at_index(1),
-            Some(AwbwGamePlayerId::new(30))
-        );
-        assert_eq!(
-            registry.player_id_at_index(2),
-            Some(AwbwGamePlayerId::new(10))
-        );
+        assert_eq!(registry.player_id_at_index(0), Some(&PlayerId::from("20")));
+        assert_eq!(registry.player_id_at_index(1), Some(&PlayerId::from("30")));
+        assert_eq!(registry.player_id_at_index(2), Some(&PlayerId::from("10")));
     }
 
     #[test]
     fn non_team_games_treat_all_players_as_ffa() {
         // has_teams=false → team=0 for everyone
         let mut registry = ReplayPlayerRegistry::default();
-        registry.add_player(AwbwGamePlayerId::new(3252378), PlayerFaction::OrangeStar, 0);
-        registry.add_player(AwbwGamePlayerId::new(3252473), PlayerFaction::BlueMoon, 0);
+        registry.add_player(PlayerId::from("3252378"), PlayerFaction::OrangeStar, 0);
+        registry.add_player(PlayerId::from("3252473"), PlayerFaction::BlueMoon, 0);
 
         assert_eq!(
-            registry.friendly_factions_for_player(AwbwGamePlayerId::new(3252378)),
+            registry.friendly_factions_for_player(&PlayerId::from("3252378")),
             HashSet::from([PlayerFaction::OrangeStar])
         );
         assert_eq!(
-            registry.friendly_factions_for_player(AwbwGamePlayerId::new(3252473)),
+            registry.friendly_factions_for_player(&PlayerId::from("3252473")),
             HashSet::from([PlayerFaction::BlueMoon])
         );
     }
@@ -460,7 +440,7 @@ mod tests {
     #[test]
     fn registry_unknown_player_returns_empty() {
         let registry = ReplayPlayerRegistry::default();
-        let friendly = registry.friendly_factions_for_player(AwbwGamePlayerId::new(999));
+        let friendly = registry.friendly_factions_for_player(&PlayerId::from("999"));
         assert!(friendly.is_empty());
     }
 }

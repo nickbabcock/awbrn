@@ -2,10 +2,11 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use awbrn_bevy::GameWorldPlugin;
-use awbrn_bevy::replay::{ReplayState, ReplayViewpoint, initialize_replay_semantic_world};
+use awbrn_bevy::replay::{ReplayState, ReplayViewpoint};
 use awbrn_bevy::snapshot::{GameSnapshot, capture_game_snapshot, write_replay_semantic_snapshot};
 use awbrn_bevy::world::GameMap;
 use awbrn_client::loading::apply_replay_building_overrides;
+use awbrn_client::modes::replay::bootstrap::initialize_replay_semantic_world;
 use awbrn_client::modes::replay::presentation::{
     ReplayAdvanceLock, ReplayFollowupCommand, ReplayTransitionSource, ReplayTurnCommand,
 };
@@ -161,9 +162,9 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
 }
 
 /// The turn the world is in: digests are checkpointed when this changes.
-fn turn_key(world: &World) -> (u32, Option<awbrn_types::AwbwGamePlayerId>) {
+fn turn_key(world: &World) -> (u32, Option<awvm::semantic::PlayerId>) {
     let replay_state = world.resource::<ReplayState>();
-    (replay_state.day, replay_state.active_player_id)
+    (replay_state.day, replay_state.active_player_id.clone())
 }
 
 /// Digest the canonical replay-semantic form without materializing it: the
