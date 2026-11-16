@@ -1,7 +1,7 @@
 //! Parse replay timestamps and verify that they round-trip in AWBW's format.
 
-use awbrn_types::{AwbwDate, AwbwDateTime};
 use awbw_replay::ReplayParser;
+use awbw_types::{AwbwDate, AwbwDateTime};
 use jiff::fmt::strtime;
 
 const AWBW_DATE_TIME: &str = "%Y-%m-%d %H:%M:%S";

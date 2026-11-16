@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use awbrn_types::{PlayerFaction, Unit, UnitExt};
+use awbrn_types::{AwbwUnitKind, PlayerFaction, Unit};
 use image::{ImageReader, RgbaImage};
 use indexmap::IndexMap;
 use oxipng::{InFile, Options, OutFile};
@@ -850,7 +850,7 @@ fn run_factions() -> Result<()> {
     let countries_path =
         repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources/Json/Countries.json");
     let json_output_path = repo_root.join("assets/data/factions.json");
-    let rust_output_path = repo_root.join("crates/awbrn-types/src/generated/factions.rs");
+    let rust_output_path = repo_root.join("crates/awbw-types/src/generated/factions.rs");
 
     let countries = load_countries_in_order(&countries_path)?;
     let metadata = build_faction_metadata(&countries)?;
@@ -1358,7 +1358,8 @@ fn build_unit_definitions(units: Vec<(String, UnitEntry)>) -> Result<Vec<UnitDef
     let mut definitions = Vec::new();
 
     for (name, entry) in units {
-        let unit = Unit::from_awbw_name(&name)
+        let unit = AwbwUnitKind::from_awbw_name(&name)
+            .map(awvm_awbw::unit_kind)
             .with_context(|| format!("Unknown unit name in Units.json: {name}"))?;
         if !seen.insert(unit) {
             return Err(anyhow!("Duplicate unit definition for {name}"));

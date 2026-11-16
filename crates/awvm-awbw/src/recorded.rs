@@ -32,7 +32,9 @@ use awvm::semantic::{
 };
 
 use crate::targeting::{targeted_hidden, targeted_value, visible_targeted_unit, visible_unit};
-use crate::{AdapterError, awbw_power_charge, initial_state, player_id, semantic_terrain};
+use crate::{
+    AdapterError, awbw_power_charge, initial_state, player_id, semantic_terrain, unit_kind,
+};
 
 const RECORDED_REASON: &str = "recorded-awbw-outcome";
 
@@ -517,7 +519,7 @@ fn apply_move(
             .ok_or(RecordedAdapterError::UnknownPlayer(unit.units_players_id))?;
         state.units.push(Unit {
             id,
-            kind: unit.units_name,
+            kind: unit_kind(unit.units_name),
             owner,
             hp: display_hp(
                 hp.ok_or(RecordedAdapterError::Missing("moving unit hit points"))?
@@ -525,11 +527,11 @@ fn apply_move(
             ),
             fuel: u64::from(
                 unit.units_fuel
-                    .unwrap_or_else(|| unit.units_name.max_fuel()),
+                    .unwrap_or_else(|| unit_kind(unit.units_name).max_fuel()),
             ),
             ammo: u64::from(
                 unit.units_ammo
-                    .unwrap_or_else(|| unit.units_name.max_ammo()),
+                    .unwrap_or_else(|| unit_kind(unit.units_name).max_ammo()),
             ),
             action: UnitAction::Spent,
             concealment: if matches!(unit.units_sub_dive.as_str(), "D" | "Y") {
@@ -606,7 +608,7 @@ fn apply_build(state: &mut State, units: &UnitMap) -> Result<(), RecordedAdapter
             .ok_or(RecordedAdapterError::UnknownPlayer(unit.units_players_id))?;
         let cost = u64::from(
             unit.units_cost
-                .unwrap_or_else(|| unit.units_name.base_cost()),
+                .unwrap_or_else(|| unit_kind(unit.units_name).base_cost()),
         );
         player.funds = player.funds.saturating_sub(cost);
         let position = property_pos(unit)?;
@@ -615,16 +617,16 @@ fn apply_build(state: &mut State, units: &UnitMap) -> Result<(), RecordedAdapter
             .ok_or(RecordedAdapterError::UnknownPlayer(unit.units_players_id))?;
         state.units.push(Unit {
             id: unit_id(unit.units_id),
-            kind: unit.units_name,
+            kind: unit_kind(unit.units_name),
             owner,
             hp: display_hp(hp),
             fuel: u64::from(
                 unit.units_fuel
-                    .unwrap_or_else(|| unit.units_name.max_fuel()),
+                    .unwrap_or_else(|| unit_kind(unit.units_name).max_fuel()),
             ),
             ammo: u64::from(
                 unit.units_ammo
-                    .unwrap_or_else(|| unit.units_name.max_ammo()),
+                    .unwrap_or_else(|| unit_kind(unit.units_name).max_ammo()),
             ),
             action: UnitAction::Spent,
             concealment: if matches!(unit.units_sub_dive.as_str(), "D" | "Y") {
@@ -787,11 +789,11 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
                     .ok_or(RecordedAdapterError::UnknownPlayer(group.player_id))?;
                 state.units.push(Unit {
                     id: unit_id(spawned.units_id),
-                    kind: group.unit_name,
+                    kind: unit_kind(group.unit_name),
                     owner,
                     hp: spawned_hp,
-                    fuel: profile(group.unit_name).max_fuel,
-                    ammo: profile(group.unit_name).max_ammo,
+                    fuel: profile(unit_kind(group.unit_name)).max_fuel,
+                    ammo: profile(unit_kind(group.unit_name)).max_ammo,
                     action: UnitAction::Ready,
                     concealment: Concealment::Exposed,
                     location: Location::Board {

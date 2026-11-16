@@ -1,0 +1,445 @@
+use crate::{Faction, PlayerFaction};
+
+/// Status of the missile silo
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum MissileSiloStatus {
+    Loaded,
+    Unloaded,
+}
+
+/// River configurations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum RiverType {
+    Horizontal, // HRiver
+    Vertical,   // VRiver
+    Cross,      // CRiver
+    ES,         // East-South
+    SW,         // South-West
+    WN,         // West-North
+    NE,         // North-East
+    ESW,        // East-South-West
+    SWN,        // South-West-North
+    WNE,        // West-North-East
+    NES,        // North-East-South
+}
+
+/// Road configurations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum RoadType {
+    Horizontal, // HRoad
+    Vertical,   // VRoad
+    Cross,      // CRoad
+    ES,         // East-South
+    SW,         // South-West
+    WN,         // West-North
+    NE,         // North-East
+    ESW,        // East-South-West
+    SWN,        // South-West-North
+    WNE,        // West-North-East
+    NES,        // North-East-South
+}
+
+/// Bridge types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum BridgeType {
+    Horizontal,
+    Vertical,
+}
+
+/// Shoal types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum ShoalType {
+    Horizontal,
+    HorizontalNorth,
+    Vertical,
+    VerticalEast,
+}
+
+/// Pipe configurations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum PipeType {
+    Vertical,
+    Horizontal,
+    NE,
+    ES,
+    SW,
+    WN,
+    NorthEnd,
+    EastEnd,
+    SouthEnd,
+    WestEnd,
+}
+
+/// Pipe seam types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum PipeSeamType {
+    Horizontal,
+    Vertical,
+}
+
+/// Pipe rubble types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum PipeRubbleType {
+    Horizontal,
+    Vertical,
+}
+
+/// Property types combining building type and owner
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum Property {
+    // Regular properties that can be neutral
+    City(Faction),
+    Base(Faction),
+    Airport(Faction),
+    Port(Faction),
+    ComTower(Faction),
+    Lab(Faction),
+
+    // HQ can never be neutral - must be owned by a specific faction
+    HQ(PlayerFaction),
+}
+
+impl Property {
+    pub const fn faction(&self) -> Faction {
+        match self {
+            Property::City(faction) => *faction,
+            Property::Base(faction) => *faction,
+            Property::Airport(faction) => *faction,
+            Property::Port(faction) => *faction,
+            Property::ComTower(faction) => *faction,
+            Property::Lab(faction) => *faction,
+            Property::HQ(faction) => Faction::Player(*faction),
+        }
+    }
+
+    /// Return this property owned by `faction`, preserving the building kind.
+    ///
+    /// An HQ can never be neutral, so remapping an HQ to [`Faction::Neutral`]
+    /// leaves its owner unchanged.
+    pub const fn with_owner(&self, faction: Faction) -> Property {
+        match self {
+            Property::City(_) => Property::City(faction),
+            Property::Base(_) => Property::Base(faction),
+            Property::Airport(_) => Property::Airport(faction),
+            Property::Port(_) => Property::Port(faction),
+            Property::ComTower(_) => Property::ComTower(faction),
+            Property::Lab(_) => Property::Lab(faction),
+            Property::HQ(existing) => match faction {
+                Faction::Player(player) => Property::HQ(player),
+                Faction::Neutral => Property::HQ(*existing),
+            },
+        }
+    }
+
+    pub const fn kind(&self) -> PropertyKind {
+        match self {
+            Property::Airport(_) => PropertyKind::Airport,
+            Property::Base(_) => PropertyKind::Base,
+            Property::City(_) => PropertyKind::City,
+            Property::ComTower(_) => PropertyKind::ComTower,
+            Property::HQ(_) => PropertyKind::HQ,
+            Property::Lab(_) => PropertyKind::Lab,
+            Property::Port(_) => PropertyKind::Port,
+        }
+    }
+
+    /// Defense star bonus for units occupying this property tile.
+    pub const fn defense_stars(&self) -> u8 {
+        match self {
+            Property::HQ(_) => 4,
+            _ => 3,
+        }
+    }
+
+    /// Get the name of this property type
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Property::City(Faction::Neutral) => "Neutral City",
+            Property::Base(Faction::Neutral) => "Neutral Base",
+            Property::Airport(Faction::Neutral) => "Neutral Airport",
+            Property::Port(Faction::Neutral) => "Neutral Port",
+            Property::ComTower(Faction::Neutral) => "Neutral Com Tower",
+            Property::Lab(Faction::Neutral) => "Neutral Lab",
+
+            Property::City(Faction::Player(player_faction)) => match player_faction {
+                PlayerFaction::OrangeStar => "Orange Star City",
+                PlayerFaction::BlueMoon => "Blue Moon City",
+                PlayerFaction::GreenEarth => "Green Earth City",
+                PlayerFaction::YellowComet => "Yellow Comet City",
+                PlayerFaction::BlackHole => "Black Hole City",
+                PlayerFaction::RedFire => "Red Fire City",
+                PlayerFaction::GreySky => "Grey Sky City",
+                PlayerFaction::BrownDesert => "Brown Desert City",
+                PlayerFaction::AmberBlossom => "Amber Blossom City",
+                PlayerFaction::JadeSun => "Jade Sun City",
+                PlayerFaction::CobaltIce => "Cobalt Ice City",
+                PlayerFaction::PinkCosmos => "Pink Cosmos City",
+                PlayerFaction::TealGalaxy => "Teal Galaxy City",
+                PlayerFaction::PurpleLightning => "Purple Lightning City",
+                PlayerFaction::AcidRain => "Acid Rain City",
+                PlayerFaction::UmberWilds => "Umber Wilds City",
+                PlayerFaction::WhiteNova => "White Nova City",
+                PlayerFaction::AzureAsteroid => "Azure Asteroid City",
+                PlayerFaction::NoirEclipse => "Noir Eclipse City",
+                PlayerFaction::SilverClaw => "Silver Claw City",
+            },
+            Property::Base(Faction::Player(player_faction)) => match player_faction {
+                PlayerFaction::OrangeStar => "Orange Star Base",
+                PlayerFaction::BlueMoon => "Blue Moon Base",
+                PlayerFaction::GreenEarth => "Green Earth Base",
+                PlayerFaction::YellowComet => "Yellow Comet Base",
+                PlayerFaction::BlackHole => "Black Hole Base",
+                PlayerFaction::RedFire => "Red Fire Base",
+                PlayerFaction::GreySky => "Grey Sky Base",
+                PlayerFaction::BrownDesert => "Brown Desert Base",
+                PlayerFaction::AmberBlossom => "Amber Blossom Base",
+                PlayerFaction::JadeSun => "Jade Sun Base",
+                PlayerFaction::CobaltIce => "Cobalt Ice Base",
+                PlayerFaction::PinkCosmos => "Pink Cosmos Base",
+                PlayerFaction::TealGalaxy => "Teal Galaxy Base",
+                PlayerFaction::PurpleLightning => "Purple Lightning Base",
+                PlayerFaction::AcidRain => "Acid Rain Base",
+                PlayerFaction::UmberWilds => "Umber Wilds Base",
+                PlayerFaction::WhiteNova => "White Nova Base",
+                PlayerFaction::AzureAsteroid => "Azure Asteroid Base",
+                PlayerFaction::NoirEclipse => "Noir Eclipse Base",
+                PlayerFaction::SilverClaw => "Silver Claw Base",
+            },
+            Property::Airport(Faction::Player(player_faction)) => match player_faction {
+                PlayerFaction::OrangeStar => "Orange Star Airport",
+                PlayerFaction::BlueMoon => "Blue Moon Airport",
+                PlayerFaction::GreenEarth => "Green Earth Airport",
+                PlayerFaction::YellowComet => "Yellow Comet Airport",
+                PlayerFaction::BlackHole => "Black Hole Airport",
+                PlayerFaction::RedFire => "Red Fire Airport",
+                PlayerFaction::GreySky => "Grey Sky Airport",
+                PlayerFaction::BrownDesert => "Brown Desert Airport",
+                PlayerFaction::AmberBlossom => "Amber Blossom Airport",
+                PlayerFaction::JadeSun => "Jade Sun Airport",
+                PlayerFaction::CobaltIce => "Cobalt Ice Airport",
+                PlayerFaction::PinkCosmos => "Pink Cosmos Airport",
+                PlayerFaction::TealGalaxy => "Teal Galaxy Airport",
+                PlayerFaction::PurpleLightning => "Purple Lightning Airport",
+                PlayerFaction::AcidRain => "Acid Rain Airport",
+                PlayerFaction::UmberWilds => "Umber Wilds Airport",
+                PlayerFaction::WhiteNova => "White Nova Airport",
+                PlayerFaction::AzureAsteroid => "Azure Asteroid Airport",
+                PlayerFaction::NoirEclipse => "Noir Eclipse Airport",
+                PlayerFaction::SilverClaw => "Silver Claw Airport",
+            },
+            Property::Port(Faction::Player(player_faction)) => match player_faction {
+                PlayerFaction::OrangeStar => "Orange Star Port",
+                PlayerFaction::BlueMoon => "Blue Moon Port",
+                PlayerFaction::GreenEarth => "Green Earth Port",
+                PlayerFaction::YellowComet => "Yellow Comet Port",
+                PlayerFaction::BlackHole => "Black Hole Port",
+                PlayerFaction::RedFire => "Red Fire Port",
+                PlayerFaction::GreySky => "Grey Sky Port",
+                PlayerFaction::BrownDesert => "Brown Desert Port",
+                PlayerFaction::AmberBlossom => "Amber Blossom Port",
+                PlayerFaction::JadeSun => "Jade Sun Port",
+                PlayerFaction::CobaltIce => "Cobalt Ice Port",
+                PlayerFaction::PinkCosmos => "Pink Cosmos Port",
+                PlayerFaction::TealGalaxy => "Teal Galaxy Port",
+                PlayerFaction::PurpleLightning => "Purple Lightning Port",
+                PlayerFaction::AcidRain => "Acid Rain Port",
+                PlayerFaction::UmberWilds => "Umber Wilds Port",
+                PlayerFaction::WhiteNova => "White Nova Port",
+                PlayerFaction::AzureAsteroid => "Azure Asteroid Port",
+                PlayerFaction::NoirEclipse => "Noir Eclipse Port",
+                PlayerFaction::SilverClaw => "Silver Claw Port",
+            },
+            Property::ComTower(Faction::Player(player_faction)) => match player_faction {
+                PlayerFaction::OrangeStar => "Orange Star Com Tower",
+                PlayerFaction::BlueMoon => "Blue Moon Com Tower",
+                PlayerFaction::GreenEarth => "Green Earth Com Tower",
+                PlayerFaction::YellowComet => "Yellow Comet Com Tower",
+                PlayerFaction::BlackHole => "Black Hole Com Tower",
+                PlayerFaction::RedFire => "Red Fire Com Tower",
+                PlayerFaction::GreySky => "Grey Sky Com Tower",
+                PlayerFaction::BrownDesert => "Brown Desert Com Tower",
+                PlayerFaction::AmberBlossom => "Amber Blossom Com Tower",
+                PlayerFaction::JadeSun => "Jade Sun Com Tower",
+                PlayerFaction::CobaltIce => "Cobalt Ice Com Tower",
+                PlayerFaction::PinkCosmos => "Pink Cosmos Com Tower",
+                PlayerFaction::TealGalaxy => "Teal Galaxy Com Tower",
+                PlayerFaction::PurpleLightning => "Purple Lightning Com Tower",
+                PlayerFaction::AcidRain => "Acid Rain Com Tower",
+                PlayerFaction::UmberWilds => "Umber Wilds Com Tower",
+                PlayerFaction::WhiteNova => "White Nova Com Tower",
+                PlayerFaction::AzureAsteroid => "Azure Asteroid Com Tower",
+                PlayerFaction::NoirEclipse => "Noir Eclipse Com Tower",
+                PlayerFaction::SilverClaw => "Silver Claw Com Tower",
+            },
+            Property::Lab(Faction::Player(player_faction)) => match player_faction {
+                PlayerFaction::OrangeStar => "Orange Star Lab",
+                PlayerFaction::BlueMoon => "Blue Moon Lab",
+                PlayerFaction::GreenEarth => "Green Earth Lab",
+                PlayerFaction::YellowComet => "Yellow Comet Lab",
+                PlayerFaction::BlackHole => "Black Hole Lab",
+                PlayerFaction::RedFire => "Red Fire Lab",
+                PlayerFaction::GreySky => "Grey Sky Lab",
+                PlayerFaction::BrownDesert => "Brown Desert Lab",
+                PlayerFaction::AmberBlossom => "Amber Blossom Lab",
+                PlayerFaction::JadeSun => "Jade Sun Lab",
+                PlayerFaction::CobaltIce => "Cobalt Ice Lab",
+                PlayerFaction::PinkCosmos => "Pink Cosmos Lab",
+                PlayerFaction::TealGalaxy => "Teal Galaxy Lab",
+                PlayerFaction::PurpleLightning => "Purple Lightning Lab",
+                PlayerFaction::AcidRain => "Acid Rain Lab",
+                PlayerFaction::UmberWilds => "Umber Wilds Lab",
+                PlayerFaction::WhiteNova => "White Nova Lab",
+                PlayerFaction::AzureAsteroid => "Azure Asteroid Lab",
+                PlayerFaction::NoirEclipse => "Noir Eclipse Lab",
+                PlayerFaction::SilverClaw => "Silver Claw Lab",
+            },
+            Property::HQ(player_faction) => match player_faction {
+                PlayerFaction::OrangeStar => "Orange Star HQ",
+                PlayerFaction::BlueMoon => "Blue Moon HQ",
+                PlayerFaction::GreenEarth => "Green Earth HQ",
+                PlayerFaction::YellowComet => "Yellow Comet HQ",
+                PlayerFaction::BlackHole => "Black Hole HQ",
+                PlayerFaction::RedFire => "Red Fire HQ",
+                PlayerFaction::GreySky => "Grey Sky HQ",
+                PlayerFaction::BrownDesert => "Brown Desert HQ",
+                PlayerFaction::AmberBlossom => "Amber Blossom HQ",
+                PlayerFaction::JadeSun => "Jade Sun HQ",
+                PlayerFaction::CobaltIce => "Cobalt Ice HQ",
+                PlayerFaction::PinkCosmos => "Pink Cosmos HQ",
+                PlayerFaction::TealGalaxy => "Teal Galaxy HQ",
+                PlayerFaction::PurpleLightning => "Purple Lightning HQ",
+                PlayerFaction::AcidRain => "Acid Rain HQ",
+                PlayerFaction::UmberWilds => "Umber Wilds HQ",
+                PlayerFaction::WhiteNova => "White Nova HQ",
+                PlayerFaction::AzureAsteroid => "Azure Asteroid HQ",
+                PlayerFaction::NoirEclipse => "Noir Eclipse HQ",
+                PlayerFaction::SilverClaw => "Silver Claw HQ",
+            },
+        }
+    }
+}
+
+/// Property types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PropertyKind {
+    Airport,
+    Base,
+    City,
+    ComTower,
+    HQ,
+    Lab,
+    Port,
+}
+
+impl PropertyKind {
+    /// Get the previous property kind in the order of the property types
+    pub const fn prev(&self) -> PropertyKind {
+        match self {
+            PropertyKind::Airport => PropertyKind::Port,
+            PropertyKind::Base => PropertyKind::Airport,
+            PropertyKind::City => PropertyKind::Base,
+            PropertyKind::ComTower => PropertyKind::City,
+            PropertyKind::HQ => PropertyKind::ComTower,
+            PropertyKind::Lab => PropertyKind::HQ,
+            PropertyKind::Port => PropertyKind::Lab,
+        }
+    }
+
+    /// The name of the building, without an owner in front of it.
+    pub const fn name(&self) -> &'static str {
+        match self {
+            PropertyKind::Airport => "Airport",
+            PropertyKind::Base => "Base",
+            PropertyKind::City => "City",
+            PropertyKind::ComTower => "Com Tower",
+            PropertyKind::HQ => "HQ",
+            PropertyKind::Lab => "Lab",
+            PropertyKind::Port => "Port",
+        }
+    }
+}
+
+/// GameplayTerrain represents the terrain's gameplay characteristics,
+/// abstracting away visual differences that don't affect mechanics
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GameplayTerrain {
+    Plain,
+    Mountain,
+    Wood,
+    River,
+    Road,
+    Bridge,
+    Sea,
+    Shoal,
+    Reef,
+    Property(Property),
+    Pipe,
+    PipeSeam,
+    PipeRubble,
+    MissileSilo(MissileSiloStatus),
+    Teleporter,
+}
+
+impl GameplayTerrain {
+    /// The kind of terrain, with no drawing detail and no owner.
+    ///
+    /// This is the name a player thinks in. The map format writes the tile it
+    /// draws, so it calls one shoal `HShoal` and one headquarters
+    /// `Orange Star HQ`; a readout that names the tile says `Shoal` and `HQ`,
+    /// and lets the sprite carry the shape and the army colour.
+    pub const fn type_name(&self) -> &'static str {
+        match self {
+            GameplayTerrain::Plain => "Plain",
+            GameplayTerrain::Mountain => "Mountain",
+            GameplayTerrain::Wood => "Wood",
+            GameplayTerrain::River => "River",
+            GameplayTerrain::Road => "Road",
+            GameplayTerrain::Bridge => "Bridge",
+            GameplayTerrain::Sea => "Sea",
+            GameplayTerrain::Shoal => "Shoal",
+            GameplayTerrain::Reef => "Reef",
+            GameplayTerrain::Property(property) => property.kind().name(),
+            GameplayTerrain::Pipe => "Pipe",
+            GameplayTerrain::PipeSeam => "Pipe Seam",
+            GameplayTerrain::PipeRubble => "Pipe Rubble",
+            // A silo that has fired keeps its name. The empty silo is drawn as
+            // its own tile, so the art says which one this is.
+            GameplayTerrain::MissileSilo(_) => "Silo",
+            GameplayTerrain::Teleporter => "Teleporter",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn property_defense_stars() {
+        assert_eq!(
+            Property::HQ(PlayerFaction::OrangeStar).defense_stars(),
+            4,
+            "HQ gives 4 defense stars"
+        );
+        assert_eq!(
+            Property::City(Faction::Neutral).defense_stars(),
+            3,
+            "City gives 3 defense stars"
+        );
+        assert_eq!(
+            Property::Base(Faction::Neutral).defense_stars(),
+            3,
+            "Base gives 3 defense stars"
+        );
+        assert_eq!(
+            Property::Airport(Faction::Neutral).defense_stars(),
+            3,
+            "Airport gives 3 defense stars"
+        );
+        assert_eq!(
+            Property::Port(Faction::Neutral).defense_stars(),
+            3,
+            "Port gives 3 defense stars"
+        );
+    }
+}

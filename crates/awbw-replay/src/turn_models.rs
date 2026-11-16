@@ -1,5 +1,7 @@
 use crate::de::{Hidden, Masked, bool_ynstr_map};
-use awbrn_types::{AwbwDate, AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction, Unit};
+use awbw_types::{
+    AwbwDate, AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, AwbwUnitKind, PlayerFaction,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
@@ -166,7 +168,7 @@ pub struct UnitProperty {
     pub units_games_id: Option<u32>,
     pub units_players_id: AwbwGamePlayerId,
     #[serde(with = "crate::de::awbw_unit_name")]
-    pub units_name: Unit,
+    pub units_name: AwbwUnitKind,
     pub units_movement_points: Option<u32>,
     pub units_vision: Option<u32>,
     pub units_fuel: Option<u32>,
@@ -194,7 +196,7 @@ pub struct UnitProperty {
     #[serde(default)]
     pub units_cargo2_units_id: Masked<u32>,
     pub units_carried: Option<String>,
-    #[serde(with = "awbrn_types::faction_code")]
+    #[serde(with = "awbw_types::faction_code")]
     pub countries_code: PlayerFaction,
 }
 
@@ -500,16 +502,6 @@ pub enum WeatherCode {
     Snow,
 }
 
-impl From<WeatherCode> for awbrn_types::Weather {
-    fn from(value: WeatherCode) -> Self {
-        match value {
-            WeatherCode::Clear => awbrn_types::Weather::Clear,
-            WeatherCode::Rain => awbrn_types::Weather::Rain,
-            WeatherCode::Snow => awbrn_types::Weather::Snow,
-        }
-    }
-}
-
 /// Movement/vision boosts applied globally to the activating player's units
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct GlobalStatBoost {
@@ -577,7 +569,7 @@ pub struct UnitAddGroup {
     #[serde(rename = "playerId")]
     pub player_id: AwbwGamePlayerId,
     #[serde(rename = "unitName", with = "crate::de::awbw_unit_name")]
-    pub unit_name: Unit,
+    pub unit_name: AwbwUnitKind,
     pub units: Vec<NewUnit>,
 }
 
@@ -1269,7 +1261,7 @@ mod tests {
         let action: PowerAction = serde_json::from_str(json).unwrap();
         let add = action.unit_add.unwrap();
         let group = &add[&TargetedPlayer::Global];
-        assert_eq!(group.unit_name, Unit::Infantry);
+        assert_eq!(group.unit_name, AwbwUnitKind::Infantry);
         assert_eq!(group.units[0].units_x, 0);
         assert_eq!(group.units[0].units_y, 11);
     }

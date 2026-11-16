@@ -69,7 +69,6 @@ impl AwbwGameId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Default)]
-#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 #[serde(transparent)]
 pub struct AwbwUnitId(u32);
 

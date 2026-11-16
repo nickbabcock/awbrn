@@ -2,7 +2,7 @@ use awvm::ruleset::profile;
 
 /// Canonical unit vocabulary generated from the AWBW ruleset.
 ///
-/// Presentation and replay helpers live in [`UnitExt`]; the identity and wire
+/// Presentation helpers live in [`UnitExt`]; the identity and wire
 /// spelling come directly from AWVM so the workspace has only one unit enum.
 pub use awvm::ruleset::UnitKind as Unit;
 
@@ -11,11 +11,8 @@ pub use awvm::ruleset::Domain as UnitDomain;
 
 /// AWBW presentation and compatibility operations on the canonical unit kind.
 pub trait UnitExt: Sized + Copy {
-    /// Get the display name used by AWBW replay payloads and UI.
+    /// Get the display name used by the UI.
     fn name(&self) -> &'static str;
-
-    /// Convert an AWBW display name to a unit kind.
-    fn from_awbw_name(name: &str) -> Option<Self>;
 
     /// Convert an AWBW numeric unit-type id to a unit kind.
     fn from_awbw_id(id: u32) -> Option<Self>;
@@ -63,37 +60,6 @@ impl UnitExt for Unit {
             Unit::TCopter => "T-Copter",
             Unit::Tank => "Tank",
         }
-    }
-
-    fn from_awbw_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "Anti-Air" => Unit::AntiAir,
-            "APC" => Unit::Apc,
-            "Artillery" => Unit::Artillery,
-            "B-Copter" => Unit::BCopter,
-            "Battleship" => Unit::Battleship,
-            "Black Boat" => Unit::BlackBoat,
-            "Black Bomb" => Unit::BlackBomb,
-            "Bomber" => Unit::Bomber,
-            "Carrier" => Unit::Carrier,
-            "Cruiser" => Unit::Cruiser,
-            "Fighter" => Unit::Fighter,
-            "Infantry" => Unit::Infantry,
-            "Lander" => Unit::Lander,
-            "Md.Tank" => Unit::MdTank,
-            "Mech" => Unit::Mech,
-            "Mega Tank" => Unit::MegaTank,
-            "Missile" => Unit::Missile,
-            "Neotank" => Unit::NeoTank,
-            "Piperunner" => Unit::Piperunner,
-            "Recon" => Unit::Recon,
-            "Rocket" => Unit::Rocket,
-            "Stealth" => Unit::Stealth,
-            "Sub" => Unit::Sub,
-            "T-Copter" => Unit::TCopter,
-            "Tank" => Unit::Tank,
-            _ => return None,
-        })
     }
 
     fn from_awbw_id(id: u32) -> Option<Self> {

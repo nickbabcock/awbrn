@@ -15,6 +15,7 @@ use awvm::semantic::{PlayerId, Pos, UnitId};
 use awvm::transition::Command;
 
 use crate::targeting::{targeted_hidden, targeted_value, visible_targeted_unit, visible_unit};
+use crate::unit_kind;
 
 /// Lower one archived action to the typed command it records.
 ///
@@ -57,7 +58,7 @@ pub fn diagnostic_command(
             Command::ProduceUnit {
                 player,
                 position: unit_pos(unit, "build position")?,
-                kind: unit.units_name,
+                kind: unit_kind(unit.units_name),
             }
         }
         Action::Capt { move_action, .. } => {

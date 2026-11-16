@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-awbrn-types.path = "../awbrn-types"
+awbw-types.path = "../awbw-types"
 flate2.workspace = true
 indexmap.workspace = true
 phpserz.workspace = true

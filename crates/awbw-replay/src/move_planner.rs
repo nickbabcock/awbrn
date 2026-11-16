@@ -9,9 +9,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use awbrn_types::{
+use awbw_types::{
     AwbwCoId, AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain,
-    AwbwUnitId, PlayerFaction, Unit,
+    AwbwUnitId, AwbwUnitKind, PlayerFaction,
 };
 use serde::Deserialize;
 
@@ -76,7 +76,7 @@ pub struct PlannerUnit {
     #[serde(rename = "units_players_id")]
     pub players_id: AwbwGamePlayerId,
     #[serde(rename = "units_name", with = "crate::de::awbw_unit_name")]
-    pub name: Unit,
+    pub name: AwbwUnitKind,
     #[serde(rename = "units_movement_points")]
     pub movement_points: u32,
     #[serde(rename = "units_vision")]

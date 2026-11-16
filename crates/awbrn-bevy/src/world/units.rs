@@ -33,9 +33,21 @@ pub fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Commands) {
 /// `Unit` must only exist on entities that also have `MapPosition`.
 pub struct Unit(pub awbrn_types::Unit);
 
-#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Component,
+    Reflect,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[component(immutable)]
-#[reflect(Component)]
+#[reflect(opaque)]
+#[reflect(Component, Serialize, Deserialize)]
 pub struct Faction(pub awbrn_types::PlayerFaction);
 
 /// Component to mark a unit that can receive orders this turn.
