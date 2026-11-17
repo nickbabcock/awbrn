@@ -1,6 +1,7 @@
 use crate::core::INACTIVE_UNIT_COLOR;
 use crate::core::SpriteSize;
 use crate::core::coords::TILE_SIZE;
+use crate::features::ReducedMotion;
 use crate::modes::replay::navigation;
 use crate::projection::{ClientProjectionSet, ProjectedUnitOverlayFlags, ProjectedUnitRenderState};
 use crate::render::animation::{
@@ -9,28 +10,20 @@ use crate::render::animation::{
 use crate::render::{UiAtlas, UnitAtlasResource};
 use awbrn_bevy::world::{Faction, Unit, UnitActive};
 use awbrn_content::get_unit_animation_frames;
-use awbrn_content::{UnitOverlay, unit_overlay_spec};
+use awbrn_content::{UnitOverlay, UnitOverlaySpec, unit_overlay_spec};
 use bevy::sprite::Anchor;
 use bevy::{log, prelude::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OverlayKind {
     Health,
-    Capturing,
-    Cargo,
-    Dive,
-    LowAmmo,
-    LowFuel,
+    StatusCorner,
 }
 
 #[derive(Component, Debug, Default)]
 pub struct UnitOverlayRegistry {
     health: Option<Entity>,
-    capturing: Option<Entity>,
-    cargo: Option<Entity>,
-    dive: Option<Entity>,
-    low_ammo: Option<Entity>,
-    low_fuel: Option<Entity>,
+    status_corner: Option<Entity>,
 }
 
 impl UnitOverlayRegistry {
@@ -49,22 +42,14 @@ impl UnitOverlayRegistry {
     fn overlay_slot(&self, kind: OverlayKind) -> &Option<Entity> {
         match kind {
             OverlayKind::Health => &self.health,
-            OverlayKind::Capturing => &self.capturing,
-            OverlayKind::Cargo => &self.cargo,
-            OverlayKind::Dive => &self.dive,
-            OverlayKind::LowAmmo => &self.low_ammo,
-            OverlayKind::LowFuel => &self.low_fuel,
+            OverlayKind::StatusCorner => &self.status_corner,
         }
     }
 
     fn overlay_slot_mut(&mut self, kind: OverlayKind) -> &mut Option<Entity> {
         match kind {
             OverlayKind::Health => &mut self.health,
-            OverlayKind::Capturing => &mut self.capturing,
-            OverlayKind::Cargo => &mut self.cargo,
-            OverlayKind::Dive => &mut self.dive,
-            OverlayKind::LowAmmo => &mut self.low_ammo,
-            OverlayKind::LowFuel => &mut self.low_fuel,
+            OverlayKind::StatusCorner => &mut self.status_corner,
         }
     }
 }
@@ -82,26 +67,46 @@ pub struct OverlayVisual {
     pub kind: OverlayKind,
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct OverlayBlink {
-    pub period_secs: f32,
-    pub min_alpha: f32,
-    pub max_alpha: f32,
+/// A unit's bottom-left corner, which shows one of its status marks at a time.
+///
+/// Capture, cargo, dive and the two warnings all claim the same corner, so
+/// they take turns on it rather than drawing over one another.
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub struct StatusCorner {
+    /// The unit's marks, in the order the corner steps through them.
+    marks: Vec<UnitOverlay>,
 }
 
-#[derive(Debug, Clone)]
-struct OverlaySpec {
-    sprite_name: String,
-    translation: Vec3,
-    blink: Option<OverlayBlink>,
-}
-
-impl OverlaySpec {
-    fn new(sprite_name: impl Into<String>, translation: Vec3) -> Self {
+impl StatusCorner {
+    fn from_flags(flags: ProjectedUnitOverlayFlags) -> Self {
+        let marks = [
+            (flags.capturing, UnitOverlay::Capturing),
+            (flags.cargo, UnitOverlay::Cargo),
+            (flags.dive, UnitOverlay::Dive),
+            (flags.low_fuel, UnitOverlay::LowFuel),
+            (flags.low_ammo, UnitOverlay::LowAmmo),
+        ];
         Self {
-            sprite_name: sprite_name.into(),
-            translation,
-            blink: None,
+            marks: marks
+                .into_iter()
+                .filter_map(|(present, mark)| present.then_some(mark))
+                .collect(),
+        }
+    }
+
+    /// The mark shown in board second `second`, or `None` for a blank frame.
+    ///
+    /// Every corner reads the same second, so the board steps in unison
+    /// rather than shimmering.
+    fn frame(&self, second: u64, reduced_motion: bool) -> Option<UnitOverlay> {
+        match self.marks.as_slice() {
+            [] => None,
+            // A lone warning flashes against blank. Under reduced motion it
+            // holds steady instead, since a blinking mark is the motion.
+            [UnitOverlay::LowFuel | UnitOverlay::LowAmmo] if !reduced_motion && second % 2 == 1 => {
+                None
+            }
+            marks => marks.get((second % marks.len() as u64) as usize).copied(),
         }
     }
 }
@@ -124,169 +129,108 @@ type ProjectedUnitRenderFilter = (
     Without<OverlayVisual>,
 );
 
-fn health_overlay(health: awbrn_bevy::world::GraphicalHp) -> Option<OverlaySpec> {
-    shared_overlay(UnitOverlay::Health(health))
-}
-
-fn capturing_overlay() -> Option<OverlaySpec> {
-    shared_overlay(UnitOverlay::Capturing)
-}
-
-fn cargo_overlay() -> Option<OverlaySpec> {
-    shared_overlay(UnitOverlay::Cargo)
-}
-
-fn dive_overlay() -> Option<OverlaySpec> {
-    shared_overlay(UnitOverlay::Dive)
-}
+type HealthOverlayQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Sprite, &'static mut Transform),
+    (With<OverlayVisual>, Without<StatusCorner>),
+>;
 
 /// `None` when the overlay has nothing to draw, as full-health and destroyed
 /// units do.
-fn shared_overlay(overlay: UnitOverlay) -> Option<OverlaySpec> {
-    let spec = unit_overlay_spec(overlay)?;
-    Some(OverlaySpec::new(
-        spec.sprite_name,
-        Vec3::new(spec.offset.x, -spec.offset.y, 1.0),
-    ))
+fn health_overlay(health: awbrn_bevy::world::GraphicalHp) -> Option<UnitOverlaySpec> {
+    unit_overlay_spec(UnitOverlay::Health(health))
+}
+
+fn overlay_translation(spec: &UnitOverlaySpec) -> Vec3 {
+    Vec3::new(spec.offset.x, -spec.offset.y, 1.0)
 }
 
 fn spawn_overlay_entity(
     commands: &mut Commands,
     unit_entity: Entity,
     kind: OverlayKind,
-    spec: &OverlaySpec,
+    spec: &UnitOverlaySpec,
     ui_atlas: &UiAtlas,
 ) -> Entity {
-    let mut entity_commands = commands.spawn((
-        ui_atlas.sprite_for(&spec.sprite_name),
-        Transform::from_translation(spec.translation),
-        ChildOf(unit_entity),
-        OverlayVisual { kind },
-    ));
-
-    if let Some(blink) = spec.blink {
-        entity_commands.insert(blink);
-    }
-
-    entity_commands.id()
+    commands
+        .spawn((
+            ui_atlas.sprite_for(&spec.sprite_name),
+            Transform::from_translation(overlay_translation(spec)),
+            ChildOf(unit_entity),
+            OverlayVisual { kind },
+        ))
+        .id()
 }
 
-fn reconcile_overlay(
+fn reconcile_health_overlay(
     unit_entity: Entity,
     registry: &mut UnitOverlayRegistry,
-    kind: OverlayKind,
-    desired: Option<OverlaySpec>,
+    desired: Option<UnitOverlaySpec>,
     commands: &mut Commands,
     ui_atlas: &UiAtlas,
-    overlay_query: &mut Query<
-        (&mut Sprite, &mut Transform, Option<&mut OverlayBlink>),
-        With<OverlayVisual>,
-    >,
+    overlay_query: &mut HealthOverlayQuery,
 ) {
-    match desired {
-        Some(spec) => {
-            let Some(existing) = registry.overlay(kind) else {
-                let overlay_entity =
-                    spawn_overlay_entity(commands, unit_entity, kind, &spec, ui_atlas);
-                registry.set_overlay(kind, overlay_entity);
-                return;
-            };
-
-            let overlay_updated =
-                if let Ok((mut sprite, mut transform, blink)) = overlay_query.get_mut(existing) {
-                    *sprite = ui_atlas.sprite_for(&spec.sprite_name);
-                    transform.translation = spec.translation;
-
-                    match (blink, spec.blink) {
-                        (Some(mut existing), Some(next)) => {
-                            *existing = next;
-                        }
-                        (Some(_), None) => {
-                            commands.entity(existing).remove::<OverlayBlink>();
-                        }
-                        (None, Some(next)) => {
-                            commands.entity(existing).insert(next);
-                        }
-                        (None, None) => {}
-                    }
-
-                    sprite.color.set_alpha(1.0);
-                    true
-                } else {
-                    false
-                };
-
-            if !overlay_updated {
-                let overlay_entity =
-                    spawn_overlay_entity(commands, unit_entity, kind, &spec, ui_atlas);
-                registry.set_overlay(kind, overlay_entity);
-            }
+    let kind = OverlayKind::Health;
+    let Some(spec) = desired else {
+        if let Some(overlay_entity) = registry.clear_overlay(kind) {
+            commands.entity(overlay_entity).try_despawn();
         }
-        None => {
-            if let Some(overlay_entity) = registry.clear_overlay(kind) {
-                commands.entity(overlay_entity).try_despawn();
-            }
-        }
+        return;
+    };
+
+    let existing = registry
+        .overlay(kind)
+        .and_then(|existing| overlay_query.get_mut(existing).ok());
+    if let Some((mut sprite, mut transform)) = existing {
+        *sprite = ui_atlas.sprite_for(&spec.sprite_name);
+        transform.translation = overlay_translation(&spec);
+    } else {
+        let overlay_entity = spawn_overlay_entity(commands, unit_entity, kind, &spec, ui_atlas);
+        registry.set_overlay(kind, overlay_entity);
     }
 }
 
-fn sync_projected_overlays(
-    entity: Entity,
-    overlays: ProjectedUnitOverlayFlags,
+/// Keep one corner child while the unit has any mark; [`cycle_status_corners`]
+/// picks what it shows.
+fn reconcile_status_corner(
+    unit_entity: Entity,
     registry: &mut UnitOverlayRegistry,
+    desired: StatusCorner,
     commands: &mut Commands,
     ui_atlas: &UiAtlas,
-    overlay_query: &mut Query<
-        (&mut Sprite, &mut Transform, Option<&mut OverlayBlink>),
-        With<OverlayVisual>,
-    >,
+    corners: &mut Query<&mut StatusCorner>,
 ) {
-    reconcile_overlay(
-        entity,
-        registry,
-        OverlayKind::Health,
-        overlays.health.and_then(health_overlay),
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-    reconcile_overlay(
-        entity,
-        registry,
-        OverlayKind::Capturing,
-        overlays.capturing.then(capturing_overlay).flatten(),
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-    reconcile_overlay(
-        entity,
-        registry,
-        OverlayKind::Cargo,
-        overlays.cargo.then(cargo_overlay).flatten(),
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-    reconcile_overlay(
-        entity,
-        registry,
-        OverlayKind::Dive,
-        overlays.dive.then(dive_overlay).flatten(),
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
+    let kind = OverlayKind::StatusCorner;
+    let Some(first) = desired.marks.first().copied().and_then(unit_overlay_spec) else {
+        if let Some(overlay_entity) = registry.clear_overlay(kind) {
+            commands.entity(overlay_entity).try_despawn();
+        }
+        return;
+    };
+
+    match registry
+        .overlay(kind)
+        .and_then(|existing| corners.get_mut(existing).ok())
+    {
+        Some(mut corner) => {
+            corner.set_if_neq(desired);
+        }
+        None => {
+            let overlay_entity =
+                spawn_overlay_entity(commands, unit_entity, kind, &first, ui_atlas);
+            commands.entity(overlay_entity).insert(desired);
+            registry.set_overlay(kind, overlay_entity);
+        }
+    }
 }
 
 pub(crate) fn sync_projected_unit_render_state(
     mut commands: Commands,
     ui_atlas: UiAtlas,
     mut units: Query<ProjectedUnitRenderQueryItem<'_>, ProjectedUnitRenderFilter>,
-    mut overlay_query: Query<
-        (&mut Sprite, &mut Transform, Option<&mut OverlayBlink>),
-        With<OverlayVisual>,
-    >,
+    mut health_overlays: HealthOverlayQuery,
+    mut corners: Query<&mut StatusCorner>,
 ) {
     for (
         entity,
@@ -323,30 +267,58 @@ pub(crate) fn sync_projected_unit_render_state(
             projected.active,
         );
 
-        sync_projected_overlays(
+        reconcile_health_overlay(
             entity,
-            projected.overlays,
             &mut registry,
+            projected.overlays.health.and_then(health_overlay),
             &mut commands,
             &ui_atlas,
-            &mut overlay_query,
+            &mut health_overlays,
+        );
+        reconcile_status_corner(
+            entity,
+            &mut registry,
+            StatusCorner::from_flags(projected.overlays),
+            &mut commands,
+            &ui_atlas,
+            &mut corners,
         );
     }
 }
 
-fn animate_blinking_overlays(time: Res<Time>, mut query: Query<(&OverlayBlink, &mut Sprite)>) {
-    let elapsed = time.elapsed_secs();
+/// Step every status corner on the board's one-second clock.
+///
+/// A frame is a cut, never a fade or a scale: under reduced motion the swap
+/// stays, because a cut is not motion.
+fn cycle_status_corners(
+    time: Res<Time>,
+    reduced_motion: Res<ReducedMotion>,
+    ui_atlas: UiAtlas,
+    mut last_clock: Local<Option<(u64, bool)>>,
+    mut corners: Query<(
+        Ref<StatusCorner>,
+        &mut Sprite,
+        &mut Transform,
+        &mut Visibility,
+    )>,
+) {
+    let clock = (time.elapsed().as_secs(), reduced_motion.0);
+    let previous = last_clock.replace(clock);
 
-    for (blink, mut sprite) in &mut query {
-        if blink.period_secs <= 0.0 {
-            sprite.color.set_alpha(blink.max_alpha);
+    for (corner, mut sprite, mut transform, mut visibility) in &mut corners {
+        let shown = corner.frame(clock.0, clock.1);
+        let unchanged = previous.map(|(second, reduced)| corner.frame(second, reduced));
+        if !corner.is_changed() && unchanged == Some(shown) {
             continue;
         }
 
-        let phase = (elapsed / blink.period_secs) * core::f32::consts::TAU;
-        let t = (phase.sin() + 1.0) * 0.5;
-        let alpha = blink.min_alpha + (blink.max_alpha - blink.min_alpha) * t;
-        sprite.color.set_alpha(alpha);
+        let Some(spec) = shown.and_then(unit_overlay_spec) else {
+            visibility.set_if_neq(Visibility::Hidden);
+            continue;
+        };
+        *sprite = ui_atlas.sprite_for(&spec.sprite_name);
+        transform.translation = overlay_translation(&spec);
+        visibility.set_if_neq(Visibility::Inherited);
     }
 }
 
@@ -419,7 +391,7 @@ impl Plugin for UnitRenderingPlugin {
                         .in_set(ClientProjectionSet::SyncRender)
                         .after(navigation::animate_unit_paths)
                         .before(crate::render::animation::animate_units),
-                    animate_blinking_overlays,
+                    cycle_status_corners.after(sync_projected_unit_render_state),
                     align_unit_sprites.after(sync_projected_unit_render_state),
                 )
                     .run_if(in_state(crate::core::AppState::InGame)),
@@ -433,7 +405,7 @@ mod tests {
     use crate::projection::project_unit_render_state;
     use crate::render::UiAtlasResource;
     use awbrn_bevy::world::{
-        CaptureProgress, CarriedBy, FriendlyFactions, GraphicalHp, ViewerVisibility,
+        Ammo, CaptureProgress, CarriedBy, FriendlyFactions, Fuel, GraphicalHp, ViewerVisibility,
     };
     use awbrn_types::{GraphicalMovement, PlayerFaction};
 
@@ -495,6 +467,20 @@ mod tests {
                     width: 8,
                     height: 8,
                 },
+                crate::UiAtlasSprite {
+                    name: "LowFuel.png".to_string(),
+                    x: 56,
+                    y: 0,
+                    width: 7,
+                    height: 8,
+                },
+                crate::UiAtlasSprite {
+                    name: "LowAmmo.png".to_string(),
+                    x: 64,
+                    y: 0,
+                    width: 7,
+                    height: 8,
+                },
             ],
         }));
 
@@ -510,6 +496,8 @@ mod tests {
         app.insert_resource(atlas_assets);
         app.init_resource::<ViewerVisibility>();
         app.init_resource::<FriendlyFactions>();
+        app.init_resource::<ReducedMotion>();
+        app.insert_resource(Time::<()>::default());
         app.register_required_components::<Unit, UnitOverlayRegistry>()
             .add_observer(handle_unit_spawn)
             .add_systems(
@@ -518,10 +506,67 @@ mod tests {
                     project_unit_render_state,
                     sync_projected_unit_render_state
                         .before(crate::render::animation::animate_units),
+                    cycle_status_corners,
                 )
                     .chain(),
             );
         app
+    }
+
+    /// Move the board clock to `second` and draw that frame.
+    fn update_at_second(app: &mut App, second: u64) {
+        let target = std::time::Duration::from_secs(second);
+        let elapsed = app.world().resource::<Time>().elapsed();
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(target - elapsed);
+        app.update();
+    }
+
+    fn status_corner(app: &App, unit: Entity) -> Option<Entity> {
+        app.world()
+            .get::<UnitOverlayRegistry>(unit)
+            .unwrap()
+            .overlay(OverlayKind::StatusCorner)
+    }
+
+    /// The mark the unit's corner shows now, or `None` for blank.
+    fn shown_mark(app: &App, unit: Entity) -> Option<&'static str> {
+        let corner = status_corner(app, unit)?;
+        if app.world().get::<Visibility>(corner) == Some(&Visibility::Hidden) {
+            return None;
+        }
+        let index = overlay_sprite_index(app, corner);
+        [
+            "Capturing.png",
+            "HasCargo.png",
+            "Dive.png",
+            "LowFuel.png",
+            "LowAmmo.png",
+        ]
+        .into_iter()
+        .find(|name| atlas_index(app, name) == index)
+    }
+
+    fn corner_children(app: &mut App, unit: Entity) -> usize {
+        let mut query = app
+            .world_mut()
+            .query_filtered::<&ChildOf, (With<OverlayVisual>, With<StatusCorner>)>();
+        query
+            .iter(app.world())
+            .filter(|parent| parent.parent() == unit)
+            .count()
+    }
+
+    fn spawn_marked_unit(app: &mut App, unit: awbrn_types::Unit, marks: impl Bundle) -> Entity {
+        app.world_mut()
+            .spawn((
+                Unit(unit),
+                Faction(PlayerFaction::OrangeStar),
+                UnitActive,
+                marks,
+            ))
+            .id()
     }
 
     fn spawn_test_unit(app: &mut App, faction: PlayerFaction, active: bool) -> Entity {
@@ -930,7 +975,7 @@ mod tests {
     }
 
     #[test]
-    fn health_and_capturing_overlays_can_coexist() {
+    fn health_and_status_corner_overlays_can_coexist() {
         let mut app = unit_render_test_app();
         let unit = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
         app.update();
@@ -949,56 +994,45 @@ mod tests {
             .get::<UnitOverlayRegistry>()
             .unwrap();
         let health = registry.overlay(OverlayKind::Health).unwrap();
-        let capturing = registry.overlay(OverlayKind::Capturing).unwrap();
+        let corner = registry.overlay(OverlayKind::StatusCorner).unwrap();
 
-        assert_ne!(health, capturing);
+        assert_ne!(health, corner);
         assert_eq!(
             overlay_sprite_index(&app, health),
             atlas_index(&app, "Healthv2/5.png")
         );
-        assert_eq!(
-            overlay_sprite_index(&app, capturing),
-            atlas_index(&app, "Capturing.png")
-        );
+        assert_eq!(shown_mark(&app, unit), Some("Capturing.png"));
     }
 
     #[test]
-    fn health_and_capturing_overlays_are_tracked_when_spawned_together() {
+    fn health_and_status_corner_overlays_are_tracked_when_spawned_together() {
         let mut app = unit_render_test_app();
-        let unit = app
-            .world_mut()
-            .spawn((
-                Unit(awbrn_types::Unit::Infantry),
-                Faction(PlayerFaction::GreenEarth),
-                UnitActive,
+        let unit = spawn_marked_unit(
+            &mut app,
+            awbrn_types::Unit::Infantry,
+            (
                 GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(50)),
                 CaptureProgress::new(10).unwrap(),
-            ))
-            .id();
+            ),
+        );
 
         app.update();
 
-        let registry = app
+        let health = app
             .world()
-            .entity(unit)
-            .get::<UnitOverlayRegistry>()
+            .get::<UnitOverlayRegistry>(unit)
+            .unwrap()
+            .overlay(OverlayKind::Health)
             .unwrap();
-        let health = registry.overlay(OverlayKind::Health).unwrap();
-        let capturing = registry.overlay(OverlayKind::Capturing).unwrap();
-
-        assert_ne!(health, capturing);
         assert_eq!(
             overlay_sprite_index(&app, health),
             atlas_index(&app, "Healthv2/5.png")
         );
-        assert_eq!(
-            overlay_sprite_index(&app, capturing),
-            atlas_index(&app, "Capturing.png")
-        );
+        assert_eq!(shown_mark(&app, unit), Some("Capturing.png"));
     }
 
     #[test]
-    fn cargo_overlay_tracks_has_cargo_relationship() {
+    fn cargo_mark_tracks_has_cargo_relationship() {
         let mut app = unit_render_test_app();
         let transport = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
         let cargo = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
@@ -1008,28 +1042,121 @@ mod tests {
             .entity_mut(cargo)
             .insert(CarriedBy(transport));
         app.update();
-
-        let cargo_overlay = app
-            .world()
-            .entity(transport)
-            .get::<UnitOverlayRegistry>()
-            .unwrap()
-            .overlay(OverlayKind::Cargo)
-            .unwrap();
-        assert_eq!(
-            overlay_sprite_index(&app, cargo_overlay),
-            atlas_index(&app, "HasCargo.png")
-        );
+        assert_eq!(shown_mark(&app, transport), Some("HasCargo.png"));
 
         app.world_mut().entity_mut(cargo).remove::<CarriedBy>();
         app.update();
-        assert!(
-            app.world()
-                .entity(transport)
-                .get::<UnitOverlayRegistry>()
-                .unwrap()
-                .overlay(OverlayKind::Cargo)
-                .is_none()
+        assert!(status_corner(&app, transport).is_none());
+    }
+
+    /// Every mark shares the bottom-left corner, so they take turns in one
+    /// child instead of drawing over each other, in the order capturing,
+    /// cargo, dive, low fuel, low ammo.
+    #[test]
+    fn status_corner_steps_through_every_mark_in_one_child() {
+        let mut app = unit_render_test_app();
+        let mech = spawn_marked_unit(
+            &mut app,
+            awbrn_types::Unit::Mech,
+            (CaptureProgress::new(10).unwrap(), Fuel(10), Ammo(0)),
         );
+
+        let shown: Vec<_> = (0..4)
+            .map(|second| {
+                update_at_second(&mut app, second);
+                shown_mark(&app, mech)
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                Some("Capturing.png"),
+                Some("LowFuel.png"),
+                Some("LowAmmo.png"),
+                Some("Capturing.png"),
+            ]
+        );
+        assert_eq!(corner_children(&mut app, mech), 1);
+    }
+
+    /// The board blinks in unison: a unit marked later joins the clock where
+    /// it stands rather than starting its own.
+    #[test]
+    fn status_corners_share_one_board_clock() {
+        let mut app = unit_render_test_app();
+        let first = spawn_marked_unit(
+            &mut app,
+            awbrn_types::Unit::Mech,
+            (CaptureProgress::new(10).unwrap(), Fuel(10)),
+        );
+        update_at_second(&mut app, 0);
+        update_at_second(&mut app, 1);
+
+        let second = spawn_marked_unit(
+            &mut app,
+            awbrn_types::Unit::Infantry,
+            (CaptureProgress::new(10).unwrap(), Fuel(10)),
+        );
+        app.update();
+        assert_eq!(shown_mark(&app, first), Some("LowFuel.png"));
+        assert_eq!(shown_mark(&app, second), Some("LowFuel.png"));
+
+        update_at_second(&mut app, 2);
+        assert_eq!(shown_mark(&app, first), Some("Capturing.png"));
+        assert_eq!(shown_mark(&app, second), Some("Capturing.png"));
+    }
+
+    #[test]
+    fn a_lone_warning_flashes_and_holds_steady_under_reduced_motion() {
+        let mut app = unit_render_test_app();
+        let unit = spawn_marked_unit(&mut app, awbrn_types::Unit::Infantry, Fuel(10));
+
+        update_at_second(&mut app, 0);
+        assert_eq!(shown_mark(&app, unit), Some("LowFuel.png"));
+        update_at_second(&mut app, 1);
+        assert_eq!(shown_mark(&app, unit), None, "a lone warning blinks");
+        update_at_second(&mut app, 2);
+        assert_eq!(shown_mark(&app, unit), Some("LowFuel.png"));
+
+        app.insert_resource(ReducedMotion(true));
+        update_at_second(&mut app, 3);
+        assert_eq!(
+            shown_mark(&app, unit),
+            Some("LowFuel.png"),
+            "reduced motion holds a lone warning steady"
+        );
+    }
+
+    #[test]
+    fn a_lone_persistent_mark_holds_still() {
+        let mut app = unit_render_test_app();
+        let unit = spawn_marked_unit(
+            &mut app,
+            awbrn_types::Unit::Infantry,
+            CaptureProgress::new(10).unwrap(),
+        );
+
+        for second in 0..3 {
+            update_at_second(&mut app, second);
+            assert_eq!(shown_mark(&app, unit), Some("Capturing.png"));
+        }
+    }
+
+    /// Reduced motion keeps the one-second swap between several marks, since
+    /// a cut from one frame to the next is not motion.
+    #[test]
+    fn reduced_motion_keeps_the_swap_between_marks() {
+        let mut app = unit_render_test_app();
+        app.insert_resource(ReducedMotion(true));
+        let unit = spawn_marked_unit(
+            &mut app,
+            awbrn_types::Unit::Mech,
+            (CaptureProgress::new(10).unwrap(), Ammo(0)),
+        );
+
+        update_at_second(&mut app, 0);
+        assert_eq!(shown_mark(&app, unit), Some("Capturing.png"));
+        update_at_second(&mut app, 1);
+        assert_eq!(shown_mark(&app, unit), Some("LowAmmo.png"));
     }
 }

@@ -6,6 +6,7 @@ import init, {
   type BattleForecastResponse,
   type BattleRequestWire,
   type CanvasDisplay,
+  type Dismissal,
   type GameEvent,
   type MovePlannerSetup,
   type MovePlannerSummary,
@@ -81,7 +82,8 @@ export interface GameInstance {
   applyLiveTransition: (transition: ObservedTransition) => Promise<void>;
   setPlayerDisplayFaction: (playerId: number, factionId: number | null) => Promise<void>;
   chooseUnitAction: (index: number) => Promise<void>;
-  dismissUnitAction: () => Promise<void>;
+  dismissUnitAction: (how: Dismissal) => Promise<void>;
+  highlightUnitAction: (index: number | null) => Promise<void>;
   rejectPendingCommand: () => Promise<void>;
   enterBoardReview: () => Promise<void>;
   exitBoardReview: () => Promise<void>;
@@ -351,8 +353,12 @@ export const createGame = async (
       app.choose_unit_action(index);
       app.update();
     },
-    dismissUnitAction: async () => {
-      app.dismiss_unit_action();
+    dismissUnitAction: async (how: Dismissal) => {
+      app.dismiss_unit_action(how);
+      app.update();
+    },
+    highlightUnitAction: async (index: number | null) => {
+      app.highlight_unit_action(index ?? undefined);
       app.update();
     },
     rejectPendingCommand: async () => {

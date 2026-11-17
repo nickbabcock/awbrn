@@ -1204,7 +1204,8 @@ fn observed_unloads_are_offered_after_the_transport_is_spent() {
 /// the formula, so a forecast that agreed with a wrong model would still fail
 /// here. Fog states are skipped for the reason [`Legal::forecast`] gives. A
 /// projection can be honestly wrong, and the corpus cannot tell that apart
-/// from a broken bracket. An attack on hidden HP must not have a forecast.
+/// from a broken bracket. An attack on hidden HP must not have a forecast, and
+/// its full-health estimate must not promise more damage than landed.
 #[test]
 fn the_forecast_brackets_every_attack_the_corpus_resolves() {
     let mut checked = 0;
@@ -1255,6 +1256,9 @@ fn the_forecast_brackets_every_attack_the_corpus_resolves() {
                 let target = cell_of(&session, target_position)
                     .unwrap_or_else(|| panic!("{relative}: {target_position} is off the board"));
                 let forecast = legal.forecast(seat, from, target);
+                let estimate = legal
+                    .estimate(seat, from, target)
+                    .unwrap_or_else(|| panic!("{relative}: no estimate for an accepted attack"));
                 let Some(forecast) = forecast else {
                     assert!(
                         observation.units.iter().any(|unit| {
@@ -1266,9 +1270,32 @@ fn the_forecast_brackets_every_attack_the_corpus_resolves() {
                         }),
                         "{relative}: no forecast for a target with disclosed HP"
                     );
+                    assert!(
+                        estimate.assumes_full_health,
+                        "{relative}: estimate hid its assumption"
+                    );
+                    // Against full health the attack is the least the strike
+                    // can do to the hurt unit actually there.
+                    let target_unit = target_unit.expect("hidden health belongs to a unit");
+                    let dealt = damage_dealt(&execution.events, target_unit, KnownReason::Combat);
+                    let real_hp = state.units.get(target_unit).map_or(0, |unit| unit.hp);
+                    assert!(
+                        dealt >= *landed(estimate.forecast.attack, real_hp).start(),
+                        "{relative}: unit {unit} dealt {dealt} to a hidden {real_hp}, below the \
+                         full-health estimate of {}",
+                        estimate.forecast.attack.low
+                    );
                     state = execution.state;
                     continue;
                 };
+                assert!(
+                    !estimate.assumes_full_health,
+                    "{relative}: disclosed health was assumed"
+                );
+                assert_eq!(
+                    estimate.forecast, forecast,
+                    "{relative}: estimate drifted from forecast"
+                );
 
                 let dealt = match target_unit {
                     Some(id) => damage_dealt(&execution.events, id, KnownReason::Combat),

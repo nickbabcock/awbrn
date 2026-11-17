@@ -61,7 +61,17 @@ export interface BoardMenuShellProps {
   isOpen?: boolean;
   /** Names the menu for assistive technology. */
   label: string;
+  /**
+   * The board menu only: false to open without lighting an order, so the
+   * keyboard stays on the board until the player reaches for the menu.
+   */
+  opensWithCaret?: boolean;
   onDismiss: () => void;
+  /**
+   * The board menu only: a press outside it, when that means something other
+   * than `onDismiss`. Defaults to `onDismiss`.
+   */
+  onPressOutside?: () => void;
   /** Hands the keyboard back to the board once the menu has closed. */
   onRestoreFocus: () => void;
   presentation: BoardMenuPresentation;
@@ -117,7 +127,9 @@ function BoardAnchoredMenu({
   inlineSize,
   label,
   onDismiss,
+  onPressOutside = onDismiss,
   onRestoreFocus,
+  opensWithCaret = true,
 }: BoardMenuShellProps) {
   const menuRef = useRef<HTMLElement>(null);
 
@@ -126,13 +138,13 @@ function BoardAnchoredMenu({
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
-        onDismiss();
+        onPressOutside();
       }
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [onDismiss]);
+  }, [onPressOutside]);
 
   return (
     <BoardAnchoredPanel
@@ -144,7 +156,12 @@ function BoardAnchoredMenu({
       role="dialog"
       xstyle={styles.anchoredMenu}
     >
-      <MenuKeyboardScope onDismiss={onDismiss} onRestoreFocus={onRestoreFocus} takesCursor>
+      <MenuKeyboardScope
+        onDismiss={onDismiss}
+        onRestoreFocus={onRestoreFocus}
+        opensWithCaret={opensWithCaret}
+        takesCursor
+      >
         {children({ isSheet: false, spriteScale: 1, takesCursor: true })}
       </MenuKeyboardScope>
     </BoardAnchoredPanel>
@@ -192,6 +209,9 @@ export function BoardAnchoredPanel({
   const fallbackRef = useRef<HTMLElement>(null);
   const panelRef = ref ?? fallbackRef;
   const [frame, setFrame] = useState<{ left: number; maxHeight: number; top: number } | null>(null);
+  // While the anchor holds, so does the top edge: rows that change under the
+  // pointer (orders to an armed Unload and back) must not move the menu.
+  const held = useRef<{ x: number; y: number; top: number } | null>(null);
 
   // Placement runs before paint, so the panel is never seen at the raw press
   // point and then moved.
@@ -207,7 +227,12 @@ export function BoardAnchoredPanel({
     const place = () => {
       const bounds = surface.getBoundingClientRect();
       const panelBounds = panel.getBoundingClientRect();
-      const next = placeOnBoard(anchor, bounds, panelBounds, anchorClearance);
+      const heldTop =
+        anchor && held.current?.x === anchor.x && held.current.y === anchor.y
+          ? held.current.top
+          : undefined;
+      const next = placeOnBoard(anchor, bounds, panelBounds, anchorClearance, heldTop);
+      held.current = anchor ? { x: anchor.x, y: anchor.y, top: next.top } : null;
       // The observer watches the panel, and the frame decides the panel's size,
       // so a placement that lands where the last one did must return the same
       // object or the two feed each other a re-render per tick.
@@ -318,19 +343,21 @@ function MenuKeyboardScope({
   footer,
   onDismiss,
   onRestoreFocus,
+  opensWithCaret = true,
   takesCursor,
 }: {
   children: ReactNode;
   footer?: ReactNode;
   onDismiss: () => void;
   onRestoreFocus: () => void;
+  opensWithCaret?: boolean;
   takesCursor: boolean;
 }) {
   const listRef = useRef<HTMLElement>(null);
 
   const restoreFocus = useEffectEvent(onRestoreFocus);
   useEffect(() => {
-    if (takesCursor) {
+    if (takesCursor && opensWithCaret) {
       focusPreferredOrder(listRef.current);
     }
 
@@ -420,6 +447,7 @@ function placeOnBoard(
   surface: DOMRect,
   menu: DOMRect,
   clearance: number,
+  heldTop?: number,
 ): { left: number; maxHeight: number; top: number } {
   const maxHeight = Math.max(surface.height - BOARD_MENU_INSET * 2, 0);
   const height = Math.min(menu.height, maxHeight);
@@ -441,7 +469,7 @@ function placeOnBoard(
     preferredLeft > limitLeft
       ? Math.max(anchor.x - clearance - menu.width, BOARD_MENU_INSET)
       : Math.max(preferredLeft, BOARD_MENU_INSET);
-  const preferredTop = anchor.y - height / 2;
+  const preferredTop = heldTop ?? anchor.y - height / 2;
 
   return {
     left,
@@ -550,6 +578,9 @@ export const boardMenuStyles = stylex.create({
       },
     },
   },
+  caretShown: {
+    opacity: 1,
+  },
   sprite: {
     display: "block",
     flex: "0 0 auto",
@@ -569,14 +600,17 @@ export const boardMenuStyles = stylex.create({
   },
 });
 
-/** The red caret a chosen order wears. */
-export function MenuCaret() {
+/**
+ * The red caret a chosen order wears. `isShown` holds it on a row the board
+ * has chosen, wherever the keyboard is.
+ */
+export function MenuCaret({ isShown = false }: { isShown?: boolean }) {
   return (
     <svg
       aria-hidden="true"
       fill="currentColor"
       viewBox="0 0 16 16"
-      {...stylex.props(boardMenuStyles.caret)}
+      {...stylex.props(boardMenuStyles.caret, isShown && boardMenuStyles.caretShown)}
     >
       <path d="M5 3l6 5-6 5z" />
     </svg>

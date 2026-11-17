@@ -115,6 +115,8 @@ impl InspectionFields {
 pub struct InspectionReadout {
     /// Movement points, after fuel and the commander.
     pub movement: u32,
+    /// Whether the unit has moved or acted this turn, so its movement is spent.
+    pub moved: bool,
     /// The firing band, absent for a unit with no weapon that reaches.
     pub range: Option<(u32, u32)>,
     /// What the unit sees, absent in a match without fog.
@@ -282,14 +284,30 @@ fn collect_fields(
         }
     }
 
+    let moved = state
+        .units
+        .get(unit_id)
+        .is_some_and(|unit| has_moved(state, unit));
+
     into.readout = Some(InspectionReadout {
         movement: movement_points,
+        moved,
         range,
         sight: sight.map(|tiles| InspectedSight {
             tiles,
             base: kind.base_vision(),
         }),
     });
+}
+
+/// Whether `unit` has spent its movement this turn.
+///
+/// Only the army whose turn it is spends movement. Another army's units keep
+/// last turn's action until their own turn starts, yet their reach is whole
+/// for the turn ahead.
+fn has_moved(state: &awvm::semantic::State, unit: &awvm::semantic::Unit) -> bool {
+    unit.action != awvm::semantic::UnitAction::Ready
+        && state.players.seat(&state.turn.active_player) == Some(unit.owner)
 }
 
 /// The tiles a unit's firing band is measured from, or nothing where the band
@@ -863,6 +881,7 @@ pub(crate) fn emit_inspection_readout(
                 name: unit.0.name().to_string(),
                 faction_code: faction.0.country_code().to_string(),
                 movement: values.movement,
+                moved: values.moved,
                 range_minimum: values.range.map(|(minimum, _)| minimum),
                 range_maximum: values.range.map(|(_, maximum)| maximum),
                 sight: values.sight,
@@ -937,5 +956,68 @@ impl Plugin for InspectionPlugin {
             )
             .add_systems(OnExit(crate::core::GameMode::Game), cleanup_inspection)
             .add_systems(OnExit(crate::core::GameMode::Replay), cleanup_inspection);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A two-army match on day 1, the first army to move, with one unit of
+    /// each army per `(owner, action)`.
+    fn state_with(units: &[(&str, &str)]) -> awvm::semantic::State {
+        let commander = serde_json::json!([{ "id": "nell", "active": true, "power_charge": 0, "power_uses": 0 }]);
+        let units: Vec<_> = units
+            .iter()
+            .enumerate()
+            .map(|(index, (owner, action))| {
+                serde_json::json!({
+                    "id": index + 1, "kind": "infantry", "owner": owner, "hp": 100,
+                    "fuel": 99, "ammo": 0, "action": action, "concealment": "exposed",
+                    "location": { "type": "board", "position": [index, 0] }
+                })
+            })
+            .collect();
+        serde_json::from_value(serde_json::json!({
+            "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+            "settings": {
+                "fog": false, "income_per_property": 1000, "starting_funds": 0,
+                "powers": "disabled", "tags": false, "weather": "clear",
+                "lab_units": [], "unit_bans": [], "commander_bans": { "lead": [], "backup": [] },
+                "capture_limit": null, "day_limit": null, "unit_limit": null
+            },
+            "board": { "width": 4, "height": 1, "tiles": [[
+                { "terrain": "plain" }, { "terrain": "plain" }, { "terrain": "plain" }, { "terrain": "plain" }
+            ]] },
+            "teams": [{ "id": "red", "status": "active" }, { "id": "blue", "status": "active" }],
+            "players": [
+                { "id": "0", "team": "red", "funds": 0, "status": "active", "commanders": commander, "power_state": { "type": "none" } },
+                { "id": "1", "team": "blue", "funds": 0, "status": "active", "commanders": commander, "power_state": { "type": "none" } }
+            ],
+            "turn": { "day": 1, "active_player": "0", "phase": "unit-action", "order": ["0", "1"], "position": 0 },
+            "weather": { "kind": "clear", "remaining_turns": 0 },
+            "units": units,
+            "next_unit_id": null,
+            "match": { "status": "active", "draw_offers": [] }
+        }))
+        .expect("a valid state")
+    }
+
+    /// Move reads as spent for the moving army's moved and spent units only,
+    /// which covers a transport that moved and then unloaded.
+    #[test]
+    fn only_the_moving_armys_acted_units_have_moved() {
+        let state = state_with(&[
+            ("0", "ready"),
+            ("0", "moved"),
+            ("0", "spent"),
+            ("1", "spent"),
+        ]);
+        let moved: Vec<_> = state
+            .units
+            .iter()
+            .map(|unit| has_moved(&state, unit))
+            .collect();
+        assert_eq!(moved, [false, true, true, false]);
     }
 }

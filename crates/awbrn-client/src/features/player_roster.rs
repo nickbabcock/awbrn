@@ -374,11 +374,11 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                 continue;
             };
             if let Some(player_id) = player_id_for_faction(&config, faction) {
-                *income_counts.entry(player_id).or_default() += 1;
+                // Com towers and Labs are owned but pay nothing (spec/semantics/turn.md).
                 match property.kind() {
                     PropertyKind::ComTower => *tower_counts.entry(player_id).or_default() += 1,
                     PropertyKind::Lab => *lab_counts.entry(player_id).or_default() += 1,
-                    _ => {}
+                    _ => *income_counts.entry(player_id).or_default() += 1,
                 }
             }
         }
@@ -627,7 +627,21 @@ mod tests {
             GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(100)),
         ));
 
+        // A city pays; a com tower and a Lab are owned but pay nothing.
+        use awbrn_types::Property;
+        let owned = TerrainFaction::Player(PlayerFaction::OrangeStar);
+        for property in [
+            Property::City(owned),
+            Property::ComTower(owned),
+            Property::Lab(owned),
+        ] {
+            app.world_mut().spawn(TerrainTile {
+                terrain: GraphicalTerrain::Property(property),
+            });
+        }
+
         let snapshot = player_roster_snapshot(app.world_mut()).unwrap();
+        assert_eq!(snapshot.players[0].stats.income, Some(1000));
         assert_eq!(snapshot.players[0].stats.funds, Some(5000));
         assert_eq!(snapshot.players[0].stats.unit_count, Some(1));
         assert_eq!(snapshot.players[1].stats.funds, None);

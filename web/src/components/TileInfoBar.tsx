@@ -75,7 +75,7 @@ const CARGO_SPRITE_LIMIT = 4;
  */
 export function TileInfoBar() {
   const tile = useGameStore((state) => state.hoveredTile);
-  const inspected = useGameStore((state) => state.inspectedUnit);
+  const inspected = useReachUnlessAiming();
   const isCoarsePointer = useMediaQuery(COARSE_POINTER_MEDIA);
   const windowRef = useRef<HTMLDivElement>(null);
   const dock = useReadoutDock(windowRef);
@@ -187,6 +187,7 @@ function UnitLines({ unit }: { unit: HoveredUnit }) {
         {unit.ammoDisplay === "none" ? null : (
           <Resource
             icon={AMMO}
+            isLow={unit.lowAmmo}
             label="Ammo"
             maximum={unit.maxAmmo}
             unlimited={unit.ammoDisplay === "unlimited"}
@@ -195,6 +196,7 @@ function UnitLines({ unit }: { unit: HoveredUnit }) {
         )}
         <Resource
           icon={FUEL}
+          isLow={unit.lowFuel}
           label="Fuel"
           maximum={unit.maxFuel}
           showMaximum={false}
@@ -256,8 +258,8 @@ function ReachLines({ reach }: { reach: InspectedUnitReadout }) {
       <ReachLine
         label="Move"
         mark="glass"
-        reading={`${reach.name} moves ${reach.movement}`}
-        value={`${reach.movement}`}
+        reading={reach.moved ? `${reach.name} has moved` : `${reach.name} moves ${reach.movement}`}
+        value={moveFigure(reach)}
       />
       <ReachLine
         label="Range"
@@ -486,6 +488,7 @@ function Resource({
   critical = false,
   description,
   icon,
+  isLow = false,
   label,
   maximum,
   showMaximum = true,
@@ -496,6 +499,8 @@ function Resource({
   /** Replaces the spoken reading where "x of y" is not what the number means. */
   description?: string;
   icon: ReturnType<typeof uiAtlasSpriteStyle>;
+  /** At or under the quarter mark the board's status corner warns at. */
+  isLow?: boolean;
   label: string;
   maximum: number;
   showMaximum?: boolean;
@@ -515,7 +520,7 @@ function Resource({
       ? `${label}: unlimited`
       : value === undefined
         ? `${label}: unknown`
-        : `${label}: ${value} of ${maximum}`);
+        : `${label}: ${value} of ${maximum}${isLow ? ", low" : ""}`);
 
   return (
     <HStack align="center" aria-label={reading} gap={1} role="img" xstyle={styles.statLine}>
@@ -529,7 +534,7 @@ function Resource({
         aria-hidden="true"
         hasTabularNumbers
         type="label"
-        xstyle={[styles.readout, critical && styles.critical]}
+        xstyle={[styles.readout, critical && styles.critical, isLow && styles.low]}
       >
         {amount}
       </Text>
@@ -680,6 +685,9 @@ const styles = stylex.create({
   critical: {
     color: colorVars["--color-text-red"],
   },
+  low: {
+    color: awbrnVars.warn,
+  },
   // The three readings divide from the stock above them with the same soft
   // rule the blocks already use, and never with a second outline.
   reach: {
@@ -728,6 +736,11 @@ const styles = stylex.create({
 /* Docked readouts: the tile window beside the board, the one-line tile row,
    and the tile sheet a phone opens from it. */
 
+/** A unit that has moved this turn has no movement left to read. */
+function moveFigure(reach: InspectedUnitReadout): string {
+  return reach.moved ? "–" : `${reach.movement}`;
+}
+
 /** The reach of the unit being read, as three short figures. */
 function reachFigures(reach: InspectedUnitReadout) {
   const range =
@@ -737,7 +750,7 @@ function reachFigures(reach: InspectedUnitReadout) {
         ? `${reach.rangeMaximum}`
         : `${reach.rangeMinimum}–${reach.rangeMaximum}`;
   return [
-    { label: "Move", value: `${reach.movement}` },
+    { label: "Move", value: moveFigure(reach) },
     { label: "Range", value: range },
     ...(reach.sight === undefined ? [] : [{ label: "Sight", value: `${reach.sight.tiles}` }]),
   ];
@@ -801,20 +814,28 @@ function Figure({
   label,
   value,
   isCritical = false,
+  isLow = false,
 }: {
   icon: ReturnType<typeof uiAtlasSpriteStyle>;
   label: string;
   value: string;
   isCritical?: boolean;
+  /** At or under the quarter mark the board's status corner warns at. */
+  isLow?: boolean;
 }) {
   return (
-    <HStack as="span" aria-label={`${label} ${value}`} role="img" xstyle={docked.figure}>
+    <HStack
+      as="span"
+      aria-label={`${label} ${value}${isLow ? ", low" : ""}`}
+      role="img"
+      xstyle={docked.figure}
+    >
       <span aria-hidden="true" style={icon ?? undefined} {...stylex.props(docked.figureIcon)} />
       <Text
         color="inherit"
         type="inherit"
         aria-hidden="true"
-        xstyle={isCritical && docked.critical}
+        xstyle={[isCritical && docked.critical, isLow && docked.low]}
       >
         {value}
       </Text>
@@ -858,9 +879,10 @@ function unitFigures(unit: HoveredUnit, hasMaximums = false) {
             icon: AMMO,
             label: "Ammo",
             value: unit.ammoDisplay === "unlimited" ? "∞" : amount(unit.ammo, unit.maxAmmo),
+            isLow: unit.lowAmmo,
           },
         ]),
-    { icon: FUEL, label: "Fuel", value: amount(unit.fuel, unit.maxFuel) },
+    { icon: FUEL, label: "Fuel", value: amount(unit.fuel, unit.maxFuel), isLow: unit.lowFuel },
   ];
 }
 
@@ -898,13 +920,23 @@ function Coordinates({ tile }: { tile: HoveredTile }) {
 }
 
 /**
+ * The selected unit's reach, except while a cargo is aimed: the window then
+ * reads the tile the cargo would land on, not the transport.
+ */
+function useReachUnlessAiming() {
+  const reach = useGameStore((state) => state.inspectedUnit);
+  const isAiming = useGameStore((state) => state.unitActions?.aim != null);
+  return isAiming ? null : reach;
+}
+
+/**
  * The tile window, docked beside the board in its column. With nothing under
  * the cursor it draws nothing. It changes with the selection in two stepped
  * frames; hovering only rewrites it.
  */
 export function TileWindow({ lab = null }: { lab?: LabReadout | null }) {
   const tile = useGameStore((state) => state.hoveredTile);
-  const reach = useGameStore((state) => state.inspectedUnit);
+  const reach = useReachUnlessAiming();
   if (tile === null && reach === null) return null;
 
   return (
@@ -1189,6 +1221,9 @@ const docked = stylex.create({
   },
   critical: {
     color: awbrnVars.danger,
+  },
+  low: {
+    color: awbrnVars.warn,
   },
   coordinate: {
     fontFamily: awbrnVars.fontFigure,

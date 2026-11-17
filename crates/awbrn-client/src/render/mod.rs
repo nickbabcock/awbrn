@@ -8,7 +8,7 @@ pub mod units;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-pub use units::{OverlayBlink, OverlayKind, OverlayVisual, UnitOverlayRegistry};
+pub use units::{OverlayKind, OverlayVisual, UnitOverlayRegistry};
 
 /// Resource to store loaded UI atlas for reuse
 #[derive(Debug, Resource)]

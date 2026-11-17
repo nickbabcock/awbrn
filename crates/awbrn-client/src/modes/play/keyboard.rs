@@ -12,7 +12,7 @@
 //! | Arrows, WASD, numpad | Move the cursor one tile |
 //! | Shift + the above | Draw the route by hand, tile by tile |
 //! | Backspace | Take back the last hand-drawn tile |
-//! | Tab, `E` / `Q` | Next / previous unit that can still act, then the bases |
+//! | Tab, `E` / `Q` | Next / previous unit that can still act, then the bases; next / previous drop tile while cargo's are lit |
 //! | Enter, Space | Answer the tile under the cursor |
 //! | Ctrl + Enter | Ask to end the turn |
 //! | Escape | Step back one stage |
@@ -33,10 +33,9 @@
 //! holds the cursor and none of this runs.
 
 use super::{
-    BuildableSites, PendingAttackConfirmation, PlaySelectionState, PlayUnitSelectionParams,
-    PointerPolicy, ProductionOptionsParams, TileAnswer, clear_selection_state,
-    close_production_options, handle_tap, select_unit, selectable_unit_at, turn_readiness,
-    unit_is_selectable,
+    BoardAnswers, BuildableSites, PlaySelectionState, PlayUnitSelectionParams, PointerPolicy,
+    ProductionOptionsParams, TileAnswer, clear_selection_state, close_production_options,
+    handle_tap, select_unit, selectable_unit_at, turn_readiness, unit_is_selectable,
 };
 use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::features::camera::FocusBoardOn;
@@ -243,7 +242,7 @@ pub(crate) fn handle_play_keyboard(
     keys: Res<ButtonInput<KeyCode>>,
     mut board: KeyboardBoard<'_, '_>,
     mut policy: PointerPolicy<'_>,
-    mut confirmation: ResMut<PendingAttackConfirmation>,
+    mut answers: BoardAnswers<'_>,
     mut selection: PlaySelectionState<'_>,
 ) {
     let KeyboardBoard {
@@ -282,6 +281,22 @@ pub(crate) fn handle_play_keyboard(
                     .filter(|tile| on_board(*tile, &unit_selection.game_map))
                     .unwrap_or(standing_on);
                 cursor.set_if_neq(KeyboardCursor(Some(next)));
+            }
+            KeyIntent::Cycle(direction) if !selection.drop.tiles.is_empty() => {
+                // While cargo is being put down, the walk is over where it may
+                // land, and the aim follows the cursor.
+                let tiles = &selection.drop.tiles;
+                let count = tiles.len();
+                let at = cursor
+                    .0
+                    .and_then(|tile| tiles.iter().position(|stop| *stop == tile));
+                let next = match (at, direction) {
+                    (Some(index), Cycle::Next) => (index + 1) % count,
+                    (Some(index), Cycle::Previous) => (index + count - 1) % count,
+                    (None, Cycle::Next) => 0,
+                    (None, Cycle::Previous) => count - 1,
+                };
+                cursor.set_if_neq(KeyboardCursor(Some(tiles[next])));
             }
             KeyIntent::Cycle(direction) => {
                 // The walk continues from the unit in hand, or from the base
@@ -323,7 +338,7 @@ pub(crate) fn handle_play_keyboard(
                         coarse: false,
                     },
                     projection,
-                    &mut confirmation,
+                    &mut answers,
                     &mut policy,
                     unit_selection,
                     production_options,

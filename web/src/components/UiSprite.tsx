@@ -10,7 +10,8 @@ export function UiSprite({
 }: {
   label?: string;
   name: string;
-  scale?: 1 | 2 | 3;
+  /** Half scale is the art's own pixels on a 2x screen. */
+  scale?: 0.5 | 1 | 2 | 3;
   xstyle?: stylex.StyleXStyles;
 }) {
   const style = uiAtlasSpriteStyle(name, scale);

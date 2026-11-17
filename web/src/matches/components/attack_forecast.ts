@@ -29,22 +29,26 @@ export function formatBracket(bracket: DamageBracket): string {
  */
 export function engagementLabel(name: string, forecast: AttackForecast): string {
   const target = forecast.target;
+  const isBound = forecast.assumesFullHealth;
   const who =
     target.type === "unit"
-      ? `${getFactionByCode(target.factionCode)?.displayName ?? target.factionCode} ${target.name} at ${target.health} HP`
+      ? `${getFactionByCode(target.factionCode)?.displayName ?? target.factionCode} ${target.name}${isBound ? ", health hidden" : ` at ${target.health} HP`}`
       : target.name;
-  const outcome = forecast.destroys
+  // Against hidden health neither kill can be known, so neither is claimed.
+  const destroys = forecast.destroys && !isBound;
+  const outcome = destroys
     ? ", destroying it"
-    : forecast.mayDestroy
+    : forecast.mayDestroy && !isBound
       ? ", possibly destroying it"
       : "";
+  const dealing = isBound ? `at least ${forecast.damage.low}%` : formatBracket(forecast.damage);
   // Not a counter of zero. Nothing answers at all, and a player spends a unit
   // differently knowing that. A destroyed target needs no such sentence: it is
   // already the reason nothing answers.
   const reply = forecast.counter
-    ? `, taking ${formatBracket(forecast.counter)}${forecast.counterFirst ? " first" : " back"}`
-    : forecast.destroys
+    ? `, taking ${isBound ? `at most ${forecast.counter.high}%` : formatBracket(forecast.counter)}${forecast.counterFirst ? " first" : " back"}`
+    : destroys
       ? ""
       : ", with no reply";
-  return `${name} ${who}, dealing ${formatBracket(forecast.damage)}${outcome}${reply}`;
+  return `${name} ${who}, dealing ${dealing}${outcome}${reply}`;
 }

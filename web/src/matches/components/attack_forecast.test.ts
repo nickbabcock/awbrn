@@ -10,6 +10,7 @@ function forecast(overrides: Partial<AttackForecast> = {}): AttackForecast {
     counterFirst: false,
     destroys: false,
     mayDestroy: false,
+    assumesFullHealth: false,
     ...overrides,
   };
 }
@@ -59,6 +60,42 @@ describe("engagementLabel", () => {
   it("says a pre-emptive counter comes first", () => {
     expect(engagementLabel("Fire", forecast({ counterFirst: true }))).toBe(
       "Fire Blue Moon Tank at 7 HP, dealing 65 – 75%, taking 18 – 22% first",
+    );
+  });
+
+  // Read at full health, the strike's floor and the reply's ceiling hold
+  // whatever the hidden health is; nothing else in the brackets does.
+  it("states bounds against hidden health", () => {
+    expect(
+      engagementLabel(
+        "Fire",
+        forecast({
+          target: {
+            type: "unit",
+            unit: "infantry",
+            name: "Infantry",
+            factionCode: "bd",
+            health: undefined,
+          },
+          damage: { low: 52, high: 61 },
+          counter: { low: 5, high: 7 },
+          assumesFullHealth: true,
+        }),
+      ),
+    ).toBe(
+      "Fire Brown Desert Infantry, health hidden, dealing at least 52%, taking at most 7% back",
+    );
+  });
+
+  it("claims no kill against hidden health", () => {
+    expect(
+      engagementLabel(
+        "Fire",
+        forecast({ counter: undefined, destroys: true, assumesFullHealth: true }),
+      ),
+    ).toBe("Fire Blue Moon Tank, health hidden, dealing at least 65%, with no reply");
+    expect(engagementLabel("Fire", forecast({ mayDestroy: true, assumesFullHealth: true }))).toBe(
+      "Fire Blue Moon Tank, health hidden, dealing at least 65%, taking at most 22% back",
     );
   });
 
