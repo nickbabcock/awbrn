@@ -1210,6 +1210,7 @@ fn observed_unloads_are_offered_after_the_transport_is_spent() {
 fn the_forecast_brackets_every_attack_the_corpus_resolves() {
     let mut checked = 0;
     let mut countered = 0;
+    let mut estimated = 0;
     for (relative, case) in corpus() {
         let Some(mut state) = states(&case).into_iter().next() else {
             continue;
@@ -1285,6 +1286,18 @@ fn the_forecast_brackets_every_attack_the_corpus_resolves() {
                          full-health estimate of {}",
                         estimate.forecast.attack.low
                     );
+                    // And the counter is the most it can return: a hurt
+                    // defender answers weaker, or not at all.
+                    let taken = damage_dealt(&execution.events, *unit, KnownReason::CombatCounter);
+                    let ceiling = estimate.forecast.counter.map_or(0, |range| {
+                        *landed(range, estimate.forecast.attacker_hp).end()
+                    });
+                    assert!(
+                        taken <= ceiling,
+                        "{relative}: unit {unit} took {taken} from a hidden defender, above the \
+                         full-health ceiling of {ceiling}"
+                    );
+                    estimated += 1;
                     state = execution.state;
                     continue;
                 };
@@ -1343,6 +1356,10 @@ fn the_forecast_brackets_every_attack_the_corpus_resolves() {
     assert!(
         countered > 0,
         "expected the corpus to resolve counters, saw {countered}"
+    );
+    assert!(
+        estimated > 0,
+        "expected the corpus to resolve attacks on hidden health, saw {estimated}"
     );
 }
 

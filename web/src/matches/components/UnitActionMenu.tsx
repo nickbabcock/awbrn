@@ -26,7 +26,7 @@ import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
 import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { uiAtlasSpriteStyle } from "#/components/game_sprites.ts";
+import { UiSprite } from "#/components/UiSprite.tsx";
 import { AttackEngagement, Attacker, UnitSprite } from "#/matches/components/AttackEngagement.tsx";
 import { engagementLabel } from "#/matches/components/attack_forecast.ts";
 import {
@@ -159,12 +159,12 @@ export function UnitActionMenu({
     [onHighlight],
   );
 
-  // Armed, the board takes the keyboard: its arrows and Tab aim. Stepping
-  // back returns the caret to the Unload row that was armed.
+  // Armed, the board takes the keyboard: its arrows and Tab aim, in every
+  // presentation, since a dock can be driven by a keyboard too. Stepping back
+  // returns the caret to the Unload row that was armed.
   const bodyRef = useRef<HTMLElement>(null);
   const armedRow = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (presentation !== "board") return;
     const previous = armedRow.current;
     armedRow.current = unloading?.index;
     if (unloading && previous === undefined) {
@@ -174,7 +174,7 @@ export function UnitActionMenu({
         ?.querySelector<HTMLButtonElement>(`[data-order-index="${previous}"]`)
         ?.focus({ preventScroll: true });
     }
-  }, [onRestoreFocus, presentation, unloading]);
+  }, [onRestoreFocus, unloading]);
 
   const announcement = (
     <VisuallyHidden aria-live="polite">
@@ -565,14 +565,10 @@ interface Unloading {
  */
 function CargoSprite({ cargo }: { cargo: CargoBadge }) {
   const mark = cargo.lowFuel ? "LowFuel.png" : cargo.lowAmmo ? "LowAmmo.png" : null;
-  const markStyle = mark ? uiAtlasSpriteStyle(mark, 2) : null;
   return (
     <Stack as="span" xstyle={styles.cargo}>
       <UnitSprite badge={cargo} scale={2} />
-      {/* Raw span: the mark is an inline atlas crop, as the digit is. */}
-      {markStyle ? (
-        <span aria-hidden="true" style={markStyle} {...stylex.props(styles.cargoMark)} />
-      ) : null}
+      {mark ? <UiSprite name={mark} scale={2} xstyle={styles.cargoMark} /> : null}
     </Stack>
   );
 }
