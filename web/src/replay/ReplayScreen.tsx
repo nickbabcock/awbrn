@@ -292,7 +292,7 @@ export function ReplayScreen({
       {views.length <= 2 ? (
         views.map((view) => <ArmyCard isOwed={false} key={view.army.entry.playerId} view={view} />)
       ) : (
-        <Ledger isOwed={false} onOpen={openArmySheet} views={views} />
+        <Ledger isOwed={false} onOpen={openArmySheet} showUnits views={views} />
       )}
       {viewpoint ? (
         <section aria-label="Viewpoint" {...stylex.props(styles.viewBlock)}>

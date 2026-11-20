@@ -38,6 +38,8 @@ import {
 import { TileInfoBar } from "#/components/TileInfoBar.tsx";
 import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameStore } from "#/engine/store.ts";
+import { OPENING_SCALE, TILE_PX } from "#/matches/components/BoardControls.tsx";
+import { menuClearance } from "#/matches/components/unload_orders.ts";
 import { AttackPreview } from "#/matches/components/AttackPreview.tsx";
 import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
@@ -131,6 +133,7 @@ export function PlannerPage() {
   const areaStrikes = useGameStore((state) => state.areaStrikes);
   const plannerSelection = useGameStore((state) => state.plannerSelection);
   const productionOptions = useGameStore((state) => state.productionOptions);
+  const boardScale = useGameStore((state) => state.boardView?.scale ?? OPENING_SCALE);
   const unitActions = useGameStore((state) => state.unitActions);
   const turnReadiness = useGameStore((state) => state.turnReadiness);
   const setProductionOptions = useGameStore((state) => state.actions.setProductionOptions);
@@ -650,6 +653,7 @@ export function PlannerPage() {
               {productionOptions === null || productionSite === undefined ? null : (
                 <BuildMenu
                   anchor={productionOptions.anchor ?? press}
+                  anchorClearance={menuClearance(TILE_PX * boardScale)}
                   factionCode={activeArmy?.displayFactionCode ?? "os"}
                   funds={activeArmy?.stats.funds ?? null}
                   isEnabled
@@ -663,7 +667,10 @@ export function PlannerPage() {
               )}
               {unitActions === null || unitActions.destination === undefined ? null : (
                 <UnitActionMenu
+                  aim={unitActions.aim ?? undefined}
                   anchor={unitActions.anchor ?? press}
+                  anchorClearance={menuClearance(TILE_PX * boardScale, unitActions.options)}
+                  armed={unitActions.armed ?? undefined}
                   attacker={unitActions.attacker ?? undefined}
                   isEnabled
                   onChoose={(index) => {
@@ -671,12 +678,18 @@ export function PlannerPage() {
                       reportError(cause, "The order could not be given.");
                     });
                   }}
-                  onDismiss={() => {
-                    void runner.dismissUnitAction().catch((cause) => {
+                  onDismiss={(how) => {
+                    void runner.dismissUnitAction(how).catch((cause) => {
                       reportError(cause, "The menu could not be closed.");
                     });
                   }}
+                  onHighlight={(index) => {
+                    void runner.highlightUnitAction(index).catch((cause) => {
+                      reportError(cause, "The order could not be lit.");
+                    });
+                  }}
                   onRestoreFocus={focus}
+                  opensWithCaret={unitActions.opensWithCaret}
                   options={unitActions.options}
                   preselected={unitActions.preselected ?? undefined}
                   presentation={menuPresentation}

@@ -4,14 +4,15 @@ use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::core::{AppState, GameMode, RenderLayer, SpriteSize};
 use crate::features::camera::{CameraScale, FocusBoardOn};
 use crate::features::event_bus::{
-    AttackForecast, AttackPreviewChanged, DamageBracket, DeleteUnitCommandRequested, EventSink,
-    ForecastTarget, MoveCommandRequested, PostMoveAction, ProductionOption,
-    ProductionOptionsChanged, ProductionSite, ScreenPoint, TurnReadinessChanged, UnitActionOption,
-    UnitActionsChanged, UnitBadge, UnitOrder, UnloadCommandRequested, player_id_from_js,
+    AttackForecast, AttackPreviewChanged, CargoBadge, DamageBracket, DeleteUnitCommandRequested,
+    Dismissal, DropAim, EventSink, ForecastTarget, MoveCommandRequested, PostMoveAction,
+    ProductionOption, ProductionOptionsChanged, ProductionSite, ScreenPoint, TurnReadinessChanged,
+    UnitActionOption, UnitActionsChanged, UnitBadge, UnitOrder, UnloadCommandRequested,
+    player_id_from_js,
 };
 use crate::features::input::{
-    BoardCursor, BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerIsCoarse,
-    PointerSet, ReturnToTouchFloor,
+    BoardCursor, BoardProjection, DragOwner, KeyboardCursor, PointerGesture, PointerGestureKind,
+    PointerIsCoarse, PointerSet, ReturnToTouchFloor, TILE_CORE_SPRITE_SIZE,
 };
 use crate::render::UiAtlas;
 use crate::render::course_arrow::{COURSE_ARROW_SPRITE_SIZE, build_course_arrow_spawns};
@@ -21,6 +22,7 @@ use awbrn_bevy::world::{
     BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, HasCargo, Unit,
     UnitActive,
 };
+use awbrn_content::{UnitOverlay, unit_overlay_spec};
 use awbrn_map::Pos;
 use awbrn_types::UnitExt;
 use bevy::ecs::system::SystemParam;
@@ -37,6 +39,9 @@ pub(crate) const MOVE_RANGE_GLASS_COLOR: Color = Color::srgba(0.18, 0.82, 0.9, 0
 pub(crate) const MOVE_RANGE_GLASS_LIGHT_EDGE: Color = Color::srgba(0.82, 1.0, 1.0, 0.82);
 pub(crate) const MOVE_RANGE_GLASS_DARK_EDGE: Color = Color::srgba(0.02, 0.34, 0.42, 0.72);
 const MOVE_RANGE_EDGE_WIDTH: f32 = 1.0;
+/// Drop tiles wear the range's glass, framed at twice its edge: the cyan fill
+/// alone vanishes over sea, shoal and river, where cargo is often put down.
+const DROP_TARGET_EDGE_WIDTH: f32 = MOVE_RANGE_EDGE_WIDTH * 2.0;
 const PROPOSED_PATH_COLOR: Color = Color::srgba(0.88, 1.0, 0.96, 0.96);
 /// The base under the cursor has something to build. Gold rather than the
 /// range's cyan or a target's red: it is neither a place a unit may go nor one
@@ -138,6 +143,77 @@ pub enum PlayUiPhase {
 /// instead of drawing itself.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PendingAttackConfirmation(pub Option<Pos>);
+
+/// Where cargo may be put down, and where it would land.
+///
+/// The menu picks what and the board picks where, as Fire does. One set of
+/// tiles is lit at a time: the armed row's, else the row under the desktop
+/// caret, else a lone cargo's. Two sets would read as one.
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct DropTargets {
+    /// The lit tiles, which are those of `row`.
+    pub tiles: Vec<Pos>,
+    /// The offered Unload row the lit tiles belong to.
+    row: Option<usize>,
+    /// The row whose cargo is being put down. A press on its tiles aims.
+    armed: Option<usize>,
+    /// The row under the menu's caret.
+    caret: Option<usize>,
+    /// The tile the cargo would land on.
+    pub aim: Option<Pos>,
+    /// The orders came back after a drop. A transport that can still drive
+    /// keeps its reach on show instead of lighting its next cargo unasked.
+    returned: bool,
+}
+
+impl DropTargets {
+    /// Forget the cargo the last menu was about.
+    fn forget_menu(&mut self) {
+        *self = Self {
+            returned: self.returned,
+            ..Self::default()
+        };
+    }
+
+    fn disarm(&mut self) {
+        self.armed = None;
+        self.aim = None;
+    }
+}
+
+/// The only Unload row on offer, when there is exactly one.
+fn lone_unload_row(offered: &[UnitActionOption]) -> Option<usize> {
+    let mut rows = (0..offered.len()).filter(|row| unload_tiles(offered, *row).is_some());
+    match (rows.next(), rows.next()) {
+        (Some(row), None) => Some(row),
+        _ => None,
+    }
+}
+
+/// The tiles an offered row may put its cargo on, when it is an Unload row.
+fn unload_tiles(offered: &[UnitActionOption], row: usize) -> Option<&[Pos]> {
+    match offered.get(row).map(|option| &option.action) {
+        Some(UnitOrder::Unload { tiles, .. }) => Some(tiles),
+        _ => None,
+    }
+}
+
+/// The menu last sent, so a change of aim can be sent without asking the
+/// rules again.
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct EmittedUnitActions(Option<UnitActionsChanged>);
+
+/// A transport whose drop was accepted, to be picked up again once the board
+/// shows the cargo standing beside it.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ReturningTransport(Option<Entity>);
+
+/// A spent transport that can still put cargo down.
+///
+/// Color on the board means a unit still has an order to give, so this one is
+/// drawn in color until nothing aboard can land.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CanUnload;
 
 /// The exchange presentation was last told about, so an unchanged aim is not
 /// re-sent every frame.
@@ -250,9 +326,9 @@ pub(crate) struct EmittedTurnReadiness(Option<TurnReadinessChanged>);
 /// What the player still has in hand: units that have not acted, and the
 /// properties they could still build from.
 ///
-/// The unit half counts what the cycle would walk to rather than what the rules
-/// would accept there, which is the same promise the cycle makes: a unit that
-/// has not acted is one the player has not spent.
+/// The unit half counts units that have not acted. A spent transport that can
+/// still drop is left out: carrying cargo forward is a choice, not something
+/// left undone.
 fn turn_readiness(
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     sites: &BuildableSites,
@@ -260,14 +336,8 @@ fn turn_readiness(
     let idle_units = unit_selection
         .units
         .iter()
-        .filter(|(_, faction, _, _, is_active, is_carried, has_cargo)| {
-            unit_is_selectable(
-                **faction,
-                *is_active,
-                *is_carried,
-                *has_cargo,
-                &unit_selection.friendly_factions,
-            )
+        .filter(|(_, faction, _, _, is_active, is_carried, _)| {
+            *is_active && !*is_carried && unit_selection.friendly_factions.0.contains(&faction.0)
         })
         .count();
     TurnReadinessChanged {
@@ -330,36 +400,54 @@ pub(crate) fn sync_buildable_site_highlight(
         return;
     };
 
-    let center = position_to_world_translation(&MOVE_RANGE_SPRITE_SIZE, tile, &game_map);
-    commands.spawn((
+    spawn_tile_glass(
+        &mut commands,
         BuildableSiteHighlight,
-        Sprite::from_color(BUILD_SITE_GLASS_COLOR, Vec2::splat(TILE_SIZE)),
-        MOVE_RANGE_SPRITE_SIZE,
+        &MOVE_RANGE_SPRITE_SIZE,
+        position_to_world_translation(&MOVE_RANGE_SPRITE_SIZE, tile, &game_map),
+        TileGlass {
+            fill: BUILD_SITE_GLASS_COLOR,
+            light_edge: BUILD_SITE_GLASS_LIGHT_EDGE,
+            dark_edge: BUILD_SITE_GLASS_DARK_EDGE,
+        },
+    );
+}
+
+/// The colors and frame of one tile of glass.
+#[derive(Debug, Clone, Copy)]
+struct TileGlass {
+    fill: Color,
+    light_edge: Color,
+    dark_edge: Color,
+}
+
+/// One tile of glass framed on its own, lit from the top left.
+fn spawn_tile_glass(
+    commands: &mut Commands,
+    marker: impl Component + Copy,
+    size: &SpriteSize,
+    center: Vec3,
+    glass: TileGlass,
+) {
+    commands.spawn((
+        marker,
+        Sprite::from_color(glass.fill, Vec2::splat(TILE_SIZE)),
+        *size,
         Transform::from_translation(center),
     ));
     let half = (TILE_SIZE - MOVE_RANGE_EDGE_WIDTH) * 0.5;
+    let horizontal = Vec2::new(TILE_SIZE, MOVE_RANGE_EDGE_WIDTH);
+    let vertical = Vec2::new(MOVE_RANGE_EDGE_WIDTH, TILE_SIZE);
     let edges = [
-        (Vec3::new(0.0, half, 0.01), true, true),
-        (Vec3::new(-half, 0.0, 0.01), false, true),
-        (Vec3::new(0.0, -half, 0.01), true, false),
-        (Vec3::new(half, 0.0, 0.01), false, false),
+        (horizontal, Vec3::new(0.0, half, 0.01), glass.light_edge),
+        (vertical, Vec3::new(-half, 0.0, 0.01), glass.light_edge),
+        (horizontal, Vec3::new(0.0, -half, 0.01), glass.dark_edge),
+        (vertical, Vec3::new(half, 0.0, 0.01), glass.dark_edge),
     ];
-    for (offset, horizontal, is_light) in edges {
-        let size = if horizontal {
-            Vec2::new(TILE_SIZE, MOVE_RANGE_EDGE_WIDTH)
-        } else {
-            Vec2::new(MOVE_RANGE_EDGE_WIDTH, TILE_SIZE)
-        };
+    for (edge_size, offset, color) in edges {
         commands.spawn((
-            BuildableSiteHighlight,
-            Sprite::from_color(
-                if is_light {
-                    BUILD_SITE_GLASS_LIGHT_EDGE
-                } else {
-                    BUILD_SITE_GLASS_DARK_EDGE
-                },
-                size,
-            ),
+            marker,
+            Sprite::from_color(color, edge_size),
             Transform::from_translation(center + offset),
         ));
     }
@@ -383,6 +471,10 @@ pub struct DestinationGhost;
 /// How solid the unit looks standing on the tile it has not reached yet.
 const GHOST_ALPHA: f32 = 0.45;
 
+/// Cargo about to be put down is drawn more solid than a moving unit's ghost,
+/// so it holds over dark water.
+const DROP_GHOST_ALPHA: f32 = 0.6;
+
 /// The layer the ghost draws on: above the range wash and above the units, so
 /// it reads as the unit having already arrived.
 const DESTINATION_GHOST_Z: i8 = RenderLayer::UNIT + 1;
@@ -397,6 +489,7 @@ pub(crate) struct PlaySelectionState<'w> {
     proposed_path: ResMut<'w, ProposedMovePath>,
     phase: ResMut<'w, PlayUiPhase>,
     inspected: ResMut<'w, inspect::InspectedUnit>,
+    drop: ResMut<'w, DropTargets>,
 }
 
 type UnitSelectionQueryItem<'a> = (
@@ -455,12 +548,12 @@ pub(crate) struct PointerPolicy<'w> {
 /// unit is at the edge of its own reach as often as not.
 fn frame_selection(
     origin: Pos,
-    range: &HashMap<Pos, u8>,
+    range: impl IntoIterator<Item = Pos>,
     game_map: &GameMap,
     focus: &mut MessageWriter<FocusBoardOn>,
 ) {
     let (mut min, mut max) = (origin, origin);
-    for tile in range.keys() {
+    for tile in range {
         min = Pos::new(min.x.min(tile.x), min.y.min(tile.y));
         max = Pos::new(max.x.max(tile.x), max.y.max(tile.y));
     }
@@ -488,14 +581,25 @@ pub(crate) struct UnitActionParams<'w, 's> {
     observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
     viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
     sink: Option<Res<'w, EventSink<UnitActionsChanged>>>,
+    emitted: ResMut<'w, EmittedUnitActions>,
     projection: BoardProjection<'w, 's>,
 }
 
+/// Where an order goes, and what is kept to take the sending back.
 #[derive(SystemParam)]
 pub(crate) struct UnitCommandSinks<'w> {
     delete_unit_command: Option<Res<'w, EventSink<DeleteUnitCommandRequested>>>,
     move_command: Option<Res<'w, EventSink<MoveCommandRequested>>>,
     unload_command: Option<Res<'w, EventSink<UnloadCommandRequested>>>,
+    committed: ResMut<'w, CommittedCommand>,
+}
+
+/// The orders a press on the board can answer without the menu: firing on
+/// an aimed target, and putting down an aimed cargo.
+#[derive(SystemParam)]
+pub(crate) struct BoardAnswers<'w> {
+    confirmation: ResMut<'w, PendingAttackConfirmation>,
+    chosen: MessageWriter<'w, UnitActionChosen>,
 }
 
 fn unit_is_selectable(
@@ -675,6 +779,7 @@ fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
     selection.pending_destination.0 = None;
     *selection.proposed_path = ProposedMovePath::default();
     *selection.phase = PlayUiPhase::Idle;
+    *selection.drop = DropTargets::default();
 }
 
 /// A unit a press would pick up, with the session its answers were read from.
@@ -746,6 +851,7 @@ fn confirm_selected_destination(
         return;
     }
 
+    *selection.drop = DropTargets::default();
     if destination == selected_unit.origin {
         // A unit that cannot stay here has no orders to offer. Keep it in hand
         // instead of moving to a menu that would come up empty.
@@ -759,17 +865,7 @@ fn confirm_selected_destination(
             return;
         }
 
-        let path = vec![selected_unit.origin];
-        selection.proposed_path.path = path.clone();
-        selection.proposed_path.hovered = Some(destination);
-        selection.pending_destination.0 = Some(PendingMoveDestinationSelection {
-            unit: selected_unit.entity,
-            origin: selected_unit.origin,
-            destination,
-            path,
-            attack_intent: selection.proposed_path.attack_intent,
-        });
-        *selection.phase = PlayUiPhase::DestinationSelected;
+        propose_in_place(selected_unit, selection);
         return;
     }
 
@@ -806,6 +902,38 @@ fn confirm_selected_destination(
         attack_intent: selection.proposed_path.attack_intent,
     });
     *selection.phase = PlayUiPhase::DestinationSelected;
+}
+
+/// Open the orders the unit can give where it stands.
+fn propose_in_place(selected: SelectedUnitSelection, selection: &mut PlaySelectionState<'_>) {
+    let path = vec![selected.origin];
+    selection.proposed_path.path = path.clone();
+    selection.proposed_path.hovered = Some(selected.origin);
+    selection.pending_destination.0 = Some(PendingMoveDestinationSelection {
+        unit: selected.entity,
+        origin: selected.origin,
+        destination: selected.origin,
+        path,
+        attack_intent: selection.proposed_path.attack_intent,
+    });
+    *selection.phase = PlayUiPhase::DestinationSelected;
+}
+
+/// Pick a unit up from a press on it.
+///
+/// A unit that cannot move has nothing to show but its orders, so a spent
+/// transport opens them at once rather than asking for a second press.
+fn pick_up(
+    selectable: SelectableUnit,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+    selection: &mut PlaySelectionState<'_>,
+) {
+    select_unit(selectable, unit_selection, selection);
+    if selection.move_field.0.is_none()
+        && let Some(selected) = selection.selected.0
+    {
+        propose_in_place(selected, selection);
+    }
 }
 
 /// How far from a reachable tile a tap may land and still be pulled onto it.
@@ -937,7 +1065,7 @@ pub(crate) fn handle_play_pointer_gestures(
     mut policy: PointerPolicy<'_>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
     production_options: ProductionOptionsParams<'_>,
-    mut confirmation: ResMut<PendingAttackConfirmation>,
+    mut answers: BoardAnswers<'_>,
     mut selection: PlaySelectionState<'_>,
 ) {
     for gesture in gestures.read() {
@@ -953,7 +1081,7 @@ pub(crate) fn handle_play_pointer_gestures(
                         coarse: gesture.coarse,
                     },
                     &projection,
-                    &mut confirmation,
+                    &mut answers,
                     &mut policy,
                     &unit_selection,
                     &production_options,
@@ -1003,7 +1131,7 @@ pub(crate) struct TileAnswer {
 fn handle_tap(
     answer: TileAnswer,
     projection: &BoardProjection<'_, '_>,
-    confirmation: &mut PendingAttackConfirmation,
+    answers: &mut BoardAnswers<'_>,
     policy: &mut PointerPolicy<'_>,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     production_options: &ProductionOptionsParams<'_>,
@@ -1017,6 +1145,31 @@ fn handle_tap(
 
     if *selection.phase == PlayUiPhase::AwaitingServer {
         return;
+    }
+
+    if *selection.phase == PlayUiPhase::DestinationSelected
+        && let Some(row) = selection.drop.row
+    {
+        if selection.drop.tiles.contains(&tapped) {
+            if coarse && policy.camera_scale.is_below_touch_floor() {
+                policy.floor.write(ReturnToTouchFloor { tile: tapped });
+                return;
+            }
+            // The same conversation Fire has: a pointer already aimed by
+            // hovering, so its press drops; a finger's first tap aims and its
+            // second drops.
+            let was_aimed = selection.drop.armed == Some(row) && selection.drop.aim == Some(tapped);
+            selection.drop.armed = Some(row);
+            selection.drop.aim = Some(tapped);
+            if !coarse || was_aimed {
+                answers.chosen.write(UnitActionChosen { index: row });
+            }
+            return;
+        }
+        // Armed, the board answers only where the cargo may land.
+        if selection.drop.armed.is_some() {
+            return;
+        }
     }
 
     if selection.selected.0.is_some() {
@@ -1051,7 +1204,7 @@ fn handle_tap(
             if coarse && !was_aimed {
                 return;
             }
-            confirmation.0 = Some(tapped);
+            answers.confirmation.0 = Some(tapped);
             let proposed_path = selection.proposed_path.path.clone();
             confirm_selected_destination(approach, &proposed_path, unit_selection, selection);
             return;
@@ -1097,13 +1250,13 @@ fn handle_tap(
         // Picking up a different unit is a change of subject, not a mistake.
         if let Some(selectable) = selectable_unit_at(tapped, unit_selection) {
             let origin = selectable.origin;
-            select_unit(selectable, unit_selection, selection);
+            pick_up(selectable, unit_selection, selection);
             if coarse {
                 // The selection already holds the range it just walked, so the
                 // frame reads it rather than walking the field a second time.
                 frame_selection(
                     origin,
-                    &selection.move_range.tiles,
+                    selection.move_range.tiles.keys().copied(),
                     &unit_selection.game_map,
                     &mut policy.focus,
                 );
@@ -1125,11 +1278,11 @@ fn handle_tap(
     if let Some(selectable) = selectable_unit_at(tapped, unit_selection) {
         close_production_options(production_options.sink.as_deref());
         let origin = selectable.origin;
-        select_unit(selectable, unit_selection, selection);
+        pick_up(selectable, unit_selection, selection);
         if coarse {
             frame_selection(
                 origin,
-                &selection.move_range.tiles,
+                selection.move_range.tiles.keys().copied(),
                 &unit_selection.game_map,
                 &mut policy.focus,
             );
@@ -1275,6 +1428,7 @@ fn return_to_unit_selected(selection: &mut PlaySelectionState<'_>) {
     selection.pending_destination.0 = None;
     *selection.proposed_path = ProposedMovePath::default();
     *selection.phase = PlayUiPhase::UnitSelected;
+    *selection.drop = DropTargets::default();
 }
 
 fn close_production_options(sink: Option<&EventSink<ProductionOptionsChanged>>) {
@@ -1400,7 +1554,9 @@ pub(crate) fn clear_selection_on_escape(
         return;
     }
 
-    if *selection.phase == PlayUiPhase::DestinationSelected {
+    if selection.drop.armed.is_some() {
+        selection.drop.disarm();
+    } else if *selection.phase == PlayUiPhase::DestinationSelected {
         return_to_unit_selected(&mut selection);
     } else {
         clear_selection_state(&mut selection);
@@ -1528,6 +1684,92 @@ pub(crate) fn update_proposed_move_path(
     );
 }
 
+/// Aim the lit cargo at the tile the cursor is on.
+///
+/// Hover aims, as it does at an enemy. Only a change of tile or of cargo moves
+/// the aim, so a finger's tap is not undone by a cursor that did not move.
+pub(crate) fn aim_drop_at_cursor(
+    cursor: BoardCursor<'_, '_>,
+    coarse: Res<PointerIsCoarse>,
+    mut drop: ResMut<DropTargets>,
+    mut seen: Local<Option<(Option<Pos>, Option<usize>)>>,
+) {
+    if coarse.0 && !cursor.keyboard_steers() {
+        return;
+    }
+    let tile = cursor.tile();
+    if *seen == Some((tile, drop.row)) {
+        return;
+    }
+    *seen = Some((tile, drop.row));
+    if drop.row.is_none() {
+        return;
+    }
+    let aim = tile.filter(|tile| drop.tiles.contains(tile));
+    if drop.aim != aim {
+        drop.aim = aim;
+    }
+}
+
+/// Light the tiles of whichever Unload row the board is answering about.
+pub(crate) fn relight_drop_targets(
+    offered: Res<OfferedActions>,
+    move_range: Res<MoveRange>,
+    phase: Res<PlayUiPhase>,
+    mut drop: ResMut<DropTargets>,
+) {
+    let is_unload = |row: &usize| unload_tiles(&offered.0, *row).is_some();
+    let keeps_reach = drop.returned && !move_range.tiles.is_empty();
+    let row = (*phase == PlayUiPhase::DestinationSelected)
+        .then(|| {
+            drop.armed.or(match drop.caret {
+                // A caret on another order, such as Wait, lights nothing.
+                Some(caret) => Some(caret).filter(is_unload),
+                None => lone_unload_row(&offered.0).filter(|_| !keeps_reach),
+            })
+        })
+        .flatten();
+    let tiles = row
+        .and_then(|row| unload_tiles(&offered.0, row))
+        .map(<[Pos]>::to_vec)
+        .unwrap_or_default();
+    let aim = drop.aim.filter(|aim| tiles.contains(aim));
+    if drop.row != row || drop.tiles != tiles || drop.aim != aim {
+        drop.row = row;
+        drop.tiles = tiles;
+        drop.aim = aim;
+    }
+}
+
+/// Bring newly lit drop tiles into view with the transport they surround.
+///
+/// A finger has no caret to preview with, and the order dock stands over the
+/// foot of the board, where the transport may be.
+pub(crate) fn frame_drop_targets(
+    drop: Res<DropTargets>,
+    coarse: Res<PointerIsCoarse>,
+    pending: Res<PendingMoveDestination>,
+    game_map: Res<GameMap>,
+    mut focus: MessageWriter<FocusBoardOn>,
+    mut framed: Local<Vec<Pos>>,
+) {
+    if !drop.is_changed() || *framed == drop.tiles {
+        return;
+    }
+    framed.clone_from(&drop.tiles);
+    if let Some(pending) = pending.0.as_ref()
+        && coarse.0
+        && !drop.tiles.is_empty()
+    {
+        frame_selection(
+            pending.destination,
+            drop.tiles.iter().copied(),
+            &game_map,
+            &mut focus,
+        );
+    }
+}
+
 fn update_automatic_move_path(
     origin: Pos,
     destination: Pos,
@@ -1590,10 +1832,12 @@ pub(crate) fn clear_invalid_selection(
 
     let accepted_move_finished = *selection.phase == PlayUiPhase::AwaitingServer
         && !is_active
-        && committed
-            .0
-            .as_ref()
-            .is_some_and(|snapshot| snapshot.kind == CommittedKind::Move);
+        && committed.0.as_ref().is_some_and(|snapshot| {
+            matches!(
+                snapshot.kind,
+                CommittedKind::Move | CommittedKind::MoveThenUnload { .. }
+            )
+        });
     if accepted_move_finished
         || !unit_is_selectable(
             *faction,
@@ -1615,14 +1859,23 @@ pub(crate) fn sync_move_range_highlights(
     mut commands: Commands,
     game_map: Res<GameMap>,
     move_range: Res<MoveRange>,
+    drop: Res<DropTargets>,
     highlights: Query<Entity, With<MoveRangeHighlight>>,
+    mut was_hidden: Local<bool>,
 ) {
-    if !move_range.is_changed() {
+    // Drop tiles wear the same glass, so the reach steps aside while they are
+    // lit rather than blur into them.
+    let hidden = !drop.tiles.is_empty();
+    if !move_range.is_changed() && *was_hidden == hidden {
         return;
     }
+    *was_hidden = hidden;
 
     for entity in &highlights {
         commands.entity(entity).try_despawn();
+    }
+    if hidden {
+        return;
     }
 
     let mut positions: Vec<_> = move_range.tiles.keys().copied().collect();
@@ -1723,42 +1976,71 @@ pub(crate) fn sync_attack_target_highlights(
         .collect();
     positions.sort();
     for position in positions {
-        let center = position_to_world_translation(&ATTACK_TARGET_SPRITE_SIZE, position, &game_map);
-        commands.spawn((
+        spawn_tile_glass(
+            &mut commands,
             AttackTargetHighlight,
-            Sprite::from_color(ATTACK_TARGET_GLASS_COLOR, Vec2::splat(TILE_SIZE)),
-            ATTACK_TARGET_SPRITE_SIZE,
+            &ATTACK_TARGET_SPRITE_SIZE,
+            position_to_world_translation(&ATTACK_TARGET_SPRITE_SIZE, position, &game_map),
+            TileGlass {
+                fill: ATTACK_TARGET_GLASS_COLOR,
+                light_edge: ATTACK_TARGET_GLASS_LIGHT_EDGE,
+                dark_edge: ATTACK_TARGET_GLASS_DARK_EDGE,
+            },
+        );
+    }
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DropTargetHighlight;
+
+/// Light where the cargo may land, each tile framed on its own.
+///
+/// The glass is the range's, because these are places a unit may go. Drop
+/// tiles are the transport's neighbors, so no two share an edge and each
+/// carries a whole frame.
+pub(crate) fn sync_drop_target_highlights(
+    mut commands: Commands,
+    game_map: Res<GameMap>,
+    drop: Res<DropTargets>,
+    highlights: Query<Entity, With<DropTargetHighlight>>,
+    mut lit: Local<Vec<Pos>>,
+) {
+    if *lit == drop.tiles {
+        return;
+    }
+    lit.clone_from(&drop.tiles);
+    for entity in &highlights {
+        commands.entity(entity).try_despawn();
+    }
+    for tile in &drop.tiles {
+        let center = position_to_world_translation(&MOVE_RANGE_SPRITE_SIZE, *tile, &game_map);
+        commands.spawn((
+            DropTargetHighlight,
+            Sprite::from_color(MOVE_RANGE_GLASS_COLOR, Vec2::splat(TILE_SIZE)),
+            MOVE_RANGE_SPRITE_SIZE,
             Transform::from_translation(center),
         ));
-
-        let half = (TILE_SIZE - MOVE_RANGE_EDGE_WIDTH) * 0.5;
-        let edges = [
-            (
-                Vec2::new(TILE_SIZE, MOVE_RANGE_EDGE_WIDTH),
-                Vec3::new(0.0, half, 0.01),
-                ATTACK_TARGET_GLASS_LIGHT_EDGE,
-            ),
-            (
-                Vec2::new(MOVE_RANGE_EDGE_WIDTH, TILE_SIZE),
-                Vec3::new(-half, 0.0, 0.01),
-                ATTACK_TARGET_GLASS_LIGHT_EDGE,
-            ),
-            (
-                Vec2::new(TILE_SIZE, MOVE_RANGE_EDGE_WIDTH),
-                Vec3::new(0.0, -half, 0.01),
-                ATTACK_TARGET_GLASS_DARK_EDGE,
-            ),
-            (
-                Vec2::new(MOVE_RANGE_EDGE_WIDTH, TILE_SIZE),
-                Vec3::new(half, 0.0, 0.01),
-                ATTACK_TARGET_GLASS_DARK_EDGE,
-            ),
+        // Light on all four sides carries over sea, shoal and river; the dark
+        // bevel inside the bottom and right carries over grass.
+        let edge = DROP_TARGET_EDGE_WIDTH;
+        let rim = (TILE_SIZE - edge) * 0.5;
+        let bevel = (TILE_SIZE - 1.0) * 0.5 - edge;
+        let inner = TILE_SIZE - 2.0 * edge;
+        let (light, dark) = (MOVE_RANGE_GLASS_LIGHT_EDGE, MOVE_RANGE_GLASS_DARK_EDGE);
+        let (across, down) = (Vec2::new(TILE_SIZE, edge), Vec2::new(edge, TILE_SIZE));
+        let bars = [
+            (across, Vec2::Y * rim, light),
+            (across, Vec2::NEG_Y * rim, light),
+            (down, Vec2::NEG_X * rim, light),
+            (down, Vec2::X * rim, light),
+            (Vec2::new(inner, 1.0), Vec2::NEG_Y * bevel, dark),
+            (Vec2::new(1.0, inner), Vec2::X * bevel, dark),
         ];
-        for (size, offset, color) in edges {
+        for (size, offset, color) in bars {
             commands.spawn((
-                AttackTargetHighlight,
+                DropTargetHighlight,
                 Sprite::from_color(color, size),
-                Transform::from_translation(center + offset),
+                Transform::from_translation(center + offset.extend(0.01)),
             ));
         }
     }
@@ -1768,14 +2050,23 @@ pub(crate) fn sync_proposed_path_arrows(
     mut commands: Commands,
     game_map: Res<GameMap>,
     proposed: Res<ProposedMovePath>,
+    drop: Res<DropTargets>,
     ui_atlas: UiAtlas,
     arrows: Query<Entity, With<ProposedPathArrow>>,
+    mut was_hidden: Local<bool>,
 ) {
-    if !proposed.is_changed() {
+    // A drop tile can lie on the route, and the ghost already holds the
+    // destination.
+    let hidden = !drop.tiles.is_empty();
+    if !proposed.is_changed() && *was_hidden == hidden {
         return;
     }
+    *was_hidden = hidden;
     for entity in &arrows {
         commands.entity(entity).try_despawn();
+    }
+    if hidden {
+        return;
     }
     for spawn in build_course_arrow_spawns(&proposed.path) {
         let mut sprite = ui_atlas.sprite_for(spawn.kind.sprite_name());
@@ -1875,8 +2166,8 @@ fn aimed_forecast(
     let dimensions = session.state().board.dimensions();
     let from = dimensions.cell_index(approach)?;
     let target_cell = dimensions.cell_index(target)?;
-    let forecast = session.legal().forecast(index, from, target_cell)?;
-    describe_forecast(forecast, target, unit_selection)
+    let estimate = session.legal().estimate(index, from, target_cell)?;
+    describe_forecast(estimate, target, unit_selection)
 }
 
 fn apply_attack_target_reticle_pose(elapsed_seconds: f32, transform: &mut Transform) {
@@ -1896,31 +2187,30 @@ pub(crate) fn animate_attack_target_reticle(
     }
 }
 
+/// Everything a selection draws over the board.
+type SelectionMarks = Or<(
+    With<MoveRangeHighlight>,
+    With<AttackTargetHighlight>,
+    With<AttackTargetReticle>,
+    With<ProposedPathArrow>,
+    With<DestinationGhost>,
+    With<DropTargetHighlight>,
+    With<DropAimGhost>,
+)>;
+
 pub(crate) fn cleanup_play_selection(
     mut commands: Commands,
     mut selection: PlaySelectionState<'_>,
-    highlights: Query<Entity, With<MoveRangeHighlight>>,
-    attack_highlights: Query<Entity, With<AttackTargetHighlight>>,
-    reticles: Query<Entity, With<AttackTargetReticle>>,
-    arrows: Query<Entity, With<ProposedPathArrow>>,
-    ghosts: Query<Entity, With<DestinationGhost>>,
+    marks: Query<Entity, SelectionMarks>,
+    droppable: Query<Entity, With<CanUnload>>,
 ) {
     clear_selection_state(&mut selection);
-
-    for entity in &highlights {
+    for entity in &marks {
         commands.entity(entity).try_despawn();
     }
-    for entity in &attack_highlights {
-        commands.entity(entity).try_despawn();
-    }
-    for entity in &reticles {
-        commands.entity(entity).try_despawn();
-    }
-    for entity in &arrows {
-        commands.entity(entity).try_despawn();
-    }
-    for entity in &ghosts {
-        commands.entity(entity).try_despawn();
+    // A board being read shows that moment, not what may be dropped now.
+    for entity in &droppable {
+        commands.entity(entity).remove::<CanUnload>();
     }
 }
 
@@ -1985,7 +2275,7 @@ pub(crate) fn apply_pending_live_transition(
     mut pending: Option<ResMut<PendingLiveTransitions>>,
     lock: Res<ReplayAdvanceLock>,
     mut committed: ResMut<CommittedCommand>,
-    mut selection: PlaySelectionState<'_>,
+    mut returning: ResMut<ReturningTransport>,
 ) {
     if lock.is_active() {
         return;
@@ -1996,32 +2286,128 @@ pub(crate) fn apply_pending_live_transition(
     else {
         return;
     };
-    settle_unload(&mut committed, &mut selection);
+    settle_unload(&mut committed, &mut returning);
     commands.queue(LiveTransitionCommand { transition });
 }
 
-/// Let go of the transport of an unload that the board accepted.
+/// Hand the transport of an accepted unload back to the player.
 ///
 /// A board that runs its own reducer, such as a move planner, calls this when
 /// it shows the result of an order.
 pub(crate) fn settle_committed_unload(
     mut committed: ResMut<CommittedCommand>,
-    mut selection: PlaySelectionState<'_>,
+    mut returning: ResMut<ReturningTransport>,
 ) {
-    settle_unload(&mut committed, &mut selection);
+    settle_unload(&mut committed, &mut returning);
 }
 
-fn settle_unload(committed: &mut CommittedCommand, selection: &mut PlaySelectionState<'_>) {
-    if committed
+fn settle_unload(committed: &mut CommittedCommand, returning: &mut ReturningTransport) {
+    if let Some(snapshot) = committed
         .0
-        .as_ref()
-        .is_some_and(|snapshot| snapshot.kind == CommittedKind::Unload)
+        .take_if(|snapshot| snapshot.kind == CommittedKind::Unload)
     {
-        committed.0.take();
-        // The unloaded unit is a new blocker beside the transport, so its
-        // cached movement field is stale. Drop the selection; a transport with
-        // more cargo remains selectable even when it is spent.
-        clear_selection_state(selection);
+        returning.0 = Some(snapshot.unit);
+    }
+}
+
+/// Send the unload a move was carrying, once the move has landed.
+///
+/// The engine receives the two commands in its own order. A move a hidden unit
+/// stopped short leaves the transport somewhere the drop was never aimed from,
+/// so nothing more is sent and the invalidation pass lets it go.
+pub(crate) fn send_chained_unload(
+    units: Query<(&MapPosition, &UnitId, Has<UnitActive>), With<Unit>>,
+    sink: Option<Res<EventSink<UnloadCommandRequested>>>,
+    mut committed: ResMut<CommittedCommand>,
+    mut selected: ResMut<SelectedUnit>,
+) {
+    let Some(snapshot) = committed.0.as_mut() else {
+        return;
+    };
+    let CommittedKind::MoveThenUnload { cargo_id, position } = snapshot.kind else {
+        return;
+    };
+    let Ok((map_position, transport_id, is_active)) = units.get(snapshot.unit) else {
+        return;
+    };
+    if is_active || map_position.position() != snapshot.destination {
+        return;
+    }
+    let Some(sink) = sink.as_deref() else {
+        committed.0 = None;
+        return;
+    };
+    sink.emit(UnloadCommandRequested {
+        transport_id: transport_id.0.get(),
+        cargo_id,
+        position,
+    });
+    // The move stands whatever the server says about the drop, so a refusal
+    // now hands the transport back where it arrived.
+    let destination = snapshot.destination;
+    *snapshot = CommittedSnapshot {
+        unit: snapshot.unit,
+        origin: destination,
+        range: HashMap::new(),
+        attack_targets: HashMap::new(),
+        path: vec![destination],
+        destination,
+        attack_intent: None,
+        kind: CommittedKind::Unload,
+    };
+    if let Some(selected) = selected.0.as_mut() {
+        selected.origin = destination;
+    }
+}
+
+/// Pick the transport up again after a drop, as if just pressed.
+///
+/// A ready transport keeps its reach with its remaining Unload beside it, so
+/// drop, drive, drop is three presses. A spent one gets its orders back with
+/// the next cargo's tiles lit, and one with nothing left to give is let go.
+pub(crate) fn return_to_transport(
+    lock: Res<ReplayAdvanceLock>,
+    mut returning: ResMut<ReturningTransport>,
+    mut inspect: MessageWriter<crate::features::input::InspectTile>,
+    cursor: BoardCursor<'_, '_>,
+    unit_selection: PlayUnitSelectionParams<'_, '_>,
+    mut selection: PlaySelectionState<'_>,
+) {
+    let Some(transport) = returning.0 else {
+        return;
+    };
+    // Until the board shows the drop, the cargo is still aboard in the
+    // observation and its orders would be offered again.
+    let shows_drop = unit_selection
+        .observations
+        .as_ref()
+        .is_some_and(DetectChanges::is_changed);
+    if lock.is_active() || !shows_drop {
+        return;
+    }
+    returning.0 = None;
+    clear_selection_state(&mut selection);
+    let Some(selectable) = unit_selection
+        .units
+        .get(transport)
+        .ok()
+        .and_then(|(_, _, position, ..)| selectable_unit_at(position.position(), &unit_selection))
+        .filter(|selectable| selectable.entity == transport)
+    else {
+        return;
+    };
+    let can_unload = !unit_unloads(&selectable.session, selectable.index).is_empty();
+    // A finger's readout still holds the drop tile; the transport is what is
+    // in hand again.
+    inspect.write(crate::features::input::InspectTile(selectable.origin));
+    select_unit(selectable, &unit_selection, &mut selection);
+    if can_unload && let Some(selected) = selection.selected.0 {
+        propose_in_place(selected, &mut selection);
+        selection.drop.returned = true;
+    } else {
+        // The cursor still rests where the cargo landed. The route follows it
+        // once it moves, rather than running onto the cargo.
+        selection.proposed_path.hovered = cursor.tile();
     }
 }
 
@@ -2031,9 +2417,9 @@ pub struct UnitActionChosen {
     pub index: usize,
 }
 
-/// The destination menu was dismissed: Cancel, a press outside it, or Escape.
+/// The destination menu was dismissed, and how.
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnitActionDismissed;
+pub struct UnitActionDismissed(pub Dismissal);
 
 /// The server refused the command that was sent.
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
@@ -2066,6 +2452,11 @@ pub enum CommittedKind {
     Delete,
     Move,
     Unload,
+    /// A move ending in Wait, with an unload to send once it has landed.
+    MoveThenUnload {
+        cargo_id: u32,
+        position: Pos,
+    },
 }
 
 #[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
@@ -2090,6 +2481,9 @@ fn close_unit_actions(sink: Option<&EventSink<UnitActionsChanged>>) {
             preselected: None,
             attacker: None,
             anchor: None,
+            opens_with_caret: true,
+            armed: None,
+            aim: None,
         });
     }
 }
@@ -2102,10 +2496,11 @@ fn close_unit_actions(sink: Option<&EventSink<UnitActionsChanged>>) {
 pub(crate) fn emit_unit_actions(
     pending: Res<PendingMoveDestination>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
-    actions: UnitActionParams<'_, '_>,
+    mut actions: UnitActionParams<'_, '_>,
     mut confirmation: ResMut<PendingAttackConfirmation>,
     mut chosen: MessageWriter<UnitActionChosen>,
     mut offered: ResMut<OfferedActions>,
+    mut drop: ResMut<DropTargets>,
 ) {
     if !pending.is_changed() {
         return;
@@ -2114,6 +2509,8 @@ pub(crate) fn emit_unit_actions(
     // rather than on the way out means a proposal that turns out to have no
     // attack on it cannot fire the next one.
     let confirmed_target = confirmation.0.take();
+    drop.forget_menu();
+    actions.emitted.0 = None;
 
     let Some(pending) = pending.0.as_ref() else {
         offered.0.clear();
@@ -2141,7 +2538,7 @@ pub(crate) fn emit_unit_actions(
     let semantic_unit_id = unit_id.0;
     // One session answers the whole menu: what may be done here, what may be
     // put down, whether the unit may go, and what each strike would do.
-    let Ok(session) = awvm::session::Session::from_observation(observation) else {
+    let Ok(mut session) = awvm::session::Session::from_observation(observation) else {
         close_unit_actions(Some(sink));
         return;
     };
@@ -2160,6 +2557,10 @@ pub(crate) fn emit_unit_actions(
     if is_in_place {
         legal.unloads(seat, &mut unloads);
     }
+    let carries_cargo = unit_selection
+        .units
+        .get(pending.unit)
+        .is_ok_and(|(.., has_cargo)| has_cargo);
     let can_delete = is_in_place && legal.can_delete(seat);
     let mut orders = Vec::new();
     legal.orders_at(seat, cell, &mut orders);
@@ -2172,12 +2573,29 @@ pub(crate) fn emit_unit_actions(
             awvm::session::OrderKind::Attack(target) => Some(target),
             _ => None,
         })
-        .map(|target| (target, legal.forecast(seat, cell, target)))
+        .map(|target| (target, legal.estimate(seat, cell, target)))
         .collect();
+    if !is_in_place && carries_cargo {
+        // Where cargo may land after a move is asked of the board the move
+        // would leave. Nothing is sent: the copy is this menu's alone.
+        let moved = session.apply_command(
+            awvm::transition::Command::MoveWait {
+                player: observation.recipient.clone(),
+                unit: semantic_unit_id,
+                path: pending.path.clone(),
+            },
+            &mut awvm::random::RandomTape::new(&[]),
+            &mut (),
+        );
+        if moved.is_ok() {
+            session.legal().unloads(seat, &mut unloads);
+        }
+    }
+    let cargo_rows = unload_options(&session, &unloads, pending.unit, &unit_selection);
     let mut options = build_options(
         &orders,
         &dimensions,
-        &unloads,
+        cargo_rows,
         can_delete,
         pending,
         &unit_selection,
@@ -2212,16 +2630,20 @@ pub(crate) fn emit_unit_actions(
         return;
     }
 
-    let preselected = attack_intent.and_then(|target| {
-        options.iter().position(|option| {
-            matches!(
-                option.action,
-                UnitOrder::Move {
-                    action: PostMoveAction::Attack { target: at }
-                } if at == target
-            )
+    let preselected = attack_intent
+        .and_then(|target| {
+            options.iter().position(|option| {
+                matches!(
+                    option.action,
+                    UnitOrder::Move {
+                        action: PostMoveAction::Attack { target: at }
+                    } if at == target
+                )
+            })
         })
-    });
+        // A lone cargo's tiles are lit as the orders open, so the caret opens
+        // on its row: the caret means one thing.
+        .or_else(|| lone_unload_row(&options).filter(|_| !drop.returned));
 
     // A target picked on the board is a whole order: which unit, from where,
     // at what. The menu would have exactly one row on it, already answered, so
@@ -2237,13 +2659,80 @@ pub(crate) fn emit_unit_actions(
     }
 
     offered.0 = options.clone();
-    sink.emit(UnitActionsChanged {
+    let menu = UnitActionsChanged {
         destination: Some(pending.destination),
         options,
         preselected,
         attacker: unit_badge(pending.unit, &unit_selection),
         anchor: screen_anchor(&actions.projection, pending.destination),
-    });
+        opens_with_caret: !drop.returned,
+        armed: None,
+        aim: None,
+    };
+    sink.emit(menu.clone());
+    actions.emitted.0 = Some(menu);
+}
+
+/// One Unload row per cargo, each carrying every tile it may land on.
+///
+/// Cargo that would draw the same on the board, the same kind with the same
+/// health, fuel and ammo, shares a row: which of the two lands is not a choice
+/// the player can see, so it is not one they are asked to make.
+fn unload_options(
+    session: &awvm::session::Session,
+    unloads: &[awvm::session::Unload],
+    transport: Entity,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> Vec<UnitActionOption> {
+    let dimensions = session.state().board.dimensions();
+    let faction_code = unit_selection
+        .units
+        .get(transport)
+        .map(|(_, faction, ..)| faction.0.country_code().to_string())
+        .unwrap_or_default();
+    let mut rows: Vec<(awvm::semantic::Unit, UnitActionOption)> = Vec::new();
+    for unload in unloads {
+        let Some(tile) = dimensions.position_of(unload.destination) else {
+            continue;
+        };
+        let Some(cargo) = session.state().units.get(unload.cargo) else {
+            continue;
+        };
+        let looks_the_same = |seen: &awvm::semantic::Unit| {
+            seen.id == cargo.id
+                || (seen.kind, seen.hp, seen.fuel, seen.ammo)
+                    == (cargo.kind, cargo.hp, cargo.fuel, cargo.ammo)
+        };
+        if let Some((seen, row)) = rows.iter_mut().find(|(seen, _)| looks_the_same(seen)) {
+            if seen.id == cargo.id
+                && let UnitOrder::Unload { tiles, .. } = &mut row.action
+            {
+                tiles.push(tile);
+            }
+            continue;
+        }
+        let profile = awvm::ruleset::profile(cargo.kind);
+        rows.push((
+            *cargo,
+            UnitActionOption {
+                name: format!("Unload {}", cargo.kind.name()),
+                action: UnitOrder::Unload {
+                    cargo_id: cargo.id.get(),
+                    tiles: vec![tile],
+                },
+                forecast: None,
+                cargo: Some(CargoBadge {
+                    unit: cargo.kind,
+                    name: cargo.kind.name().to_string(),
+                    faction_code: faction_code.clone(),
+                    health: Some(awbrn_types::ExactHp::new(cargo.hp).visual().get()),
+                    low_fuel: crate::projection::is_low(cargo.fuel, profile.max_fuel),
+                    low_ammo: crate::projection::is_low(cargo.ammo, profile.max_ammo),
+                }),
+            },
+        ));
+    }
+    rows.into_iter().map(|(_, row)| row).collect()
 }
 
 /// Name the available orders, in the order the source game lists them.
@@ -2261,11 +2750,11 @@ pub(crate) fn emit_unit_actions(
 fn build_options(
     orders: &[awvm::session::Order],
     dimensions: &awvm::semantic::Dimensions,
-    unloads: &[awvm::session::Unload],
+    unloads: Vec<UnitActionOption>,
     can_delete: bool,
     pending: &PendingMoveDestinationSelection,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
-    attacks: &[(awvm::semantic::CellIdx, Option<awvm::combat::Forecast>)],
+    attacks: &[(awvm::semantic::CellIdx, Option<awvm::session::Estimate>)],
 ) -> Vec<UnitActionOption> {
     use awvm::session::OrderKind;
 
@@ -2299,6 +2788,7 @@ fn build_options(
             forecast: forecast
                 .clone()
                 .and_then(|forecast| describe_forecast(forecast, position, unit_selection)),
+            cargo: None,
         });
     }
     if offers(OrderKind::Capture) {
@@ -2370,18 +2860,7 @@ fn build_options(
             },
         ));
     }
-    for unload in unloads {
-        let Some(position) = dimensions.position_of(unload.destination) else {
-            continue;
-        };
-        options.push(UnitActionOption::plain(
-            format!("Unload {}", unload.cargo_kind.name()),
-            UnitOrder::Unload {
-                cargo_id: unload.cargo.get(),
-                position,
-            },
-        ));
-    }
+    options.extend(unloads);
     for target in &launches {
         options.push(UnitActionOption::plain(
             "Launch",
@@ -2420,11 +2899,15 @@ fn build_options(
 /// destructible tile standing on it is a target this client cannot name, and an
 /// unnamed forecast is worse than none.
 fn describe_forecast(
-    forecast: awvm::combat::Forecast,
+    estimate: awvm::session::Estimate,
     position: Pos,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> Option<AttackForecast> {
     let target = forecast_target(position, unit_selection)?;
+    let awvm::session::Estimate {
+        forecast,
+        assumes_full_health,
+    } = estimate;
     Some(AttackForecast {
         target,
         damage: DamageBracket {
@@ -2441,6 +2924,7 @@ fn describe_forecast(
         destroys: forecast.attack.low >= u16::from(forecast.target_hp),
         may_destroy: forecast.attack.low < u16::from(forecast.target_hp)
             && forecast.attack.high >= u16::from(forecast.target_hp),
+        assumes_full_health,
     })
 }
 
@@ -2503,9 +2987,9 @@ pub(crate) fn handle_unit_action_chosen(
     mut chosen: MessageReader<UnitActionChosen>,
     offered: Res<OfferedActions>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
-    actions: UnitActionParams<'_, '_>,
-    command_sinks: UnitCommandSinks<'_>,
-    mut committed: ResMut<CommittedCommand>,
+    mut actions: UnitActionParams<'_, '_>,
+    mut command_sinks: UnitCommandSinks<'_>,
+    mut cursor: ResMut<KeyboardCursor>,
     mut selection: PlaySelectionState<'_>,
 ) {
     let Some(UnitActionChosen { index }) = chosen.read().last().copied() else {
@@ -2521,7 +3005,70 @@ pub(crate) fn handle_unit_action_chosen(
         return;
     };
 
-    committed.0 = Some(CommittedSnapshot {
+    // An Unload row names the cargo, and the board names the tile. The first
+    // press arms the row, and with nothing aimed a second has nothing to send.
+    if matches!(option.action, UnitOrder::Unload { .. })
+        && (selection.drop.armed != Some(index) || selection.drop.aim.is_none())
+    {
+        if selection.drop.armed != Some(index) {
+            selection.drop.armed = Some(index);
+            selection.drop.aim = None;
+            // The keyboard picks the tile up from the transport, whose
+            // neighbors are where the cargo may land.
+            cursor.set_if_neq(KeyboardCursor(Some(pending.destination)));
+        }
+        return;
+    }
+
+    let unit_id = unit_id.0.get();
+    let kind = match &option.action {
+        UnitOrder::Delete => command_sinks.delete_unit_command.as_deref().map(|sink| {
+            sink.emit(DeleteUnitCommandRequested { unit_id });
+            CommittedKind::Delete
+        }),
+        UnitOrder::Move { action } => command_sinks.move_command.as_deref().map(|sink| {
+            sink.emit(MoveCommandRequested {
+                unit_id,
+                path: pending.path.clone(),
+                action: action.clone(),
+            });
+            CommittedKind::Move
+        }),
+        UnitOrder::Unload { cargo_id, .. } => {
+            let position = selection
+                .drop
+                .aim
+                .expect("an unaimed unload was armed above");
+            if pending.destination == pending.origin {
+                command_sinks.unload_command.as_deref().map(|sink| {
+                    sink.emit(UnloadCommandRequested {
+                        transport_id: unit_id,
+                        cargo_id: *cargo_id,
+                        position,
+                    });
+                    CommittedKind::Unload
+                })
+            } else {
+                // Nothing was sent while the drop was being aimed. The move
+                // goes now, and the unload once it has landed.
+                command_sinks.move_command.as_deref().map(|sink| {
+                    sink.emit(MoveCommandRequested {
+                        unit_id,
+                        path: pending.path.clone(),
+                        action: PostMoveAction::Wait,
+                    });
+                    CommittedKind::MoveThenUnload {
+                        cargo_id: *cargo_id,
+                        position,
+                    }
+                })
+            }
+        }
+    };
+    let Some(kind) = kind else {
+        return;
+    };
+    command_sinks.committed.0 = Some(CommittedSnapshot {
         unit: pending.unit,
         origin: pending.origin,
         range: selection.move_range.tiles.clone(),
@@ -2529,51 +3076,15 @@ pub(crate) fn handle_unit_action_chosen(
         path: pending.path.clone(),
         destination: pending.destination,
         attack_intent: pending.attack_intent,
-        kind: match &option.action {
-            UnitOrder::Delete => CommittedKind::Delete,
-            UnitOrder::Move { .. } => CommittedKind::Move,
-            UnitOrder::Unload { .. } => CommittedKind::Unload,
-        },
+        kind,
     });
-
-    match &option.action {
-        UnitOrder::Delete => {
-            let Some(sink) = command_sinks.delete_unit_command.as_deref() else {
-                committed.0 = None;
-                return;
-            };
-            sink.emit(DeleteUnitCommandRequested {
-                unit_id: unit_id.0.get(),
-            });
-        }
-        UnitOrder::Move { action } => {
-            let Some(sink) = command_sinks.move_command.as_deref() else {
-                committed.0 = None;
-                return;
-            };
-            sink.emit(MoveCommandRequested {
-                unit_id: unit_id.0.get(),
-                path: pending.path.clone(),
-                action: action.clone(),
-            });
-        }
-        UnitOrder::Unload { cargo_id, position } => {
-            let Some(sink) = command_sinks.unload_command.as_deref() else {
-                committed.0 = None;
-                return;
-            };
-            sink.emit(UnloadCommandRequested {
-                transport_id: unit_id.0.get(),
-                cargo_id: *cargo_id,
-                position: *position,
-            });
-        }
-    }
 
     // The order is on its way. The board stops offering anything until the
     // server has spoken, but the unit stays selected so the ordinary
     // invalidation pass can retire the selection once it actually moves.
     close_unit_actions(actions.sink.as_deref());
+    actions.emitted.0 = None;
+    *selection.drop = DropTargets::default();
     selection.pending_destination.0 = None;
     selection.move_range.tiles.clear();
     selection.attack_targets.approaches.clear();
@@ -2588,6 +3099,7 @@ pub(crate) fn handle_unit_action_chosen(
 pub(crate) fn handle_pending_command_rejected(
     mut rejected: MessageReader<PendingCommandRejected>,
     mut committed: ResMut<CommittedCommand>,
+    unit_selection: PlayUnitSelectionParams<'_, '_>,
     mut selection: PlaySelectionState<'_>,
 ) {
     if rejected.read().last().is_none() {
@@ -2596,6 +3108,17 @@ pub(crate) fn handle_pending_command_rejected(
     let Some(snapshot) = committed.0.take() else {
         return;
     };
+    if snapshot.kind == CommittedKind::Unload {
+        // A drop chained to a move is refused after the move stood, so the
+        // transport is picked up again from the board as it now is.
+        clear_selection_state(&mut selection);
+        if let Some(selectable) = selectable_unit_at(snapshot.origin, &unit_selection)
+            .filter(|selectable| selectable.entity == snapshot.unit)
+        {
+            pick_up(selectable, &unit_selection, &mut selection);
+        }
+        return;
+    }
 
     selection.selected.0 = Some(SelectedUnitSelection {
         entity: snapshot.unit,
@@ -2611,15 +3134,80 @@ pub(crate) fn handle_pending_command_rejected(
     *selection.phase = PlayUiPhase::UnitSelected;
 }
 
-/// A dismissal steps back to the unit; it never drops it.
+/// A dismissal steps back one stage, or closes the orders; it never drops the
+/// unit.
 pub(crate) fn handle_unit_action_dismissed(
     mut dismissed: MessageReader<UnitActionDismissed>,
+    cursor: BoardCursor<'_, '_>,
     mut selection: PlaySelectionState<'_>,
 ) {
-    if dismissed.read().last().is_none() {
+    let Some(UnitActionDismissed(how)) = dismissed.read().last().copied() else {
+        return;
+    };
+    match how {
+        // A press on a lit drop tile is the aim arriving, not a change of mind.
+        Dismissal::PressOutside
+            if cursor
+                .tile()
+                .is_some_and(|tile| selection.drop.tiles.contains(&tile)) => {}
+        Dismissal::Back | Dismissal::PressOutside if selection.drop.armed.is_some() => {
+            selection.drop.disarm();
+        }
+        _ => return_to_unit_selected(&mut selection),
+    }
+}
+
+/// The menu's caret moved onto an order, or off every order.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnitActionHighlighted {
+    pub index: Option<usize>,
+}
+
+/// A caret on an Unload row lights where that cargo may land.
+pub(crate) fn handle_unit_action_highlighted(
+    mut highlighted: MessageReader<UnitActionHighlighted>,
+    mut drop: ResMut<DropTargets>,
+) {
+    let Some(UnitActionHighlighted { index }) = highlighted.read().last().copied() else {
+        return;
+    };
+    if drop.caret != index {
+        drop.caret = index;
+    }
+}
+
+/// Tell the page when the armed cargo or its aim changes.
+///
+/// The orders themselves are unchanged, so the menu last sent is sent again
+/// with the new aim rather than asking the rules a second time.
+pub(crate) fn emit_drop_state(
+    drop: Res<DropTargets>,
+    game_map: Res<GameMap>,
+    sink: Option<Res<EventSink<UnitActionsChanged>>>,
+    mut emitted: ResMut<EmittedUnitActions>,
+) {
+    if !drop.is_changed() {
         return;
     }
-    return_to_unit_selected(&mut selection);
+    let (Some(sink), Some(menu)) = (sink.as_deref(), emitted.0.as_mut()) else {
+        return;
+    };
+    let aim = drop.aim.and_then(|tile| {
+        let terrain = game_map.terrain_at(tile)?;
+        Some(DropAim {
+            row: drop.row?,
+            x: tile.x,
+            y: tile.y,
+            terrain_name: terrain.as_terrain().type_name().to_string(),
+            defense_stars: terrain.defense_stars(),
+        })
+    });
+    if menu.armed == drop.armed && menu.aim == aim {
+        return;
+    }
+    menu.armed = drop.armed;
+    menu.aim = aim;
+    sink.emit(menu.clone());
 }
 
 /// Draw the unit where it would end up, faintly, while the menu is open.
@@ -2671,6 +3259,123 @@ pub(crate) fn sync_destination_ghost(
     ));
 }
 
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DropAimGhost;
+
+/// Draw the cargo where it would land, with its health and the tile cursor.
+///
+/// The move preview's ghost, drawn more solid and wearing its digit at full
+/// strength, so the aim reads over water.
+pub(crate) fn sync_drop_aim_ghost(
+    mut commands: Commands,
+    game_map: Res<GameMap>,
+    drop: Res<DropTargets>,
+    offered: Res<OfferedActions>,
+    ui_atlas: UiAtlas,
+    cargo: Query<(&UnitId, &Sprite, &SpriteSize, Option<&GraphicalHp>), With<CarriedBy>>,
+    ghosts: Query<Entity, With<DropAimGhost>>,
+) {
+    if !drop.is_changed() && !offered.is_changed() {
+        return;
+    }
+    let aimed = drop.aim.zip(drop.row).and_then(|(aim, row)| {
+        match offered.0.get(row).map(|option| &option.action) {
+            Some(UnitOrder::Unload { cargo_id, .. }) => Some((aim, *cargo_id)),
+            _ => None,
+        }
+    });
+    for entity in &ghosts {
+        commands.entity(entity).try_despawn();
+    }
+    let Some((aim, cargo_id)) = aimed else {
+        return;
+    };
+    let Some((_, sprite, sprite_size, hp)) = cargo.iter().find(|(id, ..)| id.0.get() == cargo_id)
+    else {
+        return;
+    };
+
+    let ghost_size = SpriteSize {
+        z_index: DESTINATION_GHOST_Z,
+        ..*sprite_size
+    };
+    let mut ghost = sprite.clone();
+    ghost.color = Color::WHITE.with_alpha(DROP_GHOST_ALPHA);
+    let mut entity = commands.spawn((
+        DropAimGhost,
+        ghost,
+        Transform::from_translation(position_to_world_translation(&ghost_size, aim, &game_map)),
+    ));
+    if let Some(digit) = hp
+        .copied()
+        .and_then(|hp| unit_overlay_spec(UnitOverlay::Health(hp)))
+    {
+        entity.with_child((
+            ui_atlas.sprite_for(&digit.sprite_name),
+            Transform::from_translation(Vec3::new(digit.offset.x, -digit.offset.y, 1.0)),
+        ));
+    }
+    commands.spawn((
+        DropAimGhost,
+        ui_atlas.sprite_for("Effects/TileCursor.png"),
+        Transform::from_translation(position_to_world_translation(
+            &TILE_CORE_SPRITE_SIZE,
+            aim,
+            &game_map,
+        )),
+    ));
+}
+
+type DroppableQueryItem<'a> = (
+    Entity,
+    &'a UnitId,
+    Has<HasCargo>,
+    Has<UnitActive>,
+    Has<CanUnload>,
+);
+
+/// Mark the moving army's spent transports whose cargo can still land.
+///
+/// Asked of AWVM once per observation, so the mark follows every command: a
+/// drop, a unit moving onto the last open tile, the turn passing.
+pub(crate) fn mark_droppable_transports(
+    mut commands: Commands,
+    observations: Option<Res<awbrn_bevy::replay::RecipientObservations>>,
+    viewpoint: Option<Res<awbrn_bevy::replay::ReplayViewpoint>>,
+    units: Query<DroppableQueryItem<'_>, With<Unit>>,
+) {
+    let observations_changed = observations.as_ref().is_some_and(DetectChanges::is_changed);
+    let viewpoint_changed = viewpoint.as_ref().is_some_and(DetectChanges::is_changed);
+    if !observations_changed && !viewpoint_changed {
+        return;
+    }
+    let session = match (observations.as_deref(), viewpoint.as_deref()) {
+        (Some(observations), Some(awbrn_bevy::replay::ReplayViewpoint::Player(player))) => {
+            observations
+                .for_player(player)
+                .and_then(|observation| awvm::session::Session::from_observation(observation).ok())
+        }
+        _ => None,
+    };
+    let mut unloads = Vec::new();
+    for (entity, id, has_cargo, is_active, is_marked) in &units {
+        let can_unload = has_cargo
+            && !is_active
+            && session.as_ref().is_some_and(|session| {
+                session.index_of(id.0).is_some_and(|index| {
+                    unloads.clear();
+                    session.legal().unloads(index, &mut unloads);
+                    !unloads.is_empty()
+                })
+            });
+        if can_unload && !is_marked {
+            commands.entity(entity).insert(CanUnload);
+        } else if !can_unload && is_marked {
+            commands.entity(entity).remove::<CanUnload>();
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct PlayPlugin;
 
@@ -2688,6 +3393,9 @@ impl Plugin for PlayPlugin {
             .init_resource::<BuildableSites>()
             .init_resource::<EmittedTurnReadiness>()
             .init_resource::<OfferedActions>()
+            .init_resource::<DropTargets>()
+            .init_resource::<EmittedUnitActions>()
+            .init_resource::<ReturningTransport>()
             .init_resource::<CommittedCommand>()
             .init_resource::<ReplayAdvanceLock>()
             .init_resource::<review::BoardReview>()
@@ -2695,7 +3403,9 @@ impl Plugin for PlayPlugin {
             .add_message::<review::BoardReviewEntered>()
             .add_message::<review::BoardReviewExited>()
             .add_message::<UnitActionChosen>()
+            .add_message::<crate::features::input::InspectTile>()
             .add_message::<UnitActionDismissed>()
+            .add_message::<UnitActionHighlighted>()
             .add_message::<PendingCommandRejected>()
             // Whether the board is being read or played is settled before
             // anything reads the board, so no frame is half of each. The
@@ -2736,35 +3446,47 @@ impl Plugin for PlayPlugin {
             .add_systems(
                 Update,
                 (
-                    handle_unit_action_dismissed,
+                    (handle_unit_action_dismissed, handle_unit_action_highlighted),
                     // What can still be built is settled before a key can walk
                     // to it and before the board can light it.
-                    refresh_buildable_sites,
+                    (refresh_buildable_sites, mark_droppable_transports),
                     // The cursor moves before the route follows it, so a key
                     // press draws its step in the frame it was pressed in.
                     keyboard::handle_play_keyboard,
                     keyboard::follow_keyboard_cursor,
-                    update_proposed_move_path,
-                    handle_play_pointer_gestures.after(update_proposed_move_path),
+                    (update_proposed_move_path, aim_drop_at_cursor),
+                    handle_play_pointer_gestures,
                     handle_unit_action_chosen,
                     handle_pending_command_rejected,
                     clear_selection_on_escape,
+                    // A move carrying an unload is finished before the pass
+                    // that retires a moved unit's selection reads it.
+                    send_chained_unload,
                     clear_invalid_selection,
+                    return_to_transport,
                     emit_unit_actions,
+                    (relight_drop_targets, (emit_drop_state, frame_drop_targets)).chain(),
                     emit_attack_preview,
                     (
                         sync_move_range_highlights,
                         sync_buildable_site_highlight,
                         sync_attack_target_highlights,
+                        sync_drop_target_highlights,
                     ),
-                    sync_destination_ghost,
+                    (
+                        sync_destination_ghost,
+                        sync_drop_aim_ghost
+                            .run_if(resource_exists::<crate::render::UiAtlasResource>),
+                    ),
                     sync_proposed_path_arrows
                         .run_if(resource_exists::<crate::render::UiAtlasResource>),
-                    sync_attack_target_reticle
-                        .run_if(resource_exists::<crate::render::UiAtlasResource>),
-                    animate_attack_target_reticle.run_if(resource_exists::<Time>),
-                    emit_turn_readiness,
-                    apply_pending_live_transition,
+                    (
+                        sync_attack_target_reticle
+                            .run_if(resource_exists::<crate::render::UiAtlasResource>),
+                        animate_attack_target_reticle.run_if(resource_exists::<Time>),
+                    )
+                        .chain(),
+                    (emit_turn_readiness, apply_pending_live_transition).chain(),
                 )
                     .chain()
                     .in_set(PointerSet::Consume)
@@ -2797,6 +3519,7 @@ mod tests {
     use awbw_replay::ReplayParser;
     use awvm::semantic::{AwbwVisibility, PlayerId, State, observe};
     use awvm_awbw::RecordedAdapter;
+    use bevy::ecs::system::RunSystemOnce;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
 
@@ -2837,6 +3560,7 @@ mod tests {
         app.insert_state(mode);
         app.add_message::<PointerGesture>();
         app.add_message::<crate::features::input::TileClicked>();
+        app.add_message::<crate::features::input::InspectTile>();
         app.add_message::<ReturnToTouchFloor>();
         app.init_resource::<BoardIndex>();
         app.init_resource::<GameMap>();
@@ -2901,23 +3625,61 @@ mod tests {
             Has<UnitActive>,
             &UnitId,
         )>();
-        let units: Vec<_> = query
+        let unit_json = |unit: &Unit,
+                         faction: &Faction,
+                         fuel: Option<&Fuel>,
+                         active: bool,
+                         id: &UnitId,
+                         location: serde_json::Value| {
+            let owner = if faction.0 == PlayerFaction::OrangeStar {
+                "0"
+            } else {
+                "1"
+            };
+            serde_json::json!({
+                "id": id.0.get(),
+                "kind": unit.0,
+                "owner": owner,
+                "hp": 100,
+                "fuel": fuel.map_or_else(|| awvm::ruleset::profile(unit.0).max_fuel, |fuel| u64::from(fuel.value())),
+                "ammo": awvm::ruleset::profile(unit.0).max_ammo,
+                "action": if active && owner == "0" { "ready" } else { "spent" },
+                "concealment": "exposed",
+                "location": location
+            })
+        };
+        let mut units: Vec<_> = query
             .iter(app.world())
             .map(|(position, unit, faction, fuel, active, id)| {
-                let owner = if faction.0 == PlayerFaction::OrangeStar { "0" } else { "1" };
-                serde_json::json!({
-                    "id": id.0.get(),
-                    "kind": unit.0,
-                    "owner": owner,
-                    "hp": 100,
-                    "fuel": fuel.map_or_else(|| awvm::ruleset::profile(unit.0).max_fuel, |fuel| u64::from(fuel.value())),
-                    "ammo": awvm::ruleset::profile(unit.0).max_ammo,
-                    "action": if active && owner == "0" { "ready" } else { "spent" },
-                    "concealment": "exposed",
-                    "location": { "type": "board", "position": [position.position().x, position.position().y] }
-                })
+                let location = serde_json::json!({
+                    "type": "board",
+                    "position": [position.position().x, position.position().y]
+                });
+                unit_json(unit, faction, fuel, active, id, location)
             })
             .collect();
+        let mut cargo = app.world_mut().query::<(
+            &Unit,
+            &Faction,
+            Option<&Fuel>,
+            Has<UnitActive>,
+            &UnitId,
+            &CarriedBy,
+        )>();
+        let mut slots = HashMap::<Entity, u8>::new();
+        for (unit, faction, fuel, active, id, carried_by) in cargo.iter(app.world()) {
+            let Some(transport) = app.world().get::<UnitId>(carried_by.0) else {
+                continue;
+            };
+            let slot = slots.entry(carried_by.0).or_default();
+            let location = serde_json::json!({
+                "type": "cargo",
+                "transport": transport.0.get(),
+                "slot": *slot
+            });
+            *slot += 1;
+            units.push(unit_json(unit, faction, fuel, active, id, location));
+        }
         let value = serde_json::json!({
             "ruleset": { "id": "awbw", "revision": "2026-07-10" },
             "settings": {
@@ -4564,6 +5326,7 @@ mod tests {
             .as_ref()
             .expect("a tank can answer for what it would do to an infantry");
         assert!(forecast.damage.low > 0);
+        assert!(!forecast.assumes_full_health, "its health is in plain view");
         assert!(matches!(&forecast.target, ForecastTarget::Unit { unit, .. }
                 if *unit == awvm::ruleset::UnitKind::Infantry));
     }
@@ -4918,8 +5681,10 @@ mod tests {
         assert!(app.world().resource::<CommittedCommand>().0.is_some());
     }
 
+    /// The row names the cargo and the board names the tile, so the first
+    /// press only arms the row, and nothing is sent until a tile is aimed.
     #[test]
-    fn choosing_unload_sends_a_standalone_command() {
+    fn choosing_unload_arms_it_and_an_aimed_drop_sends_a_standalone_command() {
         let mut app = play_test_app();
         set_plain_map(&mut app, 3, 3);
         let transport = spawn_unit(
@@ -4933,6 +5698,16 @@ mod tests {
         app.world_mut()
             .entity_mut(transport)
             .insert(UnitId(awvm::semantic::UnitId::new(42)));
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        app.world_mut().spawn((
+            Unit(awbrn_types::Unit::Infantry),
+            Faction(PlayerFaction::OrangeStar),
+            UnitId(awvm::semantic::UnitId::new(7)),
+            CarriedBy(transport),
+        ));
 
         app.world_mut().resource_mut::<SelectedUnit>().0 = Some(SelectedUnitSelection {
             entity: transport,
@@ -4946,6 +5721,7 @@ mod tests {
                 path: vec![Pos::new(1, 1)],
                 attack_intent: None,
             });
+        *app.world_mut().resource_mut::<PlayUiPhase>() = PlayUiPhase::DestinationSelected;
         app.world_mut()
             .resource_mut::<OfferedActions>()
             .0
@@ -4953,7 +5729,7 @@ mod tests {
                 "Unload #7",
                 UnitOrder::Unload {
                     cargo_id: 7,
-                    position: Pos::new(1, 0),
+                    tiles: vec![Pos::new(1, 0), Pos::new(0, 1)],
                 },
             ));
 
@@ -4963,6 +5739,20 @@ mod tests {
             .insert_resource(EventSink::<UnloadCommandRequested>::new(move |event| {
                 received_by_sink.lock().unwrap().push(event);
             }));
+        app.update();
+        for _ in 0..2 {
+            app.world_mut()
+                .resource_mut::<Messages<UnitActionChosen>>()
+                .write(UnitActionChosen { index: 0 });
+            app.update();
+        }
+        assert!(received.lock().unwrap().is_empty(), "nothing is aimed");
+        assert_eq!(
+            app.world().resource::<DropTargets>().tiles,
+            vec![Pos::new(1, 0), Pos::new(0, 1)]
+        );
+
+        app.world_mut().resource_mut::<DropTargets>().aim = Some(Pos::new(1, 0));
         app.world_mut()
             .resource_mut::<Messages<UnitActionChosen>>()
             .write(UnitActionChosen { index: 0 });
@@ -5107,26 +5897,535 @@ mod tests {
         assert_eq!(*app.world().resource::<DragOwner>(), DragOwner::Camera);
         assert_eq!(app.world().resource::<SelectedUnit>().0, None);
 
+        // A unit that cannot move has only its orders to show, so one press
+        // opens them, with the lone cargo's tile already lit.
         click_tile(&mut app, Pos::new(1, 0));
         assert_eq!(
             *app.world().resource::<PlayUiPhase>(),
-            PlayUiPhase::UnitSelected
+            PlayUiPhase::DestinationSelected
         );
-        click_tile(&mut app, Pos::new(1, 0));
+        assert_eq!(
+            app.world().resource::<DropTargets>().tiles,
+            vec![Pos::new(0, 0)]
+        );
 
         let received = received.lock().unwrap();
         let menu = received.last().expect("unload menu");
         assert_eq!(menu.destination, Some(Pos::new(1, 0)));
         assert_eq!(
             menu.options,
-            vec![UnitActionOption::plain(
-                "Unload Infantry",
-                UnitOrder::Unload {
-                    cargo_id: 1,
-                    position: Pos::new(0, 0),
-                },
-            )]
+            vec![UnitActionOption {
+                cargo: Some(CargoBadge {
+                    unit: awbrn_types::Unit::Infantry,
+                    name: "Infantry".to_string(),
+                    faction_code: PlayerFaction::OrangeStar.country_code().to_string(),
+                    health: Some(10),
+                    low_fuel: false,
+                    low_ammo: false,
+                }),
+                ..UnitActionOption::plain(
+                    "Unload Infantry",
+                    UnitOrder::Unload {
+                        cargo_id: 1,
+                        tiles: vec![Pos::new(0, 0)],
+                    },
+                )
+            }]
         );
+    }
+
+    fn capture<T: Send + Sync + 'static>(app: &mut App) -> Arc<Mutex<Vec<T>>> {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&received);
+        app.world_mut()
+            .insert_resource(EventSink::<T>::new(move |event| {
+                sink.lock().unwrap().push(event);
+            }));
+        received
+    }
+
+    fn friendly_board(width: u8, height: u8) -> App {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, width, height);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        app
+    }
+
+    /// Put a unit of ours aboard `transport`.
+    fn load(app: &mut App, transport: Entity, unit: awbrn_types::Unit, fuel: u32) -> Entity {
+        let cargo = spawn_unit(
+            app,
+            Pos::new(0, 0),
+            unit,
+            PlayerFaction::OrangeStar,
+            false,
+            Some(fuel),
+        );
+        app.world_mut()
+            .entity_mut(cargo)
+            .remove::<MapPosition>()
+            .insert(CarriedBy(transport));
+        cargo
+    }
+
+    /// A ready Lander standing on a port among plains, so its cargo has
+    /// somewhere to land on every side.
+    fn lander_on_a_port(app: &mut App, at: Pos) -> Entity {
+        app.world_mut().resource_mut::<GameMap>().set_terrain(
+            at,
+            GraphicalTerrain::Property(awbrn_types::Property::Port(awbrn_types::Faction::Neutral)),
+        );
+        initialize_terrain_semantic_world(app.world_mut());
+        spawn_unit(
+            app,
+            at,
+            awbrn_types::Unit::Lander,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        )
+    }
+
+    /// The Unload rows offered, by cargo, with the tiles each may land on.
+    fn offered_unloads(app: &App) -> Vec<(u32, Vec<Pos>)> {
+        app.world()
+            .resource::<OfferedActions>()
+            .0
+            .iter()
+            .filter_map(|option| match &option.action {
+                UnitOrder::Unload { cargo_id, tiles } => {
+                    let mut tiles = tiles.clone();
+                    tiles.sort();
+                    Some((*cargo_id, tiles))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Where the first Unload row stands on the offered orders.
+    fn unload_row(app: &App) -> usize {
+        app.world()
+            .resource::<OfferedActions>()
+            .0
+            .iter()
+            .position(|option| matches!(option.action, UnitOrder::Unload { .. }))
+            .expect("an Unload row")
+    }
+
+    fn unit_id_of(app: &App, entity: Entity) -> u32 {
+        app.world().get::<UnitId>(entity).unwrap().0.get()
+    }
+
+    fn neighbors_of(position: Pos) -> Vec<Pos> {
+        let mut tiles: Vec<_> = orthogonal_neighbors(position).collect();
+        tiles.sort();
+        tiles
+    }
+
+    /// One row per cargo, each holding every tile it may land on. Cargo that
+    /// would draw the same shares a row, and cargo that would not does not.
+    #[test]
+    fn each_cargo_is_one_unload_row_carrying_its_tiles() {
+        for (second, second_fuel, rows) in [
+            (awbrn_types::Unit::Mech, 70, 2),
+            (awbrn_types::Unit::Infantry, 99, 1),
+            (awbrn_types::Unit::Infantry, 20, 2),
+        ] {
+            let mut app = friendly_board(5, 5);
+            let lander = lander_on_a_port(&mut app, Pos::new(2, 2));
+            let first = load(&mut app, lander, awbrn_types::Unit::Infantry, 99);
+            load(&mut app, lander, second, second_fuel);
+            let menus = capture::<UnitActionsChanged>(&mut app);
+
+            click_tile(&mut app, Pos::new(2, 2));
+            click_tile(&mut app, Pos::new(2, 2));
+
+            let unloads = offered_unloads(&app);
+            assert_eq!(unloads.len(), rows, "{second:?} with {second_fuel} fuel");
+            assert_eq!(
+                unloads[0],
+                (unit_id_of(&app, first), neighbors_of(Pos::new(2, 2)))
+            );
+            let menu = menus.lock().unwrap().last().cloned().expect("orders");
+            let badge = menu.options[0]
+                .cargo
+                .clone()
+                .expect("a cargo row draws its cargo");
+            assert_eq!(badge.unit, awbrn_types::Unit::Infantry);
+            assert_eq!(badge.health, Some(10));
+            if rows == 2 && second == awbrn_types::Unit::Infantry {
+                let low = menu.options[1].cargo.as_ref().unwrap();
+                assert!(low.low_fuel, "20 of 99 fuel is under the quarter mark");
+            }
+        }
+    }
+
+    /// With one cargo the orders open lighting its tiles in place of the
+    /// reach. A finger's first tap on one aims, its second drops, and nothing
+    /// is sent in between.
+    #[test]
+    fn a_lone_cargo_lights_its_tiles_and_a_second_tap_drops_it() {
+        let mut app = friendly_board(5, 5);
+        // Above the touch floor, where a tap is allowed to commit at all.
+        app.world_mut()
+            .resource_mut::<CameraScale>()
+            .set_clamped(3.0, 0.2);
+        let apc = spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Apc,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(70),
+        );
+        let cargo = load(&mut app, apc, awbrn_types::Unit::Infantry, 99);
+        let sent = capture::<UnloadCommandRequested>(&mut app);
+        let menus = capture::<UnitActionsChanged>(&mut app);
+
+        tap_tile(&mut app, Pos::new(2, 2), true);
+        assert!(!app.world().resource::<MoveRange>().tiles.is_empty());
+        tap_tile(&mut app, Pos::new(2, 2), true);
+
+        let mut lit = app.world().resource::<DropTargets>().tiles.clone();
+        lit.sort();
+        assert_eq!(lit, neighbors_of(Pos::new(2, 2)));
+        let world = app.world_mut();
+        assert_eq!(
+            world
+                .query_filtered::<(), With<MoveRangeHighlight>>()
+                .iter(world)
+                .count(),
+            0,
+            "the reach steps aside for the drop tiles"
+        );
+        assert_eq!(
+            world
+                .query_filtered::<(), With<DropTargetHighlight>>()
+                .iter(world)
+                .count(),
+            4 * 7,
+            "each drop tile is framed on its own"
+        );
+
+        tap_tile(&mut app, Pos::new(2, 1), true);
+        assert!(sent.lock().unwrap().is_empty(), "the first tap only aims");
+        let menu = menus.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(menu.armed, Some(unload_row(&app)));
+        assert_eq!(menu.aim.map(|aim| (aim.x, aim.y)), Some((2, 1)));
+
+        tap_tile(&mut app, Pos::new(2, 1), true);
+        assert_eq!(
+            sent.lock().unwrap().as_slice(),
+            &[UnloadCommandRequested {
+                transport_id: unit_id_of(&app, apc),
+                cargo_id: unit_id_of(&app, cargo),
+                position: Pos::new(2, 1),
+            }]
+        );
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::AwaitingServer
+        );
+    }
+
+    /// Escape steps back one stage at a time: from the armed cargo to the
+    /// orders, and from the orders to the unit.
+    #[test]
+    fn escape_disarms_the_cargo_before_it_closes_the_orders() {
+        let mut app = friendly_board(5, 5);
+        let apc = spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Apc,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(70),
+        );
+        load(&mut app, apc, awbrn_types::Unit::Infantry, 99);
+        capture::<UnitActionsChanged>(&mut app);
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
+        let row = unload_row(&app);
+        app.world_mut()
+            .resource_mut::<Messages<UnitActionChosen>>()
+            .write(UnitActionChosen { index: row });
+        app.update();
+        assert_eq!(app.world().resource::<DropTargets>().armed, Some(row));
+
+        for (phase, armed) in [
+            (PlayUiPhase::DestinationSelected, None),
+            (PlayUiPhase::UnitSelected, None),
+        ] {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::Escape);
+            app.update();
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .release(KeyCode::Escape);
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .clear();
+            assert_eq!(*app.world().resource::<PlayUiPhase>(), phase);
+            assert_eq!(app.world().resource::<DropTargets>().armed, armed);
+        }
+    }
+
+    /// After a drop the transport is picked up again, its remaining cargo
+    /// first on its orders, and the menu opens without a caret.
+    #[test]
+    fn a_transport_with_cargo_left_stays_in_hand_after_a_drop() {
+        let mut app = friendly_board(5, 5);
+        let lander = lander_on_a_port(&mut app, Pos::new(2, 2));
+        let first = load(&mut app, lander, awbrn_types::Unit::Infantry, 99);
+        let second = load(&mut app, lander, awbrn_types::Unit::Mech, 70);
+        let sent = capture::<UnloadCommandRequested>(&mut app);
+        let menus = capture::<UnitActionsChanged>(&mut app);
+
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
+        app.world_mut()
+            .resource_mut::<Messages<UnitActionChosen>>()
+            .write(UnitActionChosen { index: 0 });
+        app.update();
+        click_tile(&mut app, Pos::new(1, 2));
+        assert_eq!(sent.lock().unwrap().len(), 1);
+
+        // The server accepts: the infantry stands spent beside the Lander.
+        app.world_mut()
+            .entity_mut(first)
+            .remove::<CarriedBy>()
+            .insert(MapPosition::from(Pos::new(1, 2)));
+        app.world_mut()
+            .run_system_once(settle_committed_unload)
+            .unwrap();
+        sync_test_observation(&mut app);
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<SelectedUnit>().0.map(|s| s.entity),
+            Some(lander)
+        );
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::DestinationSelected
+        );
+        let unloads = offered_unloads(&app);
+        assert_eq!(unloads.len(), 1);
+        assert_eq!(unloads[0].0, unit_id_of(&app, second));
+        assert!(
+            !unloads[0].1.contains(&Pos::new(1, 2)),
+            "the infantry stands there now"
+        );
+        let menu = menus.lock().unwrap().last().cloned().unwrap();
+        assert!(matches!(menu.options[0].action, UnitOrder::Unload { .. }));
+        assert!(!menu.opens_with_caret);
+        let inspected = app
+            .world()
+            .resource::<Messages<crate::features::input::InspectTile>>()
+            .iter_current_update_messages()
+            .last()
+            .copied();
+        assert_eq!(
+            inspected,
+            Some(crate::features::input::InspectTile(Pos::new(2, 2))),
+            "a finger's readout follows the transport back into hand"
+        );
+    }
+
+    /// The menu after a move asks where cargo could land from the
+    /// destination. The move is sent alone, and the unload only once the
+    /// transport stands where the drop was aimed from.
+    #[test]
+    fn an_unload_after_a_move_waits_for_the_move_to_land() {
+        for lands_at in [Pos::new(3, 1), Pos::new(2, 1)] {
+            let mut app = friendly_board(6, 4);
+            let apc = spawn_unit(
+                &mut app,
+                Pos::new(1, 1),
+                awbrn_types::Unit::Apc,
+                PlayerFaction::OrangeStar,
+                true,
+                Some(70),
+            );
+            let cargo = load(&mut app, apc, awbrn_types::Unit::Infantry, 99);
+            let moves = capture::<MoveCommandRequested>(&mut app);
+            let unloads = capture::<UnloadCommandRequested>(&mut app);
+            capture::<UnitActionsChanged>(&mut app);
+
+            click_tile(&mut app, Pos::new(1, 1));
+            click_tile(&mut app, Pos::new(3, 1));
+            assert_eq!(
+                offered_unloads(&app),
+                vec![(unit_id_of(&app, cargo), neighbors_of(Pos::new(3, 1)))]
+            );
+
+            click_tile(&mut app, Pos::new(4, 1));
+            let sent_moves = moves.lock().unwrap().clone();
+            assert_eq!(sent_moves.len(), 1);
+            assert_eq!(sent_moves[0].action, PostMoveAction::Wait);
+            assert_eq!(sent_moves[0].path.last(), Some(&Pos::new(3, 1)));
+            assert!(
+                unloads.lock().unwrap().is_empty(),
+                "nothing waits on a move unsent"
+            );
+
+            // The move resolves, where it was aimed or stopped short by a unit
+            // the fog was hiding.
+            app.world_mut()
+                .entity_mut(apc)
+                .remove::<UnitActive>()
+                .insert(MapPosition::from(lands_at));
+            app.update();
+
+            if lands_at == Pos::new(3, 1) {
+                assert_eq!(
+                    unloads.lock().unwrap().as_slice(),
+                    &[UnloadCommandRequested {
+                        transport_id: unit_id_of(&app, apc),
+                        cargo_id: unit_id_of(&app, cargo),
+                        position: Pos::new(4, 1),
+                    }]
+                );
+                assert_eq!(
+                    app.world()
+                        .resource::<CommittedCommand>()
+                        .0
+                        .as_ref()
+                        .map(|s| s.kind),
+                    Some(CommittedKind::Unload)
+                );
+            } else {
+                assert!(unloads.lock().unwrap().is_empty());
+                assert_eq!(app.world().resource::<SelectedUnit>().0, None);
+            }
+        }
+    }
+
+    /// A drop refused after its move stood picks the transport up again
+    /// where it now stands, not with the reach it had before the move.
+    #[test]
+    fn a_refused_drop_after_a_move_picks_the_transport_up_where_it_stands() {
+        let mut app = friendly_board(6, 4);
+        let apc = spawn_unit(
+            &mut app,
+            Pos::new(1, 1),
+            awbrn_types::Unit::Apc,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(70),
+        );
+        load(&mut app, apc, awbrn_types::Unit::Infantry, 99);
+        capture::<MoveCommandRequested>(&mut app);
+        let unloads = capture::<UnloadCommandRequested>(&mut app);
+        capture::<UnitActionsChanged>(&mut app);
+
+        click_tile(&mut app, Pos::new(1, 1));
+        click_tile(&mut app, Pos::new(3, 1));
+        click_tile(&mut app, Pos::new(4, 1));
+        app.world_mut()
+            .entity_mut(apc)
+            .remove::<UnitActive>()
+            .insert(MapPosition::from(Pos::new(3, 1)));
+        sync_test_observation(&mut app);
+        app.update();
+        assert_eq!(unloads.lock().unwrap().len(), 1);
+
+        app.world_mut()
+            .resource_mut::<Messages<PendingCommandRejected>>()
+            .write(PendingCommandRejected);
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<SelectedUnit>().0,
+            Some(SelectedUnitSelection {
+                entity: apc,
+                origin: Pos::new(3, 1),
+            })
+        );
+        assert!(
+            app.world()
+                .resource::<SelectedMoveField>()
+                .0
+                .as_ref()
+                .is_none_or(|field| field.origin() == Pos::new(3, 1)),
+            "no reach from before the move"
+        );
+        assert!(app.world().resource::<MoveRange>().tiles.is_empty());
+        assert_eq!(
+            offered_unloads(&app),
+            vec![(
+                unit_id_of(&app, load_of(&app, apc)),
+                neighbors_of(Pos::new(3, 1))
+            )],
+            "its orders come back with the drop still on offer"
+        );
+    }
+
+    fn load_of(app: &App, transport: Entity) -> Entity {
+        let world = app.world();
+        world
+            .iter_entities()
+            .find(|entity| {
+                entity
+                    .get::<CarriedBy>()
+                    .is_some_and(|by| by.0 == transport)
+            })
+            .map(|entity| entity.id())
+            .expect("cargo aboard")
+    }
+
+    /// A spent transport is drawn in color while its cargo can still land,
+    /// a press opens its orders, and the walk stops on it. Hemmed in, it is
+    /// as done as any spent unit.
+    #[test]
+    fn a_spent_transport_keeps_its_color_while_its_cargo_can_land() {
+        let mut app = friendly_board(3, 3);
+        let apc = spawn_unit(
+            &mut app,
+            Pos::new(1, 1),
+            awbrn_types::Unit::Apc,
+            PlayerFaction::OrangeStar,
+            false,
+            Some(70),
+        );
+        load(&mut app, apc, awbrn_types::Unit::Infantry, 99);
+
+        sync_test_observation(&mut app);
+        app.update();
+        assert!(app.world().get::<CanUnload>(apc).is_some());
+
+        press_key(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.world().resource::<SelectedUnit>().0.map(|s| s.entity),
+            Some(apc),
+            "the walk stops on a transport that can still drop"
+        );
+        press_key(&mut app, KeyCode::Escape);
+        click_tile(&mut app, Pos::new(1, 1));
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::DestinationSelected,
+            "one press opens its orders"
+        );
+
+        for tile in neighbors_of(Pos::new(1, 1)) {
+            spawn_unit(
+                &mut app,
+                tile,
+                awbrn_types::Unit::Infantry,
+                PlayerFaction::BlueMoon,
+                false,
+                Some(99),
+            );
+        }
+        sync_test_observation(&mut app);
+        app.update();
+        assert!(app.world().get::<CanUnload>(apc).is_none());
     }
 
     /// A refusal used to cost the player the unit, the range, and the route.
@@ -5248,7 +6547,7 @@ mod tests {
             } else {
                 app.world_mut()
                     .resource_mut::<Messages<UnitActionDismissed>>()
-                    .write(UnitActionDismissed);
+                    .write(UnitActionDismissed(Dismissal::Back));
             }
             app.update();
 
@@ -5290,7 +6589,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<Messages<UnitActionDismissed>>()
-            .write(UnitActionDismissed);
+            .write(UnitActionDismissed(Dismissal::PressOutside));
         app.world_mut()
             .resource_mut::<Messages<PointerGesture>>()
             .write(gesture(PointerGestureKind::Tap, Some(Pos::new(1, 2))));
@@ -6223,6 +7522,77 @@ mod tests {
             *app.world().resource::<PlayUiPhase>(),
             PlayUiPhase::UnitSelected,
             "escape steps back one stage, as it does for a pointer"
+        );
+    }
+
+    /// Armed, the arrows aim the cargo and send nothing; Enter drops it.
+    /// Back and Escape still step back with the cursor on a drop tile, where
+    /// only a press outside the menu is read as the aim arriving.
+    #[test]
+    fn arrows_aim_an_armed_cargo_and_enter_drops_it() {
+        let mut app = keyboard_board(5, 5);
+        let apc = spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Apc,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(70),
+        );
+        let cargo = load(&mut app, apc, awbrn_types::Unit::Infantry, 99);
+        let sent = capture::<UnloadCommandRequested>(&mut app);
+        let menus = capture::<UnitActionsChanged>(&mut app);
+
+        press_key(&mut app, KeyCode::Tab);
+        press_key(&mut app, KeyCode::Enter);
+        let row = unload_row(&app);
+        let menu = menus.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(
+            menu.preselected,
+            Some(row),
+            "the caret opens on the lit cargo"
+        );
+        let arm = |app: &mut App| {
+            app.world_mut()
+                .resource_mut::<Messages<UnitActionChosen>>()
+                .write(UnitActionChosen { index: row });
+            app.update();
+        };
+        arm(&mut app);
+        press_key(&mut app, KeyCode::ArrowUp);
+        assert_eq!(
+            app.world().resource::<DropTargets>().aim,
+            Some(Pos::new(2, 1))
+        );
+        let menu = menus.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(menu.aim.map(|aim| aim.row), Some(row));
+
+        for (how, armed) in [
+            (Dismissal::PressOutside, Some(row)),
+            (Dismissal::Back, None),
+        ] {
+            app.world_mut()
+                .resource_mut::<Messages<UnitActionDismissed>>()
+                .write(UnitActionDismissed(how));
+            app.update();
+            assert_eq!(
+                app.world().resource::<DropTargets>().armed,
+                armed,
+                "{how:?}"
+            );
+        }
+        arm(&mut app);
+        press_key(&mut app, KeyCode::ArrowUp);
+        assert!(sent.lock().unwrap().is_empty(), "arrows only aim");
+
+        press_key(&mut app, KeyCode::Enter);
+        assert_eq!(
+            sent.lock().unwrap().as_slice(),
+            &[UnloadCommandRequested {
+                transport_id: unit_id_of(&app, apc),
+                cargo_id: unit_id_of(&app, cargo),
+                position: Pos::new(2, 1),
+            }]
         );
     }
 

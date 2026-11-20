@@ -13,6 +13,7 @@ import type {
   BattleForecastResponse,
   BattleRequestWire,
   DeleteUnitCommandRequested,
+  Dismissal,
   EndTurnRequested,
   GameEvent,
   MoveCommandRequested,
@@ -602,10 +603,16 @@ export class GameRunner {
     await game.setClearColor(color);
   }
 
-  /** Dismiss the destination menu, stepping back to the selected unit. */
-  async dismissUnitAction(): Promise<void> {
+  /** Let go of the destination menu: a step back, or out of it altogether. */
+  async dismissUnitAction(how: Dismissal): Promise<void> {
     const game = await this.requireGame();
-    await game.dismissUnitAction();
+    await game.dismissUnitAction(how);
+  }
+
+  /** Say which order the menu's caret is on, so an Unload row lights its tiles. */
+  async highlightUnitAction(index: number | null): Promise<void> {
+    const game = await this.requireGame();
+    await game.highlightUnitAction(index);
   }
 
   /**

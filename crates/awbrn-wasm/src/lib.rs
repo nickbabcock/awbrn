@@ -759,12 +759,27 @@ impl BevyApp {
             .write_message(awbrn_client::modes::play::UnitActionChosen { index });
     }
 
-    /// Dismiss the destination menu, stepping back to the selected unit.
+    /// Let go of the destination menu: a step back, or out of it altogether.
     #[wasm_bindgen]
-    pub fn dismiss_unit_action(&mut self) {
+    pub fn dismiss_unit_action(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Dismissal")] how: JsValue,
+    ) -> Result<(), JsError> {
+        let how = serde_wasm_bindgen::from_value(how)
+            .map_err(|error| JsError::new(&format!("Invalid dismissal: {error}")))?;
         self.app
             .world_mut()
-            .write_message(awbrn_client::modes::play::UnitActionDismissed);
+            .write_message(awbrn_client::modes::play::UnitActionDismissed(how));
+        Ok(())
+    }
+
+    /// Say which order the menu's caret is on, or `None` when it is on none.
+    /// A caret on an Unload row lights where that cargo may land.
+    #[wasm_bindgen]
+    pub fn highlight_unit_action(&mut self, index: Option<usize>) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::play::UnitActionHighlighted { index });
     }
 
     /// Put the board back after the server refused the command that was sent.

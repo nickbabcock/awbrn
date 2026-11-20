@@ -1822,6 +1822,41 @@ mod tests {
         );
     }
 
+    /// Cargo put down on a property waits a turn to capture it, so a capture
+    /// badge on a unit the moment it lands would be a bug.
+    #[test]
+    fn cargo_unloaded_onto_a_city_cannot_capture_it_that_turn() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/transport/unload-infantry-from-apc.json"
+        ))
+        .unwrap();
+        let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+        let city = state.board.tile_mut(Pos::new(0, 0));
+        city.terrain = TerrainId::City;
+        city.owner = TileOwner::Neutral;
+        city.capture_points = Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
+        let command: Command = serde_json::from_value(case["steps"][0]["command"].clone()).unwrap();
+
+        let result = execute(&state, command, &[]).unwrap();
+
+        assert_eq!(
+            result.state.board.tile(Pos::new(0, 0)).capture_points,
+            Some(crate::semantic::CAPTURE_REQUIRED_POINTS)
+        );
+        assert_eq!(result.state.units[1].action, UnitAction::Spent);
+        let session = crate::session::Session::new(result.state);
+        let cargo = session.index_of(UnitId::new(1)).unwrap();
+        let cell = session
+            .state()
+            .board
+            .dimensions()
+            .cell_index(Pos::new(0, 0))
+            .unwrap();
+        let mut orders = Vec::new();
+        session.legal().orders_at(cargo, cell, &mut orders);
+        assert!(orders.is_empty(), "{orders:?}");
+    }
+
     /// A unit that has already acted cannot move, and that is checked before
     /// the path is looked at.
     #[test]

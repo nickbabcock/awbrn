@@ -60,7 +60,7 @@ export function AttackPreview({ surfaceRef }: { surfaceRef: RefObject<HTMLElemen
           )}
         </HStack>
         <HStack as="span" xstyle={styles.engagement}>
-          <AttackEngagement forecast={preview.forecast} spriteScale={1} />
+          <AttackEngagement forecast={preview.forecast} spriteScale={2} />
         </HStack>
       </VStack>
     </BoardAnchoredPanel>
@@ -86,7 +86,7 @@ export function DockedAttackPreview() {
         )}
       </HStack>
       <HStack as="span" xstyle={[styles.engagement, styles.dockedEngagement]}>
-        <AttackEngagement forecast={preview.forecast} spriteScale={1} />
+        <AttackEngagement forecast={preview.forecast} spriteScale={2} />
       </HStack>
     </section>
   );

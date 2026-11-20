@@ -10,7 +10,7 @@ import {
   typographyVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BoardMenuShell,
   boardMenuStyles,
@@ -25,23 +25,49 @@ import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
 import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
-import { AttackEngagement, Attacker } from "#/matches/components/AttackEngagement.tsx";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
+import { UiSprite } from "#/components/UiSprite.tsx";
+import { AttackEngagement, Attacker, UnitSprite } from "#/matches/components/AttackEngagement.tsx";
 import { engagementLabel } from "#/matches/components/attack_forecast.ts";
-import type { UnitActionOption, UnitBadge } from "#/wasm/awbrn_wasm.js";
+import {
+  aimAnnouncement,
+  dockRows,
+  isUnload,
+  unloadLabel,
+  type UnloadOption,
+} from "#/matches/components/unload_orders.ts";
+import type {
+  CargoBadge,
+  Dismissal,
+  DropAim,
+  UnitActionOption,
+  UnitBadge,
+} from "#/wasm/awbrn_wasm.js";
 
 interface UnitActionMenuProps {
+  /** Where a cargo would land, once a tile is aimed at. */
+  aim?: DropAim;
   /** Where the board was pressed, in surface pixels. Null when no pointer opened it. */
   anchor: { x: number; y: number } | null;
   /** How far the menu stays from the anchor, to leave its tile in view. */
   anchorClearance?: number;
+  /**
+   * The Unload row whose cargo is being put down. The board picks the tile, so
+   * the menu asks only for the commit or the way back.
+   */
+  armed?: number;
   /** The unit being commanded, named at the head of a menu that forecasts. */
   attacker?: UnitBadge;
   /** Why the orders are inert, when they are. */
   disabledReason?: string;
   isEnabled: boolean;
   onChoose: (index: number) => void;
-  onDismiss: () => void;
+  onDismiss: (how: Dismissal) => void;
+  /** The board menu's caret moved onto this order, or off every order. */
+  onHighlight?: (index: number | null) => void;
   onRestoreFocus: () => void;
+  /** False when the board menu opens without lighting an order. */
+  opensWithCaret?: boolean;
   options: UnitActionOption[];
   /**
    * Which order the menu opens on. A drag released on an enemy has already said
@@ -62,14 +88,18 @@ interface UnitActionMenuProps {
  * own observation; the interface never decides what a unit may do.
  */
 export function UnitActionMenu({
+  aim,
   anchor,
   anchorClearance,
+  armed,
   attacker,
   disabledReason,
   isEnabled,
   onChoose,
   onDismiss,
+  onHighlight,
   onRestoreFocus,
+  opensWithCaret,
   options,
   preselected,
   presentation,
@@ -101,18 +131,77 @@ export function UnitActionMenu({
     if (isEnabled && pendingIndex !== -1) onChoose(pendingIndex);
   }, [isEnabled, onChoose, pendingIndex]);
 
-  if (presentation === "dock") {
+  const armedOption = armed === undefined ? undefined : options[armed];
+  const unloading: Unloading | undefined =
+    armed !== undefined && isUnload(armedOption)
+      ? { aim, index: armed, option: armedOption }
+      : undefined;
+  const commitUnload = useCallback(() => {
+    if (isEnabled && unloading?.aim) onChoose(unloading.index);
+  }, [isEnabled, onChoose, unloading?.aim, unloading?.index]);
+  // A pointer aims a lone cargo before its row is armed. That row is then the
+  // chosen one, as the aimed commit is once armed.
+  const aimedRow = unloading ? undefined : aim?.row;
+
+  const stepBack = useCallback(() => onDismiss("back"), [onDismiss]);
+  const pressOutside = useCallback(() => onDismiss("pressOutside"), [onDismiss]);
+  const close = useCallback(() => onDismiss("close"), [onDismiss]);
+
+  // The caret means one thing: the engine lights the drop tiles of the
+  // Unload row under it, and the reach again once it leaves the orders.
+  const highlighted = useRef<number | null>(null);
+  const highlight = useCallback(
+    (index: number | null) => {
+      if (!onHighlight || highlighted.current === index) return;
+      highlighted.current = index;
+      onHighlight(index);
+    },
+    [onHighlight],
+  );
+
+  // Armed, the board takes the keyboard: its arrows and Tab aim, in every
+  // presentation, since a dock can be driven by a keyboard too. Stepping back
+  // returns the caret to the Unload row that was armed.
+  const bodyRef = useRef<HTMLElement>(null);
+  const armedRow = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const previous = armedRow.current;
+    armedRow.current = unloading?.index;
+    if (unloading && previous === undefined) {
+      onRestoreFocus();
+    } else if (!unloading && previous !== undefined) {
+      bodyRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-order-index="${previous}"]`)
+        ?.focus({ preventScroll: true });
+    }
+  }, [onRestoreFocus, unloading]);
+
+  const announcement = (
+    <VisuallyHidden aria-live="polite">
+      {unloading?.aim ? aimAnnouncement(unloading.option.cargo, unloading.aim) : ""}
+    </VisuallyHidden>
+  );
+
+  // Drop tiles are picked on the board, which a modal sheet would cover, so a
+  // finger's orders with cargo aboard stand at the foot of the screen.
+  if (presentation === "dock" || (presentation === "sheet" && options.some(isUnload))) {
     return (
       <OrderDock
+        aimedRow={aimedRow}
+        announcement={announcement}
         attacker={attacker}
         disabledReason={disabledReason}
         isEnabled={isEnabled}
+        isFloating={presentation === "sheet"}
+        onBack={stepBack}
         onCancelPending={cancelConfirmation}
         onChoose={handleChoose}
+        onClose={close}
+        onCommitUnload={commitUnload}
         onConfirmPending={confirmPending}
-        onDismiss={onDismiss}
         options={options}
         pending={pending}
+        unloading={unloading}
       />
     );
   }
@@ -150,7 +239,8 @@ export function UnitActionMenu({
         ) : undefined
       }
       label="Orders"
-      onDismiss={onDismiss}
+      onDismiss={stepBack}
+      onPressOutside={pressOutside}
       // A menu with an engagement on it needs the width to hold one. Orders
       // that are only words keep the narrow menu they have always had.
       inlineSize={
@@ -159,14 +249,34 @@ export function UnitActionMenu({
           : boardMenuLayout.actionInlineSize
       }
       onRestoreFocus={onRestoreFocus}
+      opensWithCaret={opensWithCaret}
       presentation={presentation}
     >
       {({ isSheet, spriteScale }) => (
-        <VStack gap={0} xstyle={boardMenuStyles.body}>
+        <VStack
+          gap={0}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) highlight(null);
+          }}
+          onPointerLeave={(event) => {
+            highlight(null);
+            // Armed, the board aims: a pointer leaving for it takes the
+            // keyboard back with it, so arrows and Enter aim and drop again.
+            if (unloading && event.currentTarget.contains(document.activeElement)) {
+              onRestoreFocus();
+            }
+          }}
+          ref={bodyRef}
+          xstyle={boardMenuStyles.body}
+        >
+          {announcement}
           <HStack align="center" gap={3} justify="between" xstyle={boardMenuStyles.header}>
             {/* The unit is the same for every order below, so it is said once
-                here rather than repeated down the list. */}
-            {attacker && !pending ? (
+                here rather than repeated down the list. Armed, the cargo is
+                what is being decided about. */}
+            {unloading ? (
+              <Attacker badge={unloading.option.cargo} spriteScale={1} />
+            ) : attacker && !pending ? (
               <Attacker badge={attacker} spriteScale={1} />
             ) : (
               <Text type="label" xstyle={styles.heading}>
@@ -175,7 +285,23 @@ export function UnitActionMenu({
             )}
           </HStack>
 
-          {pending ? (
+          {unloading ? (
+            <VStack gap={0} xstyle={boardMenuStyles.list}>
+              <UnloadCommit isEnabled={isEnabled} onCommit={commitUnload} unloading={unloading} />
+              {/* Back does not follow the pointer: crossing it on the way to
+                  the board must not choose it over the aimed Unload. */}
+              <button
+                onClick={stepBack}
+                type="button"
+                {...stylex.props(menuRowMarker, boardMenuStyles.row)}
+              >
+                <MenuCaret />
+                <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
+                  Back
+                </Text>
+              </button>
+            </VStack>
+          ) : pending ? (
             <ConfirmOrder
               isEnabled={isEnabled}
               onCancel={cancelConfirmation}
@@ -188,12 +314,14 @@ export function UnitActionMenu({
               {options.map((option, index) => (
                 <OrderRow
                   index={index}
+                  isChosen={index === aimedRow}
                   isEnabled={isEnabled}
                   // A sheet opens with nothing chosen: a finger did not ask for
                   // a cursor, and the chosen row is the cursor.
                   isPreselected={!isSheet && index === preselected}
                   key={rowKey(option)}
                   onChoose={handleChoose}
+                  onHighlight={isSheet ? undefined : highlight}
                   option={option}
                   spriteScale={spriteScale}
                   title={disabledReason}
@@ -304,44 +432,59 @@ function ConfirmOrder({
  */
 function OrderRow({
   index,
+  isChosen = false,
+  isCompact = false,
   isEnabled,
   isPreselected,
   isWide = false,
   onChoose,
+  onHighlight,
   option,
   spriteScale,
   title,
 }: {
   index: number;
+  /** The board has chosen this row: a lone cargo aimed before it was armed. */
+  isChosen?: boolean;
+  /** A dock key sharing its row: the caret's slot goes to the name. */
+  isCompact?: boolean;
   isEnabled: boolean;
   isPreselected: boolean;
   /** The phone order dock: the forecast sits at the end of the row. */
   isWide?: boolean;
   onChoose: (index: number) => void;
+  onHighlight?: (index: number | null) => void;
   option: UnitActionOption;
   spriteScale: 1 | 2;
   title?: string;
 }) {
   const target =
-    option.action.type === "unload"
-      ? option.action.position
-      : option.action.type === "move" &&
-          (option.action.action.type === "attack" || option.action.action.type === "launch")
-        ? option.action.action.target
-        : null;
+    option.action.type === "move" &&
+    (option.action.action.type === "attack" || option.action.action.type === "launch")
+      ? option.action.action.target
+      : null;
   const forecast = option.forecast;
+  const unload = isUnload(option) ? option : undefined;
 
   return (
     <button
-      aria-label={forecast ? engagementLabel(option.name, forecast) : undefined}
+      aria-label={
+        forecast ? engagementLabel(option.name, forecast) : unload ? unloadLabel(unload) : undefined
+      }
+      data-order-index={index}
       // The shell moves the cursor here when the menu opens, so the order the
       // player has already indicated is the one under their thumb.
       data-preselected={isPreselected ? "" : undefined}
       disabled={!isEnabled}
       onClick={() => onChoose(index)}
+      onFocus={onHighlight ? () => onHighlight(index) : undefined}
       // The cursor follows the pointer rather than doubling it: entering a row
       // moves the one cursor there, so hover and keyboard never light two rows.
-      onPointerMove={followPointerCursor}
+      onPointerMove={(event) => {
+        followPointerCursor(event);
+        // Back onto the row that kept the focus while the pointer was away.
+        onHighlight?.(index);
+      }}
       title={isEnabled ? undefined : title}
       type="button"
       {...stylex.props(
@@ -349,23 +492,29 @@ function OrderRow({
         boardMenuStyles.row,
         spriteScale === 2 && boardMenuStyles.rowSpacious,
         isWide && styles.dockRow,
-        isWide && styles.dockOrder,
+        // Only a Fire row's forecast needs more than the dock's 52px, so the
+        // dock holds one height from the orders to an armed Unload.
+        isWide && forecast && styles.dockOrder,
+        isCompact && styles.dockKeyCompact,
         needsConfirmation(option) && styles.rowDestructive,
         needsConfirmation(option) && styles.rowSeparated,
+        isChosen && styles.rowAimed,
         !isEnabled && boardMenuStyles.rowInert,
       )}
     >
-      <MenuCaret />
+      {isCompact ? null : <MenuCaret isShown={isChosen} />}
       <HStack as="span" xstyle={[styles.orderBody, isWide && styles.orderBodyWide]}>
         <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
-          {option.name}
+          {/* The sprite names the cargo, as Fire's names its target. */}
+          {unload ? "Unload" : option.name}
         </Text>
         {forecast ? (
           <HStack as="span" xstyle={[styles.forecast, isWide && styles.forecastWide]}>
-            <AttackEngagement forecast={forecast} spriteScale={1} />
+            <AttackEngagement forecast={forecast} spriteScale={2} />
           </HStack>
         ) : null}
       </HStack>
+      {unload ? <CargoSprite cargo={unload.cargo} /> : null}
       {target && !forecast ? (
         <Text color="inherit" type="inherit" xstyle={styles.target}>
           {target.x}, {target.y}
@@ -391,7 +540,7 @@ function orderKey(option: UnitActionOption): string {
     return "delete";
   }
   if (option.action.type === "unload") {
-    return `unload-${option.action.cargo_id}-${option.action.position.x},${option.action.position.y}`;
+    return `unload-${option.action.cargo_id}`;
   }
   const action = option.action.action;
   if (action.type === "attack" || action.type === "launch") {
@@ -403,30 +552,107 @@ function orderKey(option: UnitActionOption): string {
   return action.type;
 }
 
+/** A cargo being put down: its row, and the tile it would land on. */
+interface Unloading {
+  aim: DropAim | undefined;
+  index: number;
+  option: UnloadOption;
+}
+
+/**
+ * The cargo as the board draws it, at 2x: its health, and its low-fuel or
+ * low-ammo mark held still in the corner the board flashes it in.
+ */
+function CargoSprite({ cargo }: { cargo: CargoBadge }) {
+  const mark = cargo.lowFuel ? "LowFuel.png" : cargo.lowAmmo ? "LowAmmo.png" : null;
+  return (
+    <Stack as="span" xstyle={styles.cargo}>
+      <UnitSprite badge={cargo} scale={2} />
+      {mark ? <UiSprite name={mark} scale={2} xstyle={styles.cargoMark} /> : null}
+    </Stack>
+  );
+}
+
+/**
+ * The armed Unload key. It stays a key while nothing is aimed, inert rather
+ * than disabled, so a screen reader can still land on it and hear why.
+ */
+function UnloadCommit({
+  isEnabled,
+  isWide = false,
+  onCommit,
+  unloading,
+}: {
+  isEnabled: boolean;
+  isWide?: boolean;
+  onCommit: () => void;
+  unloading: Unloading;
+}) {
+  const isAimed = unloading.aim !== undefined;
+  return (
+    <button
+      aria-disabled={!isAimed || !isEnabled}
+      aria-label={
+        unloading.aim
+          ? `Unload ${aimAnnouncement(unloading.option.cargo, unloading.aim)}`
+          : "Unload, no tile aimed"
+      }
+      onClick={onCommit}
+      onPointerMove={isWide ? undefined : followPointerCursor}
+      type="button"
+      {...stylex.props(
+        menuRowMarker,
+        boardMenuStyles.row,
+        isWide && styles.dockRow,
+        isAimed ? styles.rowAimed : boardMenuStyles.rowInert,
+      )}
+    >
+      <MenuCaret isShown={isAimed} />
+      <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
+        Unload
+      </Text>
+      {isWide ? <CargoSprite cargo={unloading.option.cargo} /> : null}
+    </button>
+  );
+}
+
 /**
  * The phone order dock: the orders stand over the tile row and the dock, so the
  * board stays tappable for another target.
  */
 function OrderDock({
+  aimedRow,
+  announcement,
   attacker,
   disabledReason,
   isEnabled,
+  isFloating,
+  onBack,
   onCancelPending,
   onChoose,
+  onClose,
+  onCommitUnload,
   onConfirmPending,
-  onDismiss,
   options,
   pending,
+  unloading,
 }: {
+  aimedRow: number | undefined;
+  announcement: ReactNode;
   attacker?: UnitBadge;
   disabledReason?: string;
   isEnabled: boolean;
+  /** Over the foot of the page, where no tile row and dock stand to replace. */
+  isFloating: boolean;
+  onBack: () => void;
   onCancelPending: () => void;
   onChoose: (index: number) => void;
+  onClose: () => void;
+  onCommitUnload: () => void;
   onConfirmPending: () => void;
-  onDismiss: () => void;
   options: UnitActionOption[];
   pending: UnitActionOption | undefined;
+  unloading: Unloading | undefined;
 }) {
   return (
     <section
@@ -434,15 +660,16 @@ function OrderDock({
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
-          onDismiss();
+          onBack();
         }
       }}
-      {...stylex.props(styles.dock)}
+      {...stylex.props(styles.dock, isFloating && styles.dockFloating)}
     >
+      {announcement}
       {/* Armed in place, the head names the order. A lone order leaves room
           to name the unit, as the desktop menu's head does; more would push
           the dock over the board's foot, where the destination may be. */}
-      {pending ? (
+      {unloading ? null : pending ? (
         <p {...stylex.props(styles.dockHead)}>{pending.name}</p>
       ) : attacker && options.length === 1 ? (
         <VStack xstyle={styles.dockHead}>
@@ -453,7 +680,26 @@ function OrderDock({
         <p {...stylex.props(styles.dockNotice)}>{disabledReason}</p>
       ) : null}
       <Stack as="span" xstyle={styles.dockRows}>
-        {pending ? (
+        {unloading ? (
+          <>
+            <UnloadCommit
+              isEnabled={isEnabled}
+              isWide
+              onCommit={onCommitUnload}
+              unloading={unloading}
+            />
+            <button
+              onClick={onBack}
+              type="button"
+              {...stylex.props(boardMenuStyles.row, styles.dockRow)}
+            >
+              <MenuCaret />
+              <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
+                Back
+              </Text>
+            </button>
+          </>
+        ) : pending ? (
           <>
             <button
               // A confirmation opens on the safe key.
@@ -478,28 +724,39 @@ function OrderDock({
             </button>
           </>
         ) : (
-          options.map((option, index) => (
-            <OrderRow
-              index={index}
-              isEnabled={isEnabled}
-              // The dock opens with nothing chosen, as a sheet does.
-              isPreselected={false}
-              isWide
-              key={rowKey(option)}
-              onChoose={onChoose}
-              option={option}
-              spriteScale={2}
-              title={disabledReason}
-            />
-          ))
+          dockRows(options).map((row) => {
+            const keys = row.map((index) => (
+              <OrderRow
+                index={index}
+                isChosen={index === aimedRow}
+                isCompact={row.length > 1}
+                isEnabled={isEnabled}
+                // The dock opens with nothing chosen, as a sheet does.
+                isPreselected={false}
+                isWide
+                key={rowKey(options[index]!)}
+                onChoose={onChoose}
+                option={options[index]!}
+                spriteScale={2}
+                title={disabledReason}
+              />
+            ));
+            return row.length === 1 ? (
+              keys
+            ) : (
+              <Stack as="span" key={row.join("|")} xstyle={styles.dockSplit(row.length)}>
+                {keys}
+              </Stack>
+            );
+          })
         )}
       </Stack>
       <Button
         icon={<Icon icon={IconClose} />}
         isIconOnly
-        label="Back out of these orders"
-        onClick={onDismiss}
-        tooltip="Back"
+        label="Close the orders"
+        onClick={onClose}
+        tooltip="Close"
         variant="on-ink"
         xstyle={styles.dockCancel}
       />
@@ -514,6 +771,25 @@ const land = stylex.keyframes({
 });
 
 const styles = stylex.create({
+  cargo: {
+    position: "relative",
+    flex: "0 0 auto",
+  },
+  // The board's status corner: the bottom left of the sprite.
+  cargoMark: {
+    position: "absolute",
+    insetInlineStart: 0,
+    insetBlockEnd: 0,
+  },
+  // The armed Unload with a tile aimed: chosen, as the caret's row is.
+  rowAimed: {
+    backgroundColor: awbrnVars.redWash,
+  },
+  dockSplit: (columns: number) => ({
+    display: "grid",
+    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+    gap: spacingVars["--spacing-2"],
+  }),
   orderBody: {
     display: "grid",
     gap: spacingVars["--spacing-1-5"],
@@ -535,6 +811,15 @@ const styles = stylex.create({
   },
   dockOrder: {
     minBlockSize: "56px",
+  },
+  // The height of the tile row and dock it stands in for elsewhere, so arming
+  // and aiming never move the command under the thumb.
+  dockFloating: {
+    position: "fixed",
+    insetInline: 0,
+    insetBlockEnd: 0,
+    zIndex: 3,
+    minBlockSize: "calc(136px + env(safe-area-inset-bottom, 0px))",
   },
   dock: {
     animationName: {
@@ -571,6 +856,10 @@ const styles = stylex.create({
     borderRadius: radiusVars["--radius-element"],
     borderBlockStartWidth: 0,
     fontSize: awbrnVars.text17,
+  },
+  // Three keys share a 360px row, so none can spare the caret's slot.
+  dockKeyCompact: {
+    paddingInlineEnd: awbrnVars.spacing2_5,
   },
   dockCancel: {
     flexShrink: 0,

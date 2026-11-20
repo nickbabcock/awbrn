@@ -185,6 +185,10 @@ pub struct HoveredUnit {
     pub ammo_display: AmmoDisplay,
     pub fuel: Option<u32>,
     pub max_fuel: u32,
+    /// Fuel at or under the quarter mark the board's status corner warns at.
+    pub low_fuel: bool,
+    /// Ammunition at or under the same quarter mark.
+    pub low_ammo: bool,
     pub loaded_units: Vec<HoveredCargoUnit>,
 }
 
@@ -235,6 +239,9 @@ pub struct InspectedUnitReadout {
     pub faction_code: String,
     /// Movement points, after fuel and the commander.
     pub movement: u32,
+    /// Whether the unit has moved or acted this turn. Its movement is then
+    /// spent, even for a transport that stays in color to unload.
+    pub moved: bool,
     /// The lowest tile of the firing band, absent for a unit with no weapon.
     pub range_minimum: Option<u32>,
     /// The highest tile of the firing band, absent for a unit with no weapon.
@@ -368,6 +375,9 @@ pub struct UnitActionOption {
     /// is the honest fallback, and a wrong number is not.
     #[cfg_attr(target_family = "wasm", tsify(optional))]
     pub forecast: Option<AttackForecast>,
+    /// The unit an unload puts down. Present only on unloads.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub cargo: Option<CargoBadge>,
 }
 
 impl UnitActionOption {
@@ -377,8 +387,40 @@ impl UnitActionOption {
             name: name.into(),
             action,
             forecast: None,
+            cargo: None,
         }
     }
+}
+
+/// A carried unit as its Unload row draws it: the board's marks on its sprite.
+///
+/// The row names no tile. Where the cargo lands is picked on the board, so
+/// what tells two rows apart is what the board would draw on each unit.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct CargoBadge {
+    pub unit: awvm::ruleset::UnitKind,
+    pub name: String,
+    pub faction_code: String,
+    /// Health as the game shows it.
+    pub health: Option<u8>,
+    pub low_fuel: bool,
+    pub low_ammo: bool,
+}
+
+/// The tile a cargo would land on, as a sentence names it.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct DropAim {
+    /// The Unload row whose cargo would land there. A pointer aims a lone
+    /// cargo before its row is armed, and that row is then the chosen one.
+    pub row: usize,
+    pub x: u8,
+    pub y: u8,
+    pub terrain_name: String,
+    pub defense_stars: u8,
 }
 
 /// The damage one strike lands, from its unluckiest roll to its luckiest, in
@@ -422,6 +464,9 @@ pub struct AttackForecast {
     pub destroys: bool,
     /// Whether the strongest roll finishes it, when the weakest does not.
     pub may_destroy: bool,
+    /// Whether the target's health is hidden and was read as full. The
+    /// damage is then the least the strike does and the counter the most.
+    pub assumes_full_health: bool,
 }
 
 /// The exchange the pointer is currently aimed at.
@@ -487,10 +532,12 @@ pub enum UnitOrder {
     Move {
         action: PostMoveAction,
     },
+    /// Put one cargo down. The tile is picked on the board from `tiles`, so
+    /// one row stands for every tile it may land on.
     Unload {
         cargo_id: u32,
-        #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
-        position: Pos,
+        #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }[]"))]
+        tiles: Vec<Pos>,
     },
     Delete,
 }
@@ -517,6 +564,31 @@ pub struct UnitActionsChanged {
     /// Where the destination is on the canvas, when the board can say.
     #[cfg_attr(target_family = "wasm", tsify(optional))]
     pub anchor: Option<ScreenPoint>,
+    /// Whether a desktop menu opens with its caret on an order. The orders
+    /// that come back after a drop open without one, so a ready transport's
+    /// reach stays on show until the player points at an Unload row.
+    pub opens_with_caret: bool,
+    /// The Unload row whose cargo is being put down. Its tiles answer a press
+    /// on the board, and the menu asks only for the commit or the way back.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub armed: Option<usize>,
+    /// Where a cargo would land, once a tile is aimed at.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub aim: Option<DropAim>,
+}
+
+/// How the page let go of the orders.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub enum Dismissal {
+    /// Back or Escape: one stage back, from an armed cargo to the orders and
+    /// from the orders to the unit.
+    Back,
+    /// A press outside the menu. The board answers a press on itself too.
+    PressOutside,
+    /// The phone dock's close key: out of the orders from any stage.
+    Close,
 }
 
 /// An atomic move-and-act intent chosen on the live board. The browser forwards

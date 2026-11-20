@@ -153,6 +153,8 @@ pub enum UnitOverlay {
     Capturing,
     Cargo,
     Dive,
+    LowFuel,
+    LowAmmo,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -180,6 +182,8 @@ pub fn unit_overlay_spec(overlay: UnitOverlay) -> Option<UnitOverlaySpec> {
         UnitOverlay::Capturing => ("Capturing.png".to_owned(), LogicalOffset::new(0.0, 8.0)),
         UnitOverlay::Cargo => ("HasCargo.png".to_owned(), LogicalOffset::new(0.0, 8.0)),
         UnitOverlay::Dive => ("Dive.png".to_owned(), LogicalOffset::new(0.0, 8.0)),
+        UnitOverlay::LowFuel => ("LowFuel.png".to_owned(), LogicalOffset::new(0.0, 8.0)),
+        UnitOverlay::LowAmmo => ("LowAmmo.png".to_owned(), LogicalOffset::new(0.0, 8.0)),
     };
     Some(UnitOverlaySpec {
         sprite_name,

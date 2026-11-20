@@ -342,6 +342,13 @@ pub struct Production {
     pub affordable: bool,
 }
 
+/// A forecast, and whether it took a hidden health as full.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Estimate {
+    pub forecast: Forecast,
+    pub assumes_full_health: bool,
+}
+
 /// One cargo a transport may put down, and the tile it lands on.
 ///
 /// [`OrderKind::Unload`] names the slot, because a slot is one byte and an
@@ -1577,10 +1584,35 @@ impl<'a> Legal<'a> {
     /// This is a preview and not an offer. Ask [`Legal::targets`] what may be
     /// fired on. This says what would happen if it were.
     pub fn forecast(&self, unit: UnitIdx, from: CellIdx, target: CellIdx) -> Option<Forecast> {
-        let turn = self.turn.as_ref()?;
         if self.session.uncertain.binary_search(&target).is_ok() {
             return None;
         }
+        self.forecast_as_reified(unit, from, target)
+    }
+
+    /// What a strike would do, reading a target whose health is hidden as a
+    /// unit at full health.
+    ///
+    /// This is the estimate a player is shown where [`Legal::forecast`]
+    /// declines. Terrain defense scales with the defender's health, so against
+    /// full health the attack is the least the strike can do, and the counter
+    /// the most it can return. `None` only when nothing can be forecast at all.
+    pub fn estimate(&self, unit: UnitIdx, from: CellIdx, target: CellIdx) -> Option<Estimate> {
+        Some(Estimate {
+            forecast: self.forecast_as_reified(unit, from, target)?,
+            assumes_full_health: self.session.uncertain.binary_search(&target).is_ok(),
+        })
+    }
+
+    /// A reified observation holds a hidden health as full, so this is the
+    /// forecast against what the session believes.
+    fn forecast_as_reified(
+        &self,
+        unit: UnitIdx,
+        from: CellIdx,
+        target: CellIdx,
+    ) -> Option<Forecast> {
+        let turn = self.turn.as_ref()?;
         crate::benchmark::record_forecast_calculated();
         let state = &self.session.state;
         let dimensions = state.board.dimensions();

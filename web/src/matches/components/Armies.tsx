@@ -16,6 +16,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { CoStamp } from "#/components/CoStamp.tsx";
@@ -68,6 +69,11 @@ export interface ArmyView {
    * holds no room for a meter or figures that are not coming.
    */
   isRecordOnly?: boolean;
+  /**
+   * The army is drawn from the live match, so a power going on lands with
+   * motion. Loading, a replay and a review only ever cut.
+   */
+  isLive?: boolean;
 }
 
 export interface PowerControl {
@@ -212,6 +218,74 @@ function StarMeter({
 function formatStars(charged: number): string {
   const truncated = Math.trunc(charged * 10) / 10;
   return truncated % 1 === 0 ? String(truncated) : truncated.toFixed(1);
+}
+
+/**
+ * Whether a power went on while this army was on screen and live. Worked out
+ * in render, so the mark mounts already landing rather than a frame late.
+ * The state the engine first reports is a baseline, never a change.
+ */
+function usePowerLanding(entry: PlayerRosterEntry, isLive: boolean): boolean {
+  const state = readPowerMeter(entry) === null ? null : (entry.activePower ?? "off");
+  const [seen, setSeen] = useState(state);
+  const [lands, setLands] = useState(false);
+  if (seen !== state) {
+    setSeen(state);
+    setLands(isLive && seen === "off" && state !== "off" && state !== null);
+  }
+  return lands;
+}
+
+/**
+ * A power in force, in the meter's place: the game's POWER or SUPER sprite,
+ * then "on". No readout: a power in force has spent its charge and gains none.
+ * On a phone it sits on an ink tag so the phrase reads as one word; a
+ * turn-order cell draws the art at its own pixels so five or six cells fit.
+ * With no power on it shows `children`, the meter it stands in for.
+ */
+function PowerOn({
+  children,
+  entry,
+  form = "line",
+  isLive = false,
+}: {
+  children?: ReactNode;
+  entry: PlayerRosterEntry;
+  form?: "line" | "tag" | "cell";
+  isLive?: boolean;
+}) {
+  const lands = usePowerLanding(entry, isLive);
+  const level = entry.activePower;
+  if (level === undefined) return <>{children}</>;
+  const name = powerName(entry, level);
+  return (
+    // Raw span: Astryx components drop `title`.
+    <span
+      aria-label={`${level === "scop" ? "Super power" : "Power"} on: ${name}`}
+      role="img"
+      title={`${name} on`}
+      {...stylex.props(
+        powerOnStyles.mark,
+        form !== "line" && powerOnStyles.tag,
+        form === "cell" && powerOnStyles.cell,
+        lands && powerOnStyles.lands,
+      )}
+    >
+      <UiSprite
+        name={level === "scop" ? "SuperPower.png" : "NormalPower.png"}
+        scale={form === "cell" ? 0.5 : 1}
+      />
+      <b
+        {...stylex.props(
+          powerOnStyles.on,
+          form === "line" && powerOnStyles.onLine,
+          form === "cell" && powerOnStyles.onCell,
+        )}
+      >
+        on
+      </b>
+    </span>
+  );
 }
 
 /* ---------------------------------------------------------------- power key */
@@ -372,20 +446,62 @@ function StampKey({
   );
 }
 
-/** Funds or units as a sprite and a figure, left out until the engine reports it. */
-function Count({ entry, of }: { entry: PlayerRosterEntry; of: "funds" | "units" }) {
-  const value = of === "funds" ? entry.stats.funds : entry.stats.unitCount;
+/** Units as a sprite and a figure, left out until the engine reports it. */
+function UnitCount({ entry }: { entry: PlayerRosterEntry }) {
+  const value = entry.stats.unitCount;
   if (value === undefined) return null;
   return (
     <HStack as="span" xstyle={[figureStyles.figure, chipStyles.count]}>
-      {of === "funds" ? (
-        <UiSprite name="Coin.png" />
-      ) : (
-        <StatIcon factionCode={entry.displayFactionCode} />
-      )}
-      <VisuallyHidden>{of === "funds" ? "Funds " : "Units "}</VisuallyHidden>
+      <StatIcon factionCode={entry.displayFactionCode} />
+      <VisuallyHidden>Units </VisuallyHidden>
       {formatFigure(value)}
     </HStack>
+  );
+}
+
+/**
+ * Funds, then income: sprites in one column, digits right-aligned in the next,
+ * so stacked they read as a sum. Left out with the funds (fog), with no stand-in.
+ */
+function Purse({
+  entry,
+  layout,
+  xstyle,
+}: {
+  entry: PlayerRosterEntry;
+  layout: "stack" | "line";
+  xstyle?: stylex.StyleXStyles;
+}) {
+  const { funds, income } = entry.stats;
+  if (funds === undefined) return null;
+  const isLine = layout === "line";
+  return (
+    <Stack
+      as="span"
+      xstyle={[figureStyles.figure, purseStyles.purse, isLine && purseStyles.line, xstyle]}
+    >
+      <UiSprite name="Coin.png" xstyle={purseStyles.sprite} />
+      <Text color="inherit" type="inherit" xstyle={purseStyles.funds}>
+        <VisuallyHidden>Funds: </VisuallyHidden>
+        {formatFigure(funds)}
+      </Text>
+      {income === undefined ? null : (
+        <>
+          <UiSprite
+            name="BuildingsCaptured.png"
+            xstyle={[purseStyles.sprite, isLine && purseStyles.incomeSpriteLine]}
+          />
+          <Text
+            color="inherit"
+            type="inherit"
+            xstyle={[purseStyles.income, isLine && purseStyles.incomeLine]}
+          >
+            <VisuallyHidden>Income: </VisuallyHidden>
+            {`+${formatFigure(income)}`}
+          </Text>
+        </>
+      )}
+    </Stack>
   );
 }
 
@@ -485,7 +601,9 @@ export function ArmyCard({
       {view.isRecordOnly ? null : (
         <>
           <HStack as="span" xstyle={cardStyles.powerLine}>
-            <StarMeter entry={entry} hasReadout />
+            <PowerOn entry={entry} isLive={view.isLive}>
+              <StarMeter entry={entry} hasReadout />
+            </PowerOn>
             <HStack as="span" xstyle={cardStyles.powerKeys}>
               <PowerKeys entry={entry} power={power} size="rail" />
             </HStack>
@@ -506,11 +624,14 @@ export function Ledger({
   isOwed,
   onOpen,
   power,
+  showUnits,
   views,
 }: {
   isOwed: boolean;
   onOpen?: (playerId: number) => void;
   power?: PowerControl;
+  /** A replay or a review shows units where a live match shows the clock. */
+  showUnits: boolean;
   views: ArmyView[];
 }) {
   const isLong = views.length >= 7;
@@ -536,13 +657,14 @@ export function Ledger({
         const entry = army.entry;
         const team = teamFromId(entry.team);
         const isRowOwed = isOwed && isViewer;
-        const { funds, unitCount } = entry.stats;
-        const endTop =
-          isViewer && power?.onActivate && readyPowers(entry).length > 0 ? (
-            <PowerKeys entry={entry} power={power} size="row" />
-          ) : clock && !clock.isRunning ? (
-            <ClockChip clock={clock} />
-          ) : null;
+        const keys = isViewer && power?.onActivate ? readyPowers(entry) : [];
+        const lineEnd = entry.eliminated ? null : keys.length > 0 ? (
+          <PowerKeys entry={entry} power={power} size="row" />
+        ) : showUnits ? (
+          <UnitCount entry={entry} />
+        ) : clock && !clock.isRunning ? (
+          <ClockChip clock={clock} />
+        ) : null;
         return (
           <li
             aria-label={`${index + 1}. ${army.name}${isViewer ? " (you)" : ""}, ${coName(entry)}, ${entry.displayFactionName}${teamName(entry) ? `, ${teamName(entry)}` : ""}${entry.eliminated ? `, ${outMark(fall).toLowerCase()}${fall?.reason ? `, ${fall.reason}` : ""}` : ""}`}
@@ -575,56 +697,58 @@ export function Ledger({
               size="sm"
             />
             <Stack as="span" xstyle={cardStyles.identity}>
-              <HStack as="span" xstyle={ledgerStyles.name}>
-                {army.isActive ? <MovingDot /> : null}
-                <b
-                  {...stylex.props(
-                    textStyles.ellipsis,
-                    ledgerStyles.nameText,
-                    entry.eliminated && textStyles.struck,
-                  )}
-                >
-                  {army.name}
-                </b>
-                {isViewer ? <YouTag isSmall /> : null}
-              </HStack>
-              <HStack as="span" xstyle={ledgerStyles.line2}>
-                <FactionCrest factionCode={entry.displayFactionCode} size={14} />
+              <HStack as="span" xstyle={ledgerStyles.line}>
+                <HStack as="span" xstyle={ledgerStyles.name}>
+                  {army.isActive ? <MovingDot /> : null}
+                  <b
+                    {...stylex.props(
+                      textStyles.ellipsis,
+                      ledgerStyles.nameText,
+                      entry.eliminated && textStyles.struck,
+                    )}
+                  >
+                    {army.name}
+                  </b>
+                  {isViewer ? <YouTag isSmall /> : null}
+                </HStack>
                 {entry.eliminated ? (
-                  fall?.reason ? (
-                    <Text
-                      color="inherit"
-                      type="inherit"
-                      xstyle={[textStyles.ellipsis, textStyles.why]}
-                    >
-                      {fall.reason}
-                    </Text>
-                  ) : null
+                  <Text color="inherit" type="inherit" xstyle={textStyles.out}>
+                    {outMark(fall)}
+                  </Text>
                 ) : (
-                  <StarMeter entry={entry} hasReadout size="sm" />
+                  <Purse entry={entry} layout="line" />
                 )}
               </HStack>
-            </Stack>
-            <Stack as="span" xstyle={ledgerStyles.end}>
-              {entry.eliminated ? (
-                <Text color="inherit" type="inherit" xstyle={textStyles.out}>
-                  {outMark(fall)}
-                </Text>
-              ) : (
-                <>
-                  {endTop ? (
-                    <HStack as="span" xstyle={ledgerStyles.endTop}>
-                      {endTop}
-                    </HStack>
-                  ) : null}
-                  {funds === undefined && unitCount === undefined ? null : (
-                    <HStack as="span" xstyle={[figureStyles.figure, ledgerStyles.figures]}>
-                      <Count entry={entry} of="funds" />
-                      <Count entry={entry} of="units" />
-                    </HStack>
+              <HStack as="span" xstyle={ledgerStyles.line}>
+                <HStack as="span" xstyle={ledgerStyles.line2}>
+                  <FactionCrest factionCode={entry.displayFactionCode} size={14} />
+                  {entry.eliminated ? (
+                    fall?.reason ? (
+                      <Text
+                        color="inherit"
+                        type="inherit"
+                        xstyle={[textStyles.ellipsis, textStyles.why]}
+                      >
+                        {fall.reason}
+                      </Text>
+                    ) : null
+                  ) : (
+                    <PowerOn entry={entry} isLive={view.isLive}>
+                      {/* A key says the power is ready, so the readout goes beside one;
+                          the super key means a full meter, and two keys leave no room
+                          for a 7 to 10 star one, so the stars go too. */}
+                      {keys.includes("scop") ? null : (
+                        <StarMeter entry={entry} hasReadout={keys.length === 0} size="sm" />
+                      )}
+                    </PowerOn>
                   )}
-                </>
-              )}
+                </HStack>
+                {lineEnd ? (
+                  <HStack as="span" xstyle={ledgerStyles.end}>
+                    {lineEnd}
+                  </HStack>
+                ) : null}
+              </HStack>
             </Stack>
           </li>
         );
@@ -738,8 +862,8 @@ export function ArmyPlate({
 }) {
   const { army, clock, fall, isViewer } = view;
   const entry = army.entry;
-  // The label names the army and the action; the readings (CO power, funds,
-  // the clock or units) are its description, which the label would hide.
+  // The label names the army and the action; the readings (CO power, funds and
+  // income, the clock or units) are its description, which the label would hide.
   const meterId = useId();
   const figuresId = useId();
   const hasMeter = !entry.eliminated && !view.isRecordOnly;
@@ -787,16 +911,26 @@ export function ArmyPlate({
             {fall?.reason ? ` · ${fall.reason}` : ""}
           </Text>
         ) : view.isRecordOnly ? null : (
-          <HStack as="span" id={meterId} xstyle={plateStyles.meter}>
-            <VisuallyHidden>CO power </VisuallyHidden>
-            <StarMeter entry={entry} size="sm" />
+          <HStack
+            as="span"
+            id={meterId}
+            xstyle={[plateStyles.meter, !isWide && plateStyles.meterReserve]}
+          >
+            <PowerOn entry={entry} form="tag" isLive={view.isLive}>
+              <VisuallyHidden>CO power </VisuallyHidden>
+              <StarMeter entry={entry} size="sm" />
+            </PowerOn>
           </HStack>
         )}
         {view.isRecordOnly ? null : (
-          <HStack as="span" id={figuresId} xstyle={plateStyles.figures}>
-            <Count entry={entry} of="funds" />
+          <HStack
+            as="span"
+            id={figuresId}
+            xstyle={[plateStyles.figures, !entry.eliminated && plateStyles.figuresHold]}
+          >
+            <Purse entry={entry} layout="stack" xstyle={plateStyles.purse} />
             {showUnits || clock === null ? (
-              <Count entry={entry} of="units" />
+              <UnitCount entry={entry} />
             ) : (
               <ClockChip clock={clock} />
             )}
@@ -815,10 +949,13 @@ export function ArmyPlate({
 export function TurnOrderRow({
   isOwed,
   onOpen,
+  plateArmyId,
   views,
 }: {
   isOwed: boolean;
   onOpen: (playerId: number) => void;
+  /** The army whose plate stands under the row; your cell leaves your power to it. */
+  plateArmyId?: number | null;
   views: ArmyView[];
 }) {
   const rowRef = useRef<HTMLElement>(null);
@@ -845,7 +982,7 @@ export function TurnOrderRow({
           return (
             <button
               aria-haspopup="dialog"
-              aria-label={`${index + 1}. ${army.name}${isViewer ? " (you)" : ""}, ${coName(entry)}${teamName(entry) ? `, ${teamName(entry)}` : ""}${army.isActive ? ", on the move" : ""}${entry.eliminated ? ", out" : ""}: open army details`}
+              aria-label={`${index + 1}. ${army.name}${isViewer ? " (you)" : ""}, ${coName(entry)}${teamName(entry) ? `, ${teamName(entry)}` : ""}${army.isActive ? ", on the move" : ""}${entry.activePower ? `, ${powerName(entry, entry.activePower)} on` : ""}${entry.eliminated ? ", out" : ""}: open army details`}
               data-pinned={isLong && isViewer ? "" : undefined}
               data-player={entry.playerId}
               key={entry.playerId}
@@ -892,6 +1029,9 @@ export function TurnOrderRow({
               >
                 {army.name}
               </Text>
+              {isViewer && entry.playerId === plateArmyId ? null : (
+                <PowerOn entry={entry} form="cell" isLive={view.isLive} />
+              )}
               {army.isActive ? (
                 <Stack
                   as="span"
@@ -969,18 +1109,20 @@ export function ArmySheet({
           </Text>
         ) : null}
       </HStack>
-      <HStack as="span" xstyle={sheetStyles.meterRow}>
-        <StarMeter entry={entry} tone="paper" />
-        {meter ? (
-          <Text
-            color="inherit"
-            type="inherit"
-            xstyle={[figureStyles.figure, sheetStyles.meterReadout]}
-          >
-            {formatStars(meter.charged)} / {meter.totalStars}
-          </Text>
-        ) : null}
-      </HStack>
+      {entry.activePower === undefined ? (
+        <HStack as="span" xstyle={sheetStyles.meterRow}>
+          <StarMeter entry={entry} tone="paper" />
+          {meter ? (
+            <Text
+              color="inherit"
+              type="inherit"
+              xstyle={[figureStyles.figure, sheetStyles.meterReadout]}
+            >
+              {formatStars(meter.charged)} / {meter.totalStars}
+            </Text>
+          ) : null}
+        </HStack>
+      ) : null}
       <Stack as="span" xstyle={sheetStyles.stats}>
         <ArmyStats entry={entry} tone="paper" />
       </Stack>
@@ -993,13 +1135,17 @@ export function ArmySheet({
             const canPress = isReady && power?.onActivate !== undefined;
             const name = powerName(entry, level);
             const isOn = entry.activePower === level;
-            const toGo = formatStars(cost.remaining / meter.starCharge);
+            // Nothing can be activated while a power is on, so no tile counts down.
+            const toGo =
+              entry.activePower === undefined
+                ? formatStars(cost.remaining / meter.starCharge)
+                : null;
             return (
               <button
                 aria-label={
                   canPress
                     ? activateLabel(entry, level)
-                    : `${name}: ${isOn ? "on" : isReady ? "ready" : `${toGo} stars to go`}`
+                    : `${name}${isOn ? ": on" : isReady ? ": ready" : toGo === null ? "" : `: ${toGo} stars to go`}`
                 }
                 disabled={!canPress || power?.activating !== undefined}
                 key={level}
@@ -1009,12 +1155,23 @@ export function ArmySheet({
                   onOpenChange(false);
                 }}
                 type="button"
-                {...stylex.props(sheetStyles.power, isReady && sheetStyles.powerReady)}
+                {...stylex.props(
+                  sheetStyles.power,
+                  isReady && sheetStyles.powerReady,
+                  isOn && sheetStyles.powerOn,
+                )}
               >
                 <UiSprite name={level === "scop" ? "SuperPower.png" : "NormalPower.png"} />
                 <Text color="inherit" type="inherit" xstyle={sheetStyles.powerName}>
                   {name}
-                  {isOn ? " · on" : isReady ? "" : ` · ${toGo}`}
+                  {isOn ? (
+                    <>
+                      {" "}
+                      <b {...stylex.props(sheetStyles.onWord)}>on</b>
+                    </>
+                  ) : isReady || toGo === null ? null : (
+                    ` · ${toGo}`
+                  )}
                 </Text>
               </button>
             );
@@ -1203,6 +1360,66 @@ const powerStyles = stylex.create({
   },
   armed: {
     boxShadow: `inset 0 0 0 3px ${awbrnVars.gold}`,
+  },
+});
+
+/** The phone's power tag: the sprite and a little ink above and below it. */
+const POWER_TAG_HEIGHT = "21px";
+
+// From a visible pose: the step jumps halfway at once, so the first frame
+// shows the mark half in and the second sets it down.
+const powerLands = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(-4px)" },
+  to: { opacity: 1, transform: "none" },
+});
+
+const powerOnStyles = stylex.create({
+  mark: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-1-5"],
+    flexShrink: 0,
+    whiteSpace: "nowrap",
+  },
+  tag: {
+    blockSize: POWER_TAG_HEIGHT,
+    paddingInlineStart: spacingVars["--spacing-1"],
+    paddingInlineEnd: spacingVars["--spacing-2"],
+    borderRadius: radiusVars["--radius-inner"],
+    backgroundColor: awbrnVars.ink950,
+  },
+  // Inset in its own cell, never across into the next one.
+  cell: {
+    blockSize: "auto",
+    maxInlineSize: "100%",
+    gap: spacingVars["--spacing-1"],
+    paddingBlock: spacingVars["--spacing-1"],
+    paddingInlineStart: spacingVars["--spacing-1"],
+    paddingInlineEnd: spacingVars["--spacing-1"],
+    overflow: "hidden",
+  },
+  lands: {
+    animationName: {
+      default: powerLands,
+      [pageLayout.reducedMotionMedia]: "none",
+    },
+    animationDuration: "120ms",
+    animationTimingFunction: awbrnVars.easeStep,
+    animationFillMode: "both",
+  },
+  on: {
+    color: awbrnVars.gold,
+    fontSize: matchType.note,
+    fontWeight: 750,
+    letterSpacing: "0.02em",
+    lineHeight: 1,
+  },
+  // The size the meter's readout had, so the sprite and the word read as one phrase.
+  onLine: {
+    fontSize: matchType.figure,
+  },
+  onCell: {
+    fontSize: matchType.micro,
   },
 });
 
@@ -1412,7 +1629,7 @@ const ledgerStyles = stylex.create({
   row: {
     position: "relative",
     display: "grid",
-    gridTemplateColumns: `${matchLayout.ledgerNumber} auto minmax(0, 1fr) auto`,
+    gridTemplateColumns: `${matchLayout.ledgerNumber} auto minmax(0, 1fr)`,
     alignItems: "center",
     gap: awbrnVars.spacing2_5,
     minBlockSize: matchLayout.rowHeight,
@@ -1428,7 +1645,7 @@ const ledgerStyles = stylex.create({
     color: awbrnVars.textOnInk,
   },
   rowTeams: {
-    gridTemplateColumns: `${matchLayout.ledgerNumber} auto auto minmax(0, 1fr) auto`,
+    gridTemplateColumns: `${matchLayout.ledgerNumber} auto auto minmax(0, 1fr)`,
   },
   rowOut: {
     backgroundColor: awbrnVars.ink900,
@@ -1444,8 +1661,17 @@ const ledgerStyles = stylex.create({
     color: awbrnVars.textOnInkSecondary,
     textAlign: "end",
   },
+  // Each line ends at the row's edge, so the incomes form a column down the
+  // ledger, and the clocks another.
+  line: {
+    display: "flex",
+    alignItems: "center",
+    gap: awbrnVars.spacing2_5,
+    minInlineSize: 0,
+  },
   name: {
     display: "flex",
+    flexGrow: 1,
     alignItems: "center",
     gap: spacingVars["--spacing-1-5"],
     minInlineSize: 0,
@@ -1458,29 +1684,23 @@ const ledgerStyles = stylex.create({
   },
   line2: {
     display: "flex",
+    flexGrow: 1,
     alignItems: "center",
     gap: spacingVars["--spacing-2"],
     minInlineSize: 0,
   },
   end: {
-    display: "grid",
-    justifyItems: "end",
-    gap: spacingVars["--spacing-1-5"],
-  },
-  endTop: {
     display: "inline-flex",
     gap: spacingVars["--spacing-1"],
-  },
-  figures: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: awbrnVars.spacing2_5,
     fontSize: matchType.figure,
   },
 });
 
 /** Past this width a plate puts its figures at the end of its name line. */
 const PLATE_WIDE = "@container (min-width: 300px)";
+
+/** The purse stacked: funds over income. */
+const PURSE_HEIGHT = "28px";
 
 const plateStyles = stylex.create({
   plate: {
@@ -1550,6 +1770,11 @@ const plateStyles = stylex.create({
     fontWeight: 750,
     lineHeight: 1.15,
   },
+  // Two plates side by side hold the power tag's height whether or not it is
+  // showing, so their purses and clocks keep one baseline.
+  meterReserve: {
+    minBlockSize: POWER_TAG_HEIGHT,
+  },
   meter: {
     gridArea: "meter",
     alignSelf: {
@@ -1563,20 +1788,71 @@ const plateStyles = stylex.create({
     fontSize: matchType.figure,
     fontWeight: 700,
   },
+  // The clock keeps the end with or without a purse, and drops under it on a
+  // screen too narrow for both.
   figures: {
     gridArea: "figures",
-    display: {
-      default: "flex",
-      [PLATE_WIDE]: "grid",
-    },
+    display: "flex",
+    flexWrap: "wrap",
     alignItems: "center",
-    justifyContent: "space-between",
-    justifyItems: "end",
-    gap: spacingVars["--spacing-1-5"],
+    justifyContent: "flex-end",
+    rowGap: spacingVars["--spacing-1"],
+    columnGap: {
+      default: spacingVars["--spacing-1-5"],
+      [PLATE_WIDE]: spacingVars["--spacing-3"],
+    },
     fontSize: {
       default: matchType.figure,
       [PLATE_WIDE]: matchType.detail,
     },
+  },
+  // Two plates side by side hold the purse's height whether or not it shows
+  // (fog), so their clocks keep one baseline.
+  figuresHold: {
+    minBlockSize: {
+      default: PURSE_HEIGHT,
+      [PLATE_WIDE]: null,
+    },
+  },
+  purse: {
+    marginInlineEnd: "auto",
+  },
+});
+
+const purseStyles = stylex.create({
+  purse: {
+    display: "inline-grid",
+    gridTemplateColumns: "auto auto",
+    alignItems: "center",
+    rowGap: borderVars["--border-width"],
+    columnGap: spacingVars["--spacing-1"],
+    flexShrink: 0,
+    fontWeight: 600,
+  },
+  line: {
+    gridTemplateColumns: "repeat(4, auto)",
+  },
+  sprite: {
+    justifySelf: "center",
+  },
+  incomeSpriteLine: {
+    marginInlineStart: spacingVars["--spacing-1-5"],
+  },
+  funds: {
+    justifySelf: "end",
+    color: awbrnVars.textOnInkStrong,
+    fontSize: matchType.figure,
+  },
+  income: {
+    justifySelf: "end",
+    color: awbrnVars.textOnInk,
+    fontSize: matchType.ordinal,
+  },
+  // Room for `+NN,NNN`, so a ledger's funds line up in a column too.
+  incomeLine: {
+    minInlineSize: "7ch",
+    fontSize: matchType.figure,
+    textAlign: "end",
   },
 });
 
@@ -1818,6 +2094,15 @@ const sheetStyles = stylex.create({
     backgroundColor: awbrnVars.ink950,
     boxShadow: `inset 0 0 0 1.5px ${awbrnVars.gold}`,
     color: awbrnVars.gold,
+  },
+  powerOn: {
+    borderColor: awbrnVars.ink900,
+    backgroundColor: awbrnVars.ink900,
+    color: awbrnVars.textOnInkStrong,
+  },
+  onWord: {
+    color: awbrnVars.gold,
+    fontWeight: 750,
   },
   powerName: {
     fontSize: matchType.detail,

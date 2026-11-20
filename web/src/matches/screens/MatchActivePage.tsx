@@ -54,6 +54,7 @@ import { plateView as pickPlateView } from "#/matches/components/plate_view.ts";
 import { MatchMenu } from "#/matches/components/MatchMenu.tsx";
 import { AttackPreview, DockedAttackPreview } from "#/matches/components/AttackPreview.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
+import { menuClearance } from "#/matches/components/unload_orders.ts";
 import {
   ArmedPower,
   ArmyCard,
@@ -112,7 +113,7 @@ import {
 } from "#/matches/components/MatchFrame.tsx";
 import { describeTurnResidue } from "#/matches/turn_residue.ts";
 import type { ActivatablePowerLevel } from "#/replay/power_meter.ts";
-import type { UnitKind } from "#/wasm/awbrn_wasm.js";
+import type { Dismissal, UnitKind } from "#/wasm/awbrn_wasm.js";
 import { matchLayout, matchType } from "#/matches/components/matchLayout.stylex.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { BackKey } from "#/ui/BackKey.tsx";
@@ -863,6 +864,7 @@ export function MatchActivePage({
               )
           : undefined,
         isRecordOnly: isSignedOut,
+        isLive: !isReviewing && status === "connected",
       })),
     [
       armies,
@@ -870,10 +872,12 @@ export function MatchActivePage({
       clockInitialMs,
       falls,
       handleDisplayFactionChange,
+      isReviewing,
       isSignedOut,
       now,
       reviewOutline,
       seatSlot,
+      status,
       turnOrder,
     ],
   );
@@ -1240,8 +1244,6 @@ function ActiveMatchScreen({
     setIsArmySheetOpen(true);
   };
   const [armedPower, setArmedPower] = useState<ActivatablePowerLevel | null>(null);
-  // The power that is on is said once, in the tile row, until it is read.
-  const [seenPowerDay, setSeenPowerDay] = useState<number | null>(null);
   const hoveredTile = useGameStore((state) => state.hoveredTile);
   const productionSite = productionOptions?.site;
   const mapDims = initialBoard
@@ -1301,11 +1303,22 @@ function ActiveMatchScreen({
     },
     [runner],
   );
-  const dismissUnitActions = useCallback(() => {
-    void runner.dismissUnitAction().catch((error) => {
-      console.error("Error dismissing the destination menu:", error);
-    });
-  }, [runner]);
+  const dismissUnitActions = useCallback(
+    (how: Dismissal) => {
+      void runner.dismissUnitAction(how).catch((error) => {
+        console.error("Error dismissing the destination menu:", error);
+      });
+    },
+    [runner],
+  );
+  const highlightUnitAction = useCallback(
+    (index: number | null) => {
+      void runner.highlightUnitAction(index).catch((error) => {
+        console.error("Error lighting the order under the caret:", error);
+      });
+    },
+    [runner],
+  );
 
   const mapName = initialBoard?.map.metadata.name ?? catalogEntry?.name ?? null;
   const isViewerTurn = isPlayer && viewerSlotIndex === activePlayerSlot;
@@ -1437,21 +1450,26 @@ function ActiveMatchScreen({
     reviewError !== null;
   const columnNotices = hasNotice ? <VStack xstyle={styles.columnNotice}>{notices}</VStack> : null;
 
-  // A menu about a tile opens beside it, clear of the whole tile.
-  const tileClearance = (TILE_PX * (boardView.bv?.scale ?? OPENING_SCALE)) / 2 + 8;
+  const tilePx = TILE_PX * (boardView.bv?.scale ?? OPENING_SCALE);
+  const tileClearance = menuClearance(tilePx);
+  const ordersClearance = menuClearance(tilePx, unitActions?.options);
   // A new selection is a new menu: it lands (90ms, stepped) and takes the
   // caret afresh.
   const ordersMenu = hasOrders ? (
     <UnitActionMenu
       key={unitActions.options.map((option) => option.name).join("|")}
+      aim={unitActions.aim ?? undefined}
       anchor={unitActions.anchor ?? null}
-      anchorClearance={tileClearance}
+      anchorClearance={ordersClearance}
+      armed={unitActions.armed ?? undefined}
       attacker={unitActions.attacker ?? undefined}
       disabledReason={buildBlockedReason}
       isEnabled={buildBlockedReason === undefined}
       onChoose={chooseUnitAction}
       onDismiss={dismissUnitActions}
+      onHighlight={highlightUnitAction}
       onRestoreFocus={focus}
+      opensWithCaret={unitActions.opensWithCaret}
       options={unitActions.options}
       preselected={unitActions.preselected ?? undefined}
       presentation={isPhone ? "dock" : "board"}
@@ -1549,7 +1567,13 @@ function ActiveMatchScreen({
           />
         ))
       ) : (
-        <Ledger isOwed={isOwed} onOpen={openArmySheet} power={power} views={views} />
+        <Ledger
+          isOwed={isOwed}
+          onOpen={openArmySheet}
+          power={power}
+          showUnits={isReviewing}
+          views={views}
+        />
       )}
       {layout.mode === "none" ? (
         <section aria-label="View" {...stylex.props(styles.viewBlock)}>
@@ -1621,7 +1645,12 @@ function ActiveMatchScreen({
       </Grid>
     ) : (
       <>
-        <TurnOrderRow isOwed={isOwed} onOpen={openArmySheet} views={views} />
+        <TurnOrderRow
+          isOwed={isOwed}
+          onOpen={openArmySheet}
+          plateArmyId={plateView && !plateView.isRecordOnly ? plateView.army.entry.playerId : null}
+          views={views}
+        />
         {/* A record-only plate would repeat the stamp and name above it. */}
         {plateView && !plateView.isRecordOnly ? (
           <ArmyPlate
@@ -1660,18 +1689,6 @@ function ActiveMatchScreen({
             <WaitingLine label={waiting} />
           )}
           <ViewKey runner={runner} />
-        </>
-      ) : viewerEntry?.activePower !== undefined && isViewerTurn && seenPowerDay !== day ? (
-        <>
-          <HStack as="span" role="status" xstyle={[styles.wholeLine, styles.powerOn]}>
-            <b>{powerName(viewerEntry, viewerEntry.activePower === "scop" ? "scop" : "cop")} on</b>
-          </HStack>
-          <Button
-            label="OK"
-            onClick={() => setSeenPowerDay(day)}
-            variant="on-ink"
-            xstyle={styles.okKey}
-          />
         </>
       ) : armedPower !== null && viewerEntry ? (
         <ArmedPower
@@ -2006,16 +2023,6 @@ const styles = stylex.create({
     backgroundColor: awbrnVars.ink850,
     color: awbrnVars.textOnInkSecondary,
     fontSize: matchType.small,
-  },
-  powerOn: {
-    color: awbrnVars.gold,
-    boxShadow: `inset 0 0 0 1.5px ${awbrnVars.gold}`,
-    backgroundColor: awbrnVars.ink950,
-  },
-  okKey: {
-    flexShrink: 0,
-    blockSize: matchLayout.target,
-    minInlineSize: matchLayout.dockKeyWidth,
   },
   wholeScale: {
     color: awbrnVars.textOnInkStrong,

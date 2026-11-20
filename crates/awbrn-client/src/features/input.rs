@@ -200,11 +200,13 @@ pub(crate) fn spawn_tile_cursor(mut commands: Commands, ui_atlas: UiAtlas) {
     commands.spawn(tile_cursor_bundle(ui_atlas));
 }
 
-pub(crate) fn update_tile_cursor(
+fn update_tile_cursor(
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
     game_map: Res<GameMap>,
     keyboard_cursor: Res<KeyboardCursor>,
+    coarse: Res<PointerIsCoarse>,
+    inspected: Res<InspectedTile>,
     mut cursor_q: Query<(&mut Transform, &mut Visibility), With<TileCursor>>,
 ) {
     let Ok((mut transform, mut visibility)) = cursor_q.single_mut() else {
@@ -214,7 +216,10 @@ pub(crate) fn update_tile_cursor(
     // The keyboard names a tile rather than a point, so it needs none of the
     // projection below. It is also the only cursor a player steering with the
     // keyboard can see, so it is drawn even while the mouse sits off the board.
-    if let Some(tile) = keyboard_cursor.0 {
+    // A finger names the tile it tapped: the point it left behind lands on
+    // another tile as soon as the camera moves.
+    let named = keyboard_cursor.0.or(inspected.0.filter(|_| coarse.0));
+    if let Some(tile) = named {
         let center = position_to_world_translation(&TILE_CORE_SPRITE_SIZE, tile, game_map.as_ref());
         transform.translation.x = center.x;
         transform.translation.y = center.y;
@@ -287,6 +292,8 @@ struct HoveredUnitKey {
     /// `None` where the unit has no such component to read.
     ammo: Option<u32>,
     fuel: Option<u32>,
+    low_fuel: bool,
+    low_ammo: bool,
     /// Points already put into taking the property under it, when it is taking
     /// one.
     capture: Option<u8>,
@@ -322,11 +329,20 @@ struct HoverKey {
 #[derive(Resource, Debug, Default)]
 struct InspectedTile(Option<Pos>);
 
+/// Point a finger's readout at a tile the board chose, such as a transport
+/// picked up again after a drop, rather than at the tile last tapped.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct InspectTile(pub Pos);
+
 /// Follow the finger, for the readout only. This commits nothing.
 fn track_inspected_tile(
     mut gestures: MessageReader<PointerGesture>,
+    mut chosen: MessageReader<InspectTile>,
     mut inspected: ResMut<InspectedTile>,
 ) {
+    if let Some(InspectTile(tile)) = chosen.read().last() {
+        inspected.0 = Some(*tile);
+    }
     for gesture in gestures.read() {
         if !gesture.coarse {
             continue;
@@ -372,6 +388,10 @@ fn unit_key(
             .map(awbrn_types::VisualHp::get),
         ammo: ammo.map(Ammo::value),
         fuel: fuel.map(Fuel::value),
+        // The board's own reading, so the Warn figure and the corner mark
+        // cannot disagree.
+        low_fuel: state.overlays.low_fuel,
+        low_ammo: state.overlays.low_ammo,
     }
 }
 
@@ -474,6 +494,8 @@ fn hover_payload(key: &HoverKey) -> Option<HoveredTile> {
             ammo_display: AmmoDisplay::for_unit(unit.unit.0),
             fuel: unit.fuel,
             max_fuel: unit.unit.0.max_fuel(),
+            low_fuel: unit.low_fuel,
+            low_ammo: unit.low_ammo,
             loaded_units: key.cargo.iter().copied().map(cargo_details).collect(),
         }),
     })
@@ -861,6 +883,7 @@ impl Plugin for InputPlugin {
         app.init_resource::<InspectedTile>();
         app.add_message::<TileClicked>();
         app.add_message::<PointerGesture>();
+        app.add_message::<InspectTile>();
         app.add_message::<ReturnToTouchFloor>();
         app.add_observer(on_tile_selected);
         app.configure_sets(
@@ -1007,6 +1030,46 @@ mod tests {
         assert_eq!(app.world().resource::<KeyboardCursor>().0, None);
     }
 
+    /// A finger's cursor stays on the tile it tapped. The point the finger
+    /// left behind names another tile once the camera eases.
+    #[test]
+    fn a_touch_cursor_stays_on_the_tapped_tile() {
+        let mut app = App::new();
+        let mut game_map = GameMap::default();
+        game_map.set(awbrn_map::AwbrnMap::new(
+            Dimensions::new(3, 2),
+            GraphicalTerrain::Plain,
+        ));
+        app.insert_resource(game_map)
+            .init_resource::<KeyboardCursor>()
+            .insert_resource(PointerIsCoarse(true))
+            .insert_resource(InspectedTile(Some(Pos::new(2, 1))))
+            .add_systems(Update, update_tile_cursor);
+        let mut window = Window::default();
+        window.set_cursor_position(Some(Vec2::new(1.0, 1.0)));
+        app.world_mut().spawn(window);
+        app.world_mut()
+            .spawn((Camera::default(), GlobalTransform::default()));
+        let cursor = app
+            .world_mut()
+            .spawn((Transform::default(), Visibility::Hidden, TileCursor))
+            .id();
+
+        app.update();
+
+        let expected = position_to_world_translation(
+            &TILE_CORE_SPRITE_SIZE,
+            Pos::new(2, 1),
+            app.world().resource::<GameMap>(),
+        );
+        let entity = app.world().entity(cursor);
+        assert_eq!(entity.get::<Visibility>(), Some(&Visibility::Visible));
+        assert_eq!(
+            entity.get::<Transform>().unwrap().translation.truncate(),
+            expected.truncate()
+        );
+    }
+
     /// What the readout would report for `position`, without a camera.
     fn hover_at(app: &mut App, position: Pos) -> Option<HoveredTile> {
         app.world_mut()
@@ -1115,6 +1178,32 @@ mod tests {
             .map(|cargo| cargo.name.as_str())
             .collect();
         assert_eq!(names, ["Mech", "Infantry"]);
+    }
+
+    /// The readout's Warn figures follow the board's own reading of the
+    /// quarter mark, so the figure and the corner mark agree.
+    #[test]
+    fn a_hovered_unit_carries_the_boards_low_fuel_and_ammo() {
+        let mut app = hover_app();
+        let unit = spawn_unit(
+            &mut app,
+            Pos::new(0, 0),
+            awbrn_types::Unit::Mech,
+            PlayerFaction::OrangeStar,
+        );
+        let hovered = hover_at(&mut app, Pos::new(0, 0)).unwrap().unit.unwrap();
+        assert!(!hovered.low_fuel && !hovered.low_ammo);
+
+        app.world_mut()
+            .get_mut::<ProjectedUnitRenderState>(unit)
+            .unwrap()
+            .overlays = ProjectedUnitOverlayFlags {
+            low_fuel: true,
+            low_ammo: true,
+            ..default()
+        };
+        let hovered = hover_at(&mut app, Pos::new(0, 0)).unwrap().unit.unwrap();
+        assert!(hovered.low_fuel && hovered.low_ammo);
     }
 
     #[test]

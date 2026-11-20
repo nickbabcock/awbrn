@@ -53,12 +53,18 @@ export function AttackEngagement({
   spriteScale: 1 | 2;
 }) {
   const target = forecast.target;
+  // Against hidden health the forecast is read at full health: the least the
+  // strike deals and the most the reply takes hold whatever the health is.
+  const isBound = forecast.assumesFullHealth;
 
   return (
     <HStack as="span" xstyle={styles.engagement}>
       <HStack as="span" xstyle={styles.exchangeLine}>
         {target.type === "unit" ? (
-          <UnitSprite badge={target} scale={spriteScale} />
+          <UnitSprite
+            badge={isBound ? { ...target, health: undefined } : target}
+            scale={spriteScale}
+          />
         ) : (
           // A destructible tile has no sprite to stand for it, so it says its
           // own name. It is the one target on the board that is not a unit.
@@ -69,8 +75,19 @@ export function AttackEngagement({
         <Text color="inherit" type="inherit" xstyle={styles.exchangeLabel}>
           Deal
         </Text>
-        <Text color="inherit" type="inherit" xstyle={[styles.exchangeValue, styles.dealValue]}>
-          {formatBracket(forecast.damage)}
+        <Text
+          color="inherit"
+          type="inherit"
+          xstyle={[styles.exchangeValue, styles.dealValue, isBound && styles.boundValue]}
+        >
+          {isBound ? (
+            <>
+              <Bound kind="min" />
+              {forecast.damage.low}%
+            </>
+          ) : (
+            formatBracket(forecast.damage)
+          )}
         </Text>
       </HStack>
 
@@ -88,12 +105,41 @@ export function AttackEngagement({
           <Text color="inherit" type="inherit" xstyle={styles.exchangeLabel}>
             {forecast.counterFirst ? "Take 1st" : "Take"}
           </Text>
-          <Text color="inherit" type="inherit" xstyle={styles.exchangeValue}>
-            {formatBracket(forecast.counter)}
+          <Text
+            color="inherit"
+            type="inherit"
+            xstyle={[styles.exchangeValue, isBound && styles.boundValue]}
+          >
+            {isBound ? (
+              <>
+                <Bound kind="max" />
+                {forecast.counter.high}%
+              </>
+            ) : (
+              formatBracket(forecast.counter)
+            )}
           </Text>
         </HStack>
       ) : null}
     </HStack>
+  );
+}
+
+/** `≥` or `≤`, drawn: the figure face ships without math operators. */
+function Bound({ kind }: { kind: "min" | "max" }) {
+  return (
+    <svg
+      aria-label={kind === "min" ? "at least" : "at most"}
+      role="img"
+      viewBox="0 0 9 11"
+      {...stylex.props(styles.bound)}
+    >
+      <path
+        d={
+          kind === "min" ? "M1.5 1.5 7.5 4.5 1.5 7.5M1.5 10h6" : "M7.5 1.5 1.5 4.5 7.5 7.5M1.5 10h6"
+        }
+      />
+    </svg>
   );
 }
 
@@ -204,6 +250,22 @@ const styles = stylex.create({
     fontWeight: 600,
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
+  },
+  boundValue: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-1"],
+  },
+  // Sized to the figure's digits and drawn at their weight.
+  bound: {
+    flex: "0 0 auto",
+    inlineSize: "9px",
+    blockSize: "11px",
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    strokeWidth: 1.6,
   },
   // What the strike deals reads green: the good half of the exchange.
   dealValue: {

@@ -3,6 +3,7 @@ use crate::features::player_display::{
     PlayerDisplayFactionOverrides, display_faction_for_actual_faction,
 };
 use crate::features::player_roster::PlayerRosterConfig;
+use crate::modes::play::CanUnload;
 use crate::render::units::HealthOverlayOverride;
 use awbrn_bevy::MapPosition;
 use awbrn_bevy::replay::{
@@ -10,11 +11,11 @@ use awbrn_bevy::replay::{
 };
 use awbrn_bevy::world::UnitId;
 use awbrn_bevy::world::{
-    CaptureProgress, CarriedBy, Faction, GraphicalHp, HasCargo, Hiding, TerrainTile, Unit,
-    UnitActive, ViewerVisibility,
+    Ammo, CaptureProgress, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, Hiding, TerrainTile,
+    Unit, UnitActive, ViewerVisibility,
 };
 use awbrn_map::Pos;
-use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, Property, PropertyKind};
+use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, Property, PropertyKind, UnitExt};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -81,6 +82,9 @@ type UnitProjectionItem<'a> = (
     Option<&'a HealthOverlayOverride>,
     Has<CarriedBy>,
     Option<&'a ProjectedUnitRenderState>,
+    Option<&'a Fuel>,
+    Option<&'a Ammo>,
+    Has<CanUnload>,
 );
 
 type TerrainProjectionItem<'a> = (
@@ -228,6 +232,12 @@ fn terrain_with_display_faction(
     GraphicalTerrain::Property(property_with_display_faction(property, display_faction))
 }
 
+/// The quarter mark the AWBW replay player flags fuel and ammo at. A unit
+/// with no ammo to carry is never short of it.
+pub(crate) fn is_low(value: u64, max: u64) -> bool {
+    max > 0 && value * 4 <= max
+}
+
 pub(crate) fn project_unit_render_state(
     mut commands: Commands,
     resources: UnitProjectionResources,
@@ -251,6 +261,9 @@ pub(crate) fn project_unit_render_state(
         hp_override,
         is_carried,
         current,
+        fuel,
+        ammo,
+        can_unload,
     ) in &units
     {
         let is_active = unit_active.is_some();
@@ -266,14 +279,17 @@ pub(crate) fn project_unit_render_state(
             unit: *unit,
             faction: Faction(display_faction),
             visible: unit_visible_to_viewer(&resources, unit_id, is_carried),
-            active: unit_is_active(is_active, *faction, active_faction),
+            // A spent transport whose cargo can still land has an order left.
+            active: unit_is_active(is_active || can_unload, *faction, active_faction),
             overlays: ProjectedUnitOverlayFlags {
                 health: projected_health(hp_override.map(|shown| &shown.0).or(hp)),
                 capturing: is_capturing,
                 cargo: has_cargo,
                 dive: is_hiding,
-                low_ammo: false,
-                low_fuel: false,
+                low_ammo: ammo
+                    .is_some_and(|ammo| is_low(ammo.value().into(), unit.0.max_ammo().into())),
+                low_fuel: fuel
+                    .is_some_and(|fuel| is_low(fuel.value().into(), unit.0.max_fuel().into())),
             },
         };
 
@@ -454,6 +470,38 @@ mod tests {
             .collect::<Vec<_>>();
         drawn.sort_unstable();
         assert_eq!(drawn, vec![seen]);
+    }
+
+    /// A spent transport is drawn ready while its cargo can still land, and
+    /// grayed with every other spent unit once it cannot.
+    #[test]
+    fn a_spent_transport_that_can_unload_is_drawn_ready() {
+        let mut app = App::new();
+        app.add_plugins(GameWorldPlugin);
+        app.add_systems(Update, project_unit_render_state);
+        let transport = app
+            .world_mut()
+            .spawn((
+                UnitId(awvm::semantic::UnitId::new(1)),
+                Unit(awbrn_types::Unit::Apc),
+                Faction(PlayerFaction::OrangeStar),
+                MapPosition::new(0, 0),
+                CanUnload,
+            ))
+            .id();
+        let drawn_ready = |app: &App| {
+            app.world()
+                .get::<ProjectedUnitRenderState>(transport)
+                .unwrap()
+                .active
+        };
+
+        app.update();
+        assert!(drawn_ready(&app));
+
+        app.world_mut().entity_mut(transport).remove::<CanUnload>();
+        app.update();
+        assert!(!drawn_ready(&app));
     }
 
     /// Only the current player has spent units to gray out.
