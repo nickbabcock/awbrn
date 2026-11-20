@@ -42,8 +42,13 @@ export function ArmyLedger({
   railRef: RefObject<HTMLElement | null>;
   state: EditorStateChanged;
 }) {
-  const empty = isPristine ? [] : emptySeats(state);
-  const armies: (EditorArmy | string)[] = isPristine ? [...state.roster] : [...state.armies];
+  // Empty seats fold into one line only when there are two or more; a lone
+  // one keeps a full row so the whole row picks it.
+  const seats = isPristine ? [] : emptySeats(state);
+  const empty = seats.length > 1 ? seats : [];
+  const armies: (EditorArmy | string)[] = isPristine
+    ? [...state.roster]
+    : [...state.armies, ...(seats.length === 1 ? seats : [])];
   const rowCount = armies.length + (empty.length > 0 ? 1 : 0);
   const sheetRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -53,7 +58,8 @@ export function ArmyLedger({
     state.boardIncome - state.armies.reduce((sum, army) => sum + army.income, 0);
 
   // In view, as far as the rows allow: the focused problem's army, then the
-  // folded empty seats, then the chosen army.
+  // folded empty seats, then the chosen army. With no problem focused, the
+  // chosen army comes ahead of the empty seats.
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller || rows === null) return;
@@ -64,7 +70,11 @@ export function ArmyLedger({
       );
       return at !== -1 ? at : empty.includes(faction) ? armies.length : -1;
     };
-    const wanted = [rowOf(focusedArmy), empty.length > 0 ? armies.length : -1, rowOf(chosen)];
+    const emptyRow = empty.length > 0 ? armies.length : -1;
+    const wanted =
+      focusedArmy === null
+        ? [rowOf(chosen), emptyRow]
+        : [rowOf(focusedArmy), emptyRow, rowOf(chosen)];
     let first = -1;
     let last = -1;
     for (const row of wanted) {
@@ -138,8 +148,8 @@ export function ArmyLedger({
                 </>
               ) : (
                 <>
-                  {army.hqAt.length === 1 ? (
-                    <Figure value={1} />
+                  {army.hqAt.length === 1 || (army.hqAt.length === 0 && army.labs > 0) ? (
+                    <Figure value={army.hqAt.length} />
                   ) : (
                     <WarnCell
                       isActed={acted(faction, ["no-hq", "extra-hq"])}

@@ -20,9 +20,9 @@ describe("mapEditGrant", () => {
     expect(mapEditGrant(importedMap, stranger)).toBe(null);
   });
 
-  it("lets a moderator past ownership, and says that is why", () => {
-    expect(mapEditGrant(ownedMap, moderator)).toBe("moderator");
-    expect(mapEditGrant(importedMap, moderator)).toBe("moderator");
+  it("sends a moderator to a fork of a map they did not write", () => {
+    expect(mapEditGrant(ownedMap, moderator)).toBe(null);
+    expect(mapEditGrant(importedMap, moderator)).toBe(null);
   });
 
   it("gives an author who is also a moderator the plain owner grant", () => {

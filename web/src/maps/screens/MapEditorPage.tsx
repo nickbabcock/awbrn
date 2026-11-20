@@ -1,11 +1,10 @@
-import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Stack } from "@astryxdesign/core/Stack";
-import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { colorVars, focusVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, notFound, useBlocker, useNavigate } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useActor } from "#/auth/useActor.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
@@ -59,13 +58,19 @@ export function MapEditorPage({ mapId, startFrom }: { mapId?: string; startFrom?
     ...mapQueryOptions(sourceMapId ?? ""),
     enabled: sourceMapId !== null,
   });
-  const isPhone = useMediaQuery(pageLayout.phoneMedia.replace("@media ", ""));
+  // Read once, at mount: a window narrowed later must not unmount the board.
+  const [isPhone, setIsPhone] = useState<boolean | null>(null);
+  useEffect(() => {
+    setIsPhone(window.matchMedia(pageLayout.phoneMedia.replace("@media ", "")).matches);
+  }, []);
 
+  if (isPhone === null) return null;
   if (isPhone) return <EditorPhoneFallback map={sourceMap.data ?? null} />;
   // Each source opens a fresh editor, so nothing of one map carries into the next.
   return (
     <MapEditor
-      entry={sourceMap.data ?? null}
+      entry={sourceMap.data}
+      entryError={sourceMap.error}
       key={`${mapId ?? ""}:${startFrom ?? ""}`}
       mapId={mapId}
       sourceMapId={sourceMapId}
@@ -75,10 +80,13 @@ export function MapEditorPage({ mapId, startFrom }: { mapId?: string; startFrom?
 
 function MapEditor({
   entry: liveEntry,
+  entryError,
   mapId,
   sourceMapId,
 }: {
-  entry: MapCatalogEntry | null;
+  /** Null for a map that does not exist; undefined until it is read. */
+  entry: MapCatalogEntry | null | undefined;
+  entryError: Error | null;
   mapId: string | undefined;
   sourceMapId: string | null;
 }) {
@@ -96,7 +104,7 @@ function MapEditor({
   const [name, setName] = useState("");
   const [savedAt, setSavedAt] = useState({ historyId: 0, name: "" });
   useEffect(() => {
-    if (liveEntry === null || entry !== null) return;
+    if (!liveEntry || entry !== null) return;
     setEntry(liveEntry);
     const isRevise = mapId !== undefined && mapEditGrant(liveEntry, actor) !== null;
     const opened = isRevise ? liveEntry.name : `${liveEntry.name} (fork)`;
@@ -135,9 +143,13 @@ function MapEditor({
   const [hqTurn, setHqTurn] = useState(0);
 
   const roster = state?.roster ?? [];
+  // The ledger offers the roster and every army that holds pieces on the board.
+  const isSelectable = (faction: string) =>
+    roster.includes(faction) || (state?.armies.some((army) => army.faction === faction) ?? false);
+  const isChosenSelectable = isSelectable(factionCode);
   useEffect(() => {
-    if (roster.length > 0 && !roster.includes(factionCode)) setFactionCode(roster[0] ?? "os");
-  }, [factionCode, roster]);
+    if (roster.length > 0 && !isChosenSelectable) setFactionCode(roster[0] ?? "os");
+  }, [isChosenSelectable, roster]);
 
   const cells = useMemo(
     () => trayCells(tab, editor.palette, editor.neutralPalette),
@@ -152,7 +164,7 @@ function MapEditor({
     if (loaded === null) return;
     if (!brushes.some((cell) => brushKey(cell.brush) === loadedKey)) setTab(tabOfBrush(loaded));
     const faction = "faction" in loaded ? loaded.faction : undefined;
-    if (faction !== undefined && roster.includes(faction)) setFactionCode(faction);
+    if (faction !== undefined && isSelectable(faction)) setFactionCode(faction);
   });
   useEffect(() => followBrush(), [loadedKey]);
 
@@ -221,25 +233,12 @@ function MapEditor({
     focusBoard();
   };
 
-  useEditorShortcuts({
-    armies: roster,
-    canvas: boardCanvas,
-    cells: brushes,
-    isEnabled: state !== null,
-    isKeysOpen,
-    loadedBrush: loaded,
-    onArmyChange: choose,
-    onKeysToggle: toggleKeys,
-    onSelect: editor.setBrush,
-    onStepProblem: stepProblem,
-    onTabChange: (next) => {
-      setIsKeysOpen(false);
-      setTab(next);
-    },
-    tab,
-  });
-
   const isUnsaved = state !== null && isDirty(state, savedAt, name);
+  useBlocker({
+    disabled: !isUnsaved,
+    enableBeforeUnload: true,
+    shouldBlockFn: () => !window.confirm("Discard unsaved changes?"),
+  });
   const save = useMutation({
     mutationFn: async () => {
       const trimmed = name.trim();
@@ -260,7 +259,7 @@ function MapEditor({
     onMutate: () => setFailure(null),
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: mapKeys.all });
-      await navigate({ params: { mapId: result.mapId }, to: "/maps/$mapId" });
+      await navigate({ ignoreBlocker: true, params: { mapId: result.mapId }, to: "/maps/$mapId" });
     },
     onError: (error) => {
       const next = saveFailure(error);
@@ -271,6 +270,24 @@ function MapEditor({
       }
     },
   });
+  useEditorShortcuts({
+    armies: roster,
+    canvas: boardCanvas,
+    cells: brushes,
+    isEnabled: state !== null && !save.isPending,
+    isKeysOpen,
+    loadedBrush: loaded,
+    onArmyChange: choose,
+    onKeysToggle: toggleKeys,
+    onSelect: editor.setBrush,
+    onStepProblem: stepProblem,
+    onTabChange: (next) => {
+      setIsKeysOpen(false);
+      setTab(next);
+    },
+    tab,
+  });
+
   const submit = () => {
     const problem = nameProblem(name, MAP_NAME_MAX);
     setNameError(problem);
@@ -300,10 +317,18 @@ function MapEditor({
   )?.spriteIndex;
   const railRef = useRef<HTMLElement>(null);
 
+  // Until the board opens, a source that is gone or unreadable is the route's
+  // to show. After that, a failed refetch leaves the open board alone.
+  if (!editor.sourceReady) {
+    if (entryError) throw entryError;
+    if (liveEntry === null) throw notFound();
+    if (revision.isError) throw revision.error;
+  }
   return (
     <>
       <ShellMode mode="tool" />
-      <div onClick={onPageClick} {...stylex.props(styles.page)}>
+      {/* A save reads the board once, so nothing may change it while one is out. */}
+      <div inert={save.isPending} onClick={onPageClick} {...stylex.props(styles.page)}>
         <BoardWell
           canvasContainerRef={canvasContainerRef}
           fillCells={fillCells}
@@ -575,7 +600,10 @@ const styles = stylex.create({
     fontWeight: 800,
     lineHeight: 1.1,
     wordSpacing: "0.1em",
-    outline: "none",
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${focusVars["--focus-outline-color"]}`,
+    },
     "::placeholder": {
       color: awbrnVars.textTertiary,
     },

@@ -314,6 +314,8 @@ export class GameRunner {
    */
   setEditorStateHandler(handler: ((state: EditorStateChanged) => void) | undefined): void {
     this.editorStateHandler = handler;
+    // A screen that leaves takes its board's report with it.
+    if (!handler) this.editorState = undefined;
     if (handler && this.editorState) handler(this.editorState);
   }
 

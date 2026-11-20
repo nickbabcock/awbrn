@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
-import { and, asc, desc, eq, exists, gt, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, inArray, lt, max, or, sql } from "drizzle-orm";
 import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -127,9 +127,8 @@ export async function storeAwbwMap(sourceMapId: number, data: AwbwMapData): Prom
  * old revision earned stays with the old revision, and the new one starts
  * unranked. The map itself keeps its identity, its author, and its tags.
  *
- * A board that comes back the same as the revision already held writes
- * nothing. Saving twice is then the same as saving once, which is what a
- * player who presses save again after a failed request needs it to be.
+ * A board the map already holds as a revision writes nothing: that revision
+ * becomes current again, with the rank it earned.
  */
 export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Promise<MapSaveResult> {
   let imported;
@@ -178,27 +177,31 @@ export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Prom
       authorUserId: maps.authorUserId,
       name: maps.name,
       currentRevision: maps.currentRevision,
-      contentHash: mapRevisions.contentHash,
     })
     .from(maps)
-    .innerJoin(
-      mapRevisions,
-      and(eq(mapRevisions.mapId, maps.id), eq(mapRevisions.revision, maps.currentRevision)),
-    )
     .where(eq(maps.id, request.mapId))
     .get();
   if (!held) throw new Error(MAP_SAVE_REFUSALS.missing);
-  // A thrown Response reaches a server function's caller as its result.
   if (mapEditGrant(held, actor) === null) throw new Error(MAP_SAVE_REFUSALS.forbidden);
   if (held.currentRevision !== request.expectedRevision || held.name !== request.expectedName) {
     throw new Error(MAP_SAVE_REFUSALS.changed);
   }
 
-  if (held.contentHash === imported.contentHash) {
+  const sameBoard = await db
+    .select({ revision: mapRevisions.revision })
+    .from(mapRevisions)
+    .where(
+      and(
+        eq(mapRevisions.mapId, request.mapId),
+        eq(mapRevisions.contentHash, imported.contentHash),
+      ),
+    )
+    .get();
+  if (sameBoard) {
     // The name can still have changed, and that is not content.
     const updated = await db
       .update(maps)
-      .set({ name: request.name, updatedAt: now })
+      .set({ name: request.name, currentRevision: sameBoard.revision, updatedAt: now })
       .where(
         and(
           eq(maps.id, request.mapId),
@@ -210,10 +213,16 @@ export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Prom
     if (updated.meta.changes !== 1) {
       throw new Error(MAP_SAVE_REFUSALS.changed);
     }
-    return { mapId: request.mapId, revision: held.currentRevision, written: false };
+    return { mapId: request.mapId, revision: sameBoard.revision, written: false };
   }
 
-  const revision = request.expectedRevision + 1;
+  // A restore can leave the current revision below the latest one.
+  const latest = await db
+    .select({ revision: max(mapRevisions.revision) })
+    .from(mapRevisions)
+    .where(eq(mapRevisions.mapId, request.mapId))
+    .get();
+  const revision = (latest?.revision ?? 0) + 1;
   await storeMapRevisionContent(imported);
   const [, updateResult] = await db.batch([
     db
@@ -279,8 +288,7 @@ export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Prom
  *
  * It is read from the account and not from the document, because the document
  * is written in the browser: a player could otherwise sign somebody else's
- * name to a map. The account name that is missing falls back to the map id of
- * nobody, which no screen shows, so an unnamed account credits "Unknown".
+ * name to a map.
  */
 async function mapAuthorName(actor: Actor): Promise<string> {
   const row = await db

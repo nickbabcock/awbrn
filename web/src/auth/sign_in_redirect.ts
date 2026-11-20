@@ -8,12 +8,20 @@ export async function requireSignIn(queryClient: QueryClient, href: string): Pro
   if (!session) throw redirect({ search: { redirect: href }, to: "/auth" });
 }
 
-/** A path on this site, never another origin. Browsers read `\` as `/`. */
+/** A path on this site, never another origin. */
 export function signInReturn(value: unknown): string | undefined {
-  return typeof value === "string" &&
-    value.startsWith("/") &&
-    !value.startsWith("//") &&
-    !value.includes("\\")
-    ? value
-    : undefined;
+  if (typeof value !== "string" || !value.startsWith("/")) return undefined;
+  // Resolved the way a browser resolves it, which reads `\` as `/` and drops
+  // tabs and newlines.
+  let url: URL;
+  try {
+    url = new URL(value, SAME_ORIGIN);
+  } catch {
+    return undefined;
+  }
+  const path = url.pathname + url.search + url.hash;
+  // `/.//evil.com` resolves to a path that a browser reads as another host.
+  return url.origin === SAME_ORIGIN && !path.startsWith("//") ? path : undefined;
 }
+
+const SAME_ORIGIN = "http://same-origin.invalid";

@@ -256,6 +256,20 @@ pub fn map_slot_factions(document: Ts<AwbrnMapDocumentWire>) -> Result<Vec<Strin
         .collect())
 }
 
+/// The factions on a map that could never be defeated, as faction codes.
+#[wasm_bindgen(js_name = mapUndefeatableFactions)]
+pub fn map_undefeatable_factions(
+    document: Ts<AwbrnMapDocumentWire>,
+) -> Result<Vec<String>, JsError> {
+    let document = read_input("document", document)?;
+    Ok(validated_map(document)?
+        .map()
+        .undefeatable_factions()
+        .into_iter()
+        .map(|faction| FactionCode::from(faction).as_str().to_owned())
+        .collect())
+}
+
 fn validated_map(document: AwbrnMapDocumentWire) -> Result<ValidatedMapDocument, JsError> {
     ValidatedMapDocument::try_from(document).map_err(|error| invalid_input("map", error))
 }

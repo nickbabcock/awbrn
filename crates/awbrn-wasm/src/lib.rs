@@ -11,7 +11,7 @@ use awbrn_client::{
     TurnReadinessChanged, UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved,
     UnloadCommandRequested,
     core::coords::LogicalPx,
-    editor_is_open,
+    editor_document, editor_is_open,
     features::{CameraCommand, ReducedMotion},
 };
 use awbrn_map::editor::{Brush, PaletteGroup};
@@ -244,10 +244,12 @@ impl BevyApp {
     /// Hands a board to the editor, and closes the board it had.
     ///
     /// The old session goes now, not when the new board loads. Until then,
-    /// a save must not read the old board as the new one.
+    /// a save must not read the old board as the new one, and the old board's
+    /// queued commands must not land on the new one.
     fn open_editor_on(&mut self, map: AwbwMap) {
         let world = self.app.world_mut();
         world.remove_resource::<EditorSession>();
+        world.resource_mut::<EditorCommandQueue>().clear();
         world.insert_resource(PendingEditorMap(map));
     }
 }
@@ -822,12 +824,9 @@ impl BevyApp {
     /// the number of armies a map seats is a fact about the map.
     #[wasm_bindgen]
     pub fn editor_document(&mut self, name: String, author: String) -> Result<JsValue, JsError> {
-        let world = self.app.world_mut();
-        let Some(session) = world.get_resource::<EditorSession>() else {
+        let Some(document) = editor_document(self.app.world_mut(), name, author) else {
             return Err(JsError::new("the editor is not open"));
         };
-
-        let document = session.document(name, author);
 
         serde_wasm_bindgen::to_value(&document)
             .map_err(|error| JsError::new(&format!("Could not read the map: {error}")))

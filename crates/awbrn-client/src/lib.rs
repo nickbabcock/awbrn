@@ -28,7 +28,7 @@ pub use loading::{
 };
 pub use modes::editor::{
     EditorArmy, EditorCommand, EditorCommandQueue, EditorSession, EditorStateChanged,
-    editor_is_open,
+    editor_document, editor_is_open,
 };
 pub use modes::planner::{
     AreaStrikePreview, AreaStrikesPreviewed, PlannerAfterStrikes, PlannerEdit, PlannerLuck,

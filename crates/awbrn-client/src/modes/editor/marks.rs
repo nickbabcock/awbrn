@@ -6,7 +6,7 @@ use crate::core::coords::{TILE_SIZE, position_to_world_translation, tile_center_
 use crate::core::{GameMode, RenderLayer, SpriteSize};
 use crate::features::input::BoardCursor;
 use crate::render::{TerrainAtlasResource, UnitAtlasResource};
-use awbrn_bevy::world::GameMap;
+use awbrn_bevy::world::{BoardIndex, GameMap, TerrainTile};
 use awbrn_map::editor::{Brush, MapEditor, sample_tile};
 use awbrn_map::{Dimensions, Pos};
 use awbrn_types::{AwbwTerrain, GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit, Weather};
@@ -246,6 +246,22 @@ fn landing_art(brush: Brush) -> LandingArt {
 #[derive(Component, Debug)]
 pub(crate) struct LandingMark;
 
+/// A terrain tile whose sprite a landing stands in for, hidden until the
+/// landing leaves it.
+#[derive(Component, Debug)]
+pub(crate) struct UnderLanding;
+
+/// Shows again every tile a landing hid.
+pub(crate) fn uncover_tiles(
+    mut commands: Commands,
+    mut covered: Query<(Entity, &mut Visibility), With<UnderLanding>>,
+) {
+    for (entity, mut visibility) in &mut covered {
+        visibility.set_if_neq(Visibility::Inherited);
+        commands.entity(entity).remove::<UnderLanding>();
+    }
+}
+
 /// Draws the brush on every tile the stroke under the pointer would paint.
 ///
 /// Nothing is drawn while Alt is held: a pick reads one tile and paints none.
@@ -255,11 +271,14 @@ pub(crate) fn draw_landings(
     cursor: BoardCursor<'_, '_>,
     keys: Res<ButtonInput<KeyCode>>,
     game_map: Res<GameMap>,
+    board: Res<BoardIndex>,
     session: Res<EditorSession>,
     art: Res<MarkArt>,
     terrain_atlas: Res<TerrainAtlasResource>,
     unit_atlas: Res<UnitAtlasResource>,
     drawn: Query<Entity, With<LandingMark>>,
+    placed: Query<&Transform, With<TerrainTile>>,
+    covered: Query<(Entity, &mut Visibility), With<UnderLanding>>,
     mut last: Local<Vec<Landing>>,
 ) {
     let landings = match cursor.tile() {
@@ -276,45 +295,65 @@ pub(crate) fn draw_landings(
     for entity in &drawn {
         commands.entity(entity).despawn();
     }
+    uncover_tiles(commands.reborrow(), covered);
     for landing in &landings {
         let center = tile_center(landing.tile, &game_map);
-        let mut spawn = |sprite: Sprite, offset: Vec2, layer: f32| {
+        // Ground and buildings replace the tile, so its own sprite is hidden
+        // and the ghost stands where that sprite stood: over the row behind,
+        // under units and under the overhang of the row in front, as it will
+        // once painted. Units and erasers leave the ground as it is.
+        let tile = matches!(landing.art, LandingArt::Tile(_) | LandingArt::Swatch(_))
+            .then(|| board.terrain_entity(landing.tile).ok())
+            .flatten();
+        if let Some(entity) = tile {
+            commands
+                .entity(entity)
+                .insert((UnderLanding, Visibility::Hidden));
+        }
+        let ground = tile
+            .and_then(|entity| placed.get(entity).ok())
+            .map(|transform| transform.translation);
+        // Layers of one ghost stay inside its row's slice of the sort order.
+        let z = |layer: f32| ground.map_or(GHOST_Z + layer, |ground| ground.z + layer * 0.001);
+        let mut spawn = |sprite: Sprite, offset: Vec2, z: f32| {
             commands.spawn((
                 sprite,
-                Transform::from_translation((center + offset).extend(GHOST_Z + layer)),
+                Transform::from_translation((center + offset).extend(z)),
                 LandingMark,
                 DespawnOnExit(GameMode::Editor),
             ));
         };
 
-        if landing.art != LandingArt::Bare {
-            spawn(
-                Sprite::from_color(ink(0.78), Vec2::splat(TILE_SIZE)),
-                Vec2::ZERO,
-                0.0,
-            );
-        }
         match landing.art {
             LandingArt::Bare => {}
             LandingArt::Tile(terrain) => {
                 // A terrain cell is two tiles tall, and the top one overhangs
-                // the tile above, as the board draws it.
+                // the tile above, as the board draws it. A building is clear
+                // in places, where the board's plain backdrop shows through,
+                // so nothing may sit between the two.
                 spawn(
                     terrain_sprite(&terrain_atlas, terrain),
-                    Vec2::new(0.0, TILE_SIZE / 2.0),
-                    0.2,
+                    ground.map_or(Vec2::new(0.0, TILE_SIZE / 2.0), |ground| {
+                        ground.truncate() - center
+                    }),
+                    z(0.2),
                 );
             }
             LandingArt::Swatch(terrain) => {
                 spawn(
+                    Sprite::from_color(ink(0.78), Vec2::splat(TILE_SIZE)),
+                    Vec2::ZERO,
+                    z(0.0),
+                );
+                spawn(
                     Sprite::from_color(pale(0.5), Vec2::splat(SWATCH_SIZE + 1.0)),
                     Vec2::ZERO,
-                    0.1,
+                    z(0.1),
                 );
                 let mut swatch = terrain_sprite(&terrain_atlas, terrain);
                 swatch.rect = Some(Rect::new(0.0, TILE_SIZE, TILE_SIZE, 2.0 * TILE_SIZE));
                 swatch.custom_size = Some(Vec2::splat(SWATCH_SIZE));
-                spawn(swatch, Vec2::ZERO, 0.2);
+                spawn(swatch, Vec2::ZERO, z(0.2));
             }
             LandingArt::Unit(unit, faction) => {
                 let frames = awbrn_content::get_unit_animation_frames(
@@ -329,11 +368,13 @@ pub(crate) fn draw_landings(
                         index: frames.start_index() as usize,
                     },
                 );
-                spawn(sprite, unit_offset(&game_map, landing.tile, center), 0.2);
+                // Over any unit already on the tile, which this one replaces.
+                let placed = unit_translation(&game_map, landing.tile);
+                spawn(sprite, placed.truncate() - center, placed.z + 0.0002);
             }
         }
         if landing.image {
-            spawn(art_sprite(&art.edge, TILE_SIZE), Vec2::ZERO, 0.3);
+            spawn(art_sprite(&art.edge, TILE_SIZE), Vec2::ZERO, GHOST_Z + 0.3);
         }
     }
     *last = landings;
@@ -343,15 +384,14 @@ fn tile_center(tile: Pos, game_map: &GameMap) -> Vec2 {
     tile_center_world_position(tile, game_map).to_vec2()
 }
 
-/// Where a unit sprite sits against its tile's center, as the board places
-/// units.
-fn unit_offset(game_map: &GameMap, tile: Pos, center: Vec2) -> Vec2 {
+/// Where the board places a unit sprite on `tile`, and its depth.
+fn unit_translation(game_map: &GameMap, tile: Pos) -> Vec3 {
     let unit_sprite = SpriteSize {
         width: awbrn_content::UNIT_SPRITE_WIDTH as f32,
         height: awbrn_content::UNIT_SPRITE_HEIGHT as f32,
         z_index: 0,
     };
-    position_to_world_translation(&unit_sprite, tile, game_map).truncate() - center
+    position_to_world_translation(&unit_sprite, tile, game_map)
 }
 
 fn terrain_sprite(atlas: &TerrainAtlasResource, terrain: GraphicalTerrain) -> Sprite {
@@ -548,6 +588,7 @@ mod tests {
             hq_at: hq_at.iter().map(|&(x, y)| EditorTile { x, y }).collect(),
             properties: 0,
             production: 0,
+            labs: 0,
             units: 0,
             income: 0,
         }

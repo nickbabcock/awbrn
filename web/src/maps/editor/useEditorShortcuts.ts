@@ -96,22 +96,36 @@ export function useEditorShortcuts({
   const forward = useEffectEvent((event: KeyboardEvent) => {
     const board = canvas();
     if (board === null || event.target === board || event.key === " ") return;
-    if (isKeyedElsewhere(event.target)) return;
+    // A modifier released in a field would otherwise stay held on the board.
+    const isModifierUp = event.type === "keyup" && MODIFIER_KEYS.has(event.key);
+    if (isKeyedElsewhere(event.target) && !isModifierUp) return;
     board.dispatchEvent(new KeyboardEvent(event.type, { ...keyInit(event), cancelable: true }));
+  });
+
+  // The editor's board has no use for Tab, so Tab leaves it for the rail. It is
+  // stopped before the canvas, which keeps Tab for the match board.
+  const releaseTab = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key === "Tab" && !event.shiftKey && event.target === canvas()) {
+      event.stopPropagation();
+    }
   });
 
   useEffect(() => {
     if (!isEnabled) return;
+    window.addEventListener("keydown", releaseTab, { capture: true });
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keydown", forward);
     window.addEventListener("keyup", forward);
     return () => {
+      window.removeEventListener("keydown", releaseTab, { capture: true });
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keydown", forward);
       window.removeEventListener("keyup", forward);
     };
   }, [isEnabled]);
 }
+
+const MODIFIER_KEYS: ReadonlySet<string> = new Set(["Control", "Alt", "Shift", "Meta"]);
 
 function keyInit(event: KeyboardEvent): KeyboardEventInit {
   const { altKey, code, ctrlKey, key, metaKey, repeat, shiftKey } = event;

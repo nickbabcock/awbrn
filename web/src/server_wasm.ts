@@ -5,6 +5,7 @@ import {
   initSync,
   MapRenderer,
   mapSlotFactions,
+  mapUndefeatableFactions,
   renderSmallMapScreenshot,
 } from "#/wasm/awbrn_server.js";
 import type {
@@ -47,6 +48,11 @@ export function canonicalizeMapDocument(document: AwbrnMapDocumentWire): Importe
  */
 export function mapSlotFactionCodes(document: AwbrnMapDocumentWire): string[] {
   return mapSlotFactions(document);
+}
+
+/** The factions on a map that hold no HQ, no Lab and no unit, as faction codes. */
+export function mapUndefeatableFactionCodes(document: AwbrnMapDocumentWire): string[] {
+  return mapUndefeatableFactions(document);
 }
 
 /**

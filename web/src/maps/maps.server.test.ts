@@ -101,20 +101,23 @@ function draft(terrainId = 1): AwbrnMapDocument {
   };
 }
 
+function serveAssets() {
+  const assetsFetch = env.ASSETS.fetch.bind(env.ASSETS);
+  vi.spyOn(env.ASSETS, "fetch").mockImplementation((input, init) => {
+    const url = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+    );
+    const assetsPath = url.pathname.lastIndexOf("/assets/");
+    if (assetsPath !== -1) {
+      url.pathname = url.pathname.slice(assetsPath + "/assets".length);
+    }
+    return assetsFetch(url, init);
+  });
+}
+
 describe("saving map drafts", () => {
   it("stores unfinished boards and rejects stale edits atomically", async () => {
-    const assetsFetch = env.ASSETS.fetch.bind(env.ASSETS);
-    vi.spyOn(env.ASSETS, "fetch").mockImplementation((input, init) => {
-      const url = new URL(
-        typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
-      );
-      const assetsPath = url.pathname.lastIndexOf("/assets/");
-      if (assetsPath !== -1) {
-        url.pathname = url.pathname.slice(assetsPath + "/assets".length);
-      }
-      return assetsFetch(url, init);
-    });
-
+    serveAssets();
     const userId = `map-save-${crypto.randomUUID()}`;
     const actor = actorFromRole(userId, "user");
     let mapId: string | undefined;
@@ -235,6 +238,62 @@ describe("saving map drafts", () => {
 
       expect(current).toEqual({ name: "Renamed draft", currentRevision: 2 });
       expect(revisions).toEqual([{ revision: 2 }]);
+    } finally {
+      vi.restoreAllMocks();
+      if (mapId) await db.delete(maps).where(eq(maps.id, mapId));
+      await db.delete(user).where(eq(user.id, userId));
+    }
+  });
+
+  it("returns to the revision that already holds a saved board, rank and all", async () => {
+    serveAssets();
+    const userId = `map-revert-${crypto.randomUUID()}`;
+    const actor = actorFromRole(userId, "user");
+    let mapId: string | undefined;
+    try {
+      await db.insert(user).values({
+        id: userId,
+        name: "Map maker",
+        email: `${userId}@example.com`,
+        emailVerified: true,
+        updatedAt: new Date(),
+      });
+      const revise = (expectedRevision: number, document: AwbrnMapDocument) =>
+        saveEditedMap(
+          mapSaveRequestSchema.parse({
+            mapId,
+            expectedRevision,
+            expectedName: "Draft",
+            name: "Draft",
+            document,
+          }),
+          actor,
+        );
+
+      ({ mapId } = await saveEditedMap(
+        mapSaveRequestSchema.parse({ name: "Draft", document: draft() }),
+        actor,
+      ));
+      await db
+        .update(mapRevisions)
+        .set({ rank: "A" })
+        .where(and(eq(mapRevisions.mapId, mapId), eq(mapRevisions.revision, 1)));
+      await expect(revise(1, draft(2))).resolves.toMatchObject({ revision: 2, written: true });
+
+      await expect(revise(2, draft())).resolves.toEqual({ mapId, revision: 1, written: false });
+
+      const current = await db
+        .select({ currentRevision: maps.currentRevision, rank: mapRevisions.rank })
+        .from(maps)
+        .innerJoin(
+          mapRevisions,
+          and(eq(mapRevisions.mapId, maps.id), eq(mapRevisions.revision, maps.currentRevision)),
+        )
+        .where(eq(maps.id, mapId))
+        .get();
+      expect(current).toEqual({ currentRevision: 1, rank: "A" });
+
+      await expect(revise(1, draft(3))).resolves.toEqual({ mapId, revision: 3, written: true });
     } finally {
       vi.restoreAllMocks();
       if (mapId) await db.delete(maps).where(eq(maps.id, mapId));

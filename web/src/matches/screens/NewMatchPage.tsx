@@ -150,7 +150,9 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
 
   const catalogQuery = useInfiniteQuery(mapCatalogQueryOptions(search, filters));
   const catalogMaps = useMemo(
-    () => catalogQuery.data?.pages.flatMap((page) => page.maps) ?? [],
+    () =>
+      catalogQuery.data?.pages.flatMap((page) => page.maps.filter((map) => map.playerCount >= 2)) ??
+      [],
     [catalogQuery.data],
   );
   const pickerMaps = useMemo(() => pickerOrder(catalogMaps), [catalogMaps]);
@@ -166,7 +168,8 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
     ...mapQueryOptions(chosenMapId ?? ""),
     enabled: chosenMapId !== undefined,
   });
-  const handedOverMap = chosenMapQuery.data ?? null;
+  const handedOverMap =
+    chosenMapQuery.data && chosenMapQuery.data.playerCount >= 2 ? chosenMapQuery.data : null;
 
   function chooseMap(map: MapCatalogEntry): void {
     setPickedMap(map);

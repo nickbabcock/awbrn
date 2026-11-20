@@ -440,6 +440,8 @@ export const rankedMaps = sqliteTable(
     mapId: text("mapId")
       .notNull()
       .references(() => maps.id, { onDelete: "restrict" }),
+    /** The revision that was listed: a later save by the author does not enter the pool. */
+    revision: integer("revision").notNull(),
     addedAt: integer("addedAt", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

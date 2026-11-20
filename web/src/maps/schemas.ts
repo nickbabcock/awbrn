@@ -149,9 +149,9 @@ export type MapCatalogRequest = z.infer<typeof mapCatalogRequestSchema>;
  * How large a board the editor will open.
  *
  * The floor is the smallest board that can seat two armies and still have
- * ground between them; the ceiling is the largest board the map document
- * allows. Both are stated here so the editor and the server refuse the same
- * sizes.
+ * ground between them; the ceiling is the largest board
+ * `awbrnMapDocumentSchema` takes. Both are stated here so the editor and the
+ * server refuse the same sizes.
  */
 export const MAP_EDITOR_MIN_SIZE = 5;
 export const MAP_EDITOR_MAX_SIZE = 64;
@@ -202,7 +202,7 @@ export type MapSaveRequest = z.infer<typeof mapSaveRequestSchema>;
 export interface MapSaveResult {
   mapId: string;
   revision: number;
-  /** False when the board was the same as the revision already held. */
+  /** False when the map already held the board as a revision. */
   written: boolean;
 }
 

@@ -415,6 +415,8 @@ impl ArmyRoster {
     /// A group that has fewer armies than the fold repeats the armies it has.
     /// Two armies under a quarter turn therefore alternate from corner to
     /// corner, and two armies under a quad mirror hold the left and the right.
+    /// Three armies cannot share four images evenly, so the first two pair up
+    /// and the third holds its images alone, like a fifth army does.
     ///
     /// An army the roster does not hold is left as it is. A map maker who
     /// paints an army that is not on the board means that army.
@@ -425,9 +427,60 @@ impl ArmyRoster {
         };
 
         let group = seat - seat % order;
-        let held = (self.0.len() - group).min(order);
+        let held = match (self.0.len() - group).min(order) {
+            3 => 2,
+            held => held,
+        };
+        if seat - group >= held {
+            return faction;
+        }
         let image = symmetry.compose(seat % order, step) % held;
         self.0[group + image]
+    }
+}
+
+impl ArmyRoster {
+    /// These armies reordered so each one's images land on the armies the
+    /// board already seats there, or `None` when the board does not say.
+    ///
+    /// Faction order need not be the order the corners of a map turn through.
+    /// The first army of each group is found on its HQ, or else its first
+    /// building, and the owners of that tile's images give the group's order.
+    fn seated_by_fold(&self, map: &AwbwMap, symmetry: Symmetry) -> Option<ArmyRoster> {
+        let owner = |position: Pos| match map.terrain_at(position)? {
+            AwbwTerrain::Property(property) => match property.faction() {
+                Faction::Player(faction) => Some(faction),
+                Faction::Neutral => None,
+            },
+            _ => None,
+        };
+        let mut seats = Vec::with_capacity(self.0.len());
+        for group in self.0.chunks(symmetry.order()) {
+            let held = if group.len() == 3 { 2 } else { group.len() };
+            let owned: Vec<(Pos, AwbwTerrain)> = map
+                .iter()
+                .filter(|(position, _)| owner(*position) == Some(group[0]))
+                .collect();
+            let (anchor, _) = owned
+                .iter()
+                .find(|(_, terrain)| matches!(terrain, AwbwTerrain::Property(Property::HQ(_))))
+                .or(owned.first())?;
+            let images: Vec<PlayerFaction> = symmetry
+                .isometries()
+                .iter()
+                .map(|isometry| owner(isometry.apply(*anchor, map.dimensions())?))
+                .collect::<Option<_>>()?;
+            if (0..images.len()).any(|step| images[step] != images[step % held]) {
+                return None;
+            }
+            seats.extend_from_slice(&images[..held]);
+            seats.extend_from_slice(&group[held..]);
+        }
+        let mut sorted = seats.clone();
+        sorted.sort_unstable();
+        let mut held = self.0.clone();
+        held.sort_unstable();
+        (sorted == held).then_some(ArmyRoster(seats))
     }
 }
 
@@ -633,21 +686,16 @@ impl Connection {
             Connection::River => {
                 matches!(neighbor, AwbwTerrain::River(_) | AwbwTerrain::Bridge(_))
             }
-            // A bridge carries whatever crosses the water, so it joins the road
-            // or the river at either end of it.
+            // A bridge carries the road across the water, so the river it
+            // spans is not one of its ends.
             Connection::Bridge => matches!(
                 neighbor,
-                AwbwTerrain::Bridge(_)
-                    | AwbwTerrain::Road(_)
-                    | AwbwTerrain::River(_)
-                    | AwbwTerrain::Property(_)
+                AwbwTerrain::Bridge(_) | AwbwTerrain::Road(_) | AwbwTerrain::Property(_)
             ),
+            // AWBW maps run pipes past buildings rather than into them.
             Connection::Pipe | Connection::PipeSeam | Connection::PipeRubble => matches!(
                 neighbor,
-                AwbwTerrain::Pipe(_)
-                    | AwbwTerrain::PipeSeam(_)
-                    | AwbwTerrain::PipeRubble(_)
-                    | AwbwTerrain::Property(_)
+                AwbwTerrain::Pipe(_) | AwbwTerrain::PipeSeam(_) | AwbwTerrain::PipeRubble(_)
             ),
             // A shoal takes its shape from the land it lies against, not from
             // the shoals beside it. The land is the land the client draws a
@@ -755,10 +803,10 @@ fn connection_of(terrain: AwbwTerrain) -> Option<(Connection, Sides)> {
         AwbwTerrain::Shoal(shoal) => Some((
             Connection::Shoal,
             match shoal {
-                ShoalType::Horizontal => Sides::SOUTH,
-                ShoalType::HorizontalNorth => Sides::NORTH,
-                ShoalType::Vertical => Sides::WEST,
-                ShoalType::VerticalEast => Sides::EAST,
+                ShoalType::Horizontal => Sides::NORTH,
+                ShoalType::HorizontalNorth => Sides::SOUTH,
+                ShoalType::Vertical => Sides::EAST,
+                ShoalType::VerticalEast => Sides::WEST,
             },
         )),
         _ => None,
@@ -838,6 +886,11 @@ pub fn terrain_palette(owner: Option<PlayerFaction>) -> Vec<PaletteEntry> {
     ground(AwbwTerrain::Plain, "Plain", PaletteGroup::Ground);
     ground(AwbwTerrain::Wood, "Wood", PaletteGroup::Ground);
     ground(AwbwTerrain::Mountain, "Mountain", PaletteGroup::Ground);
+    ground(
+        AwbwTerrain::MissileSilo(MissileSiloStatus::Unloaded),
+        "Empty silo",
+        PaletteGroup::Ground,
+    );
     ground(
         AwbwTerrain::MissileSilo(MissileSiloStatus::Loaded),
         "Missile silo",
@@ -1038,6 +1091,9 @@ impl MapEditor {
             stroke: None,
         };
         editor.symmetry = editor.detect_symmetry();
+        if let Some(roster) = editor.roster.seated_by_fold(&editor.map, editor.symmetry) {
+            editor.roster = roster;
+        }
         editor
     }
 
@@ -1132,14 +1188,11 @@ impl MapEditor {
     }
 
     /// Whether every terrain tile is the image the fold asks for.
-    ///
-    /// This is stricter than [`Self::asymmetries`]. A building must face a
-    /// building of the same kind, but the owners can differ.
     fn folds_exactly(&self, symmetry: Symmetry) -> bool {
         let dimensions = self.dimensions();
-        self.map.iter().all(|(position, terrain)| {
-            self.tile_folds(position, terrain, symmetry, dimensions, false)
-        })
+        self.map
+            .iter()
+            .all(|(position, terrain)| self.tile_folds(position, terrain, symmetry, dimensions))
     }
 
     /// Whether the ground reads the same under `symmetry`.
@@ -1153,8 +1206,6 @@ impl MapEditor {
     /// Every tile whose ground does not read the same under `symmetry`.
     ///
     /// The result is in board order. Units and property owners are ignored.
-    /// The readout also allows map makers to place buildings for a deliberate
-    /// first-turn advantage.
     pub fn asymmetries(&self, symmetry: Symmetry) -> Vec<Pos> {
         let mut found = Vec::new();
         if symmetry == Symmetry::None {
@@ -1163,7 +1214,7 @@ impl MapEditor {
         let dimensions = self.dimensions();
 
         for (position, terrain) in self.map.iter() {
-            if !self.tile_folds(position, terrain, symmetry, dimensions, true) {
+            if !self.tile_folds(position, terrain, symmetry, dimensions) {
                 found.push(position);
             }
         }
@@ -1194,16 +1245,12 @@ impl MapEditor {
     }
 
     /// Whether one tile keeps the fold's promise about the ground.
-    ///
-    /// With `buildings_may_differ`, a building can face any terrain. Map
-    /// makers use this to give one side a deliberate advantage.
     fn tile_folds(
         &self,
         position: Pos,
         terrain: AwbwTerrain,
         symmetry: Symmetry,
         dimensions: Dimensions,
-        buildings_may_differ: bool,
     ) -> bool {
         symmetry.isometries().iter().all(|isometry| {
             let Some(found) = isometry
@@ -1213,11 +1260,6 @@ impl MapEditor {
                 return false;
             };
             same_fold_terrain(found, terrain)
-                || (buildings_may_differ
-                    && matches!(
-                        (terrain, found),
-                        (AwbwTerrain::Property(_), _) | (_, AwbwTerrain::Property(_))
-                    ))
         })
     }
 
@@ -1279,19 +1321,29 @@ impl MapEditor {
     }
 
     /// Steps one edit back, and reports what the board must redraw.
+    ///
+    /// A stroke that is open is committed first, so undo takes back the stroke
+    /// itself, and the rest of the drag is a stroke of its own.
     pub fn undo(&mut self) -> BoardChanges {
-        self.stroke = None;
-        let Some(previous) = self.undo.pop() else {
-            return BoardChanges::default();
-        };
-        let step = self.leave_for(previous);
-        self.redo.push(step);
+        let stroking = self.stroke.is_some();
+        self.end_stroke();
+        if let Some(previous) = self.undo.pop() {
+            let step = self.leave_for(previous);
+            self.redo.push(step);
+        }
+        if stroking {
+            self.begin_stroke();
+        }
         self.redraw()
     }
 
     /// Steps one undone edit forward again.
+    ///
+    /// A stroke that is open is the newest edit, so nothing lies ahead of it.
     pub fn redo(&mut self) -> BoardChanges {
-        self.stroke = None;
+        if self.stroke.is_some() {
+            return BoardChanges::default();
+        }
         let Some(next) = self.redo.pop() else {
             return BoardChanges::default();
         };
@@ -1336,13 +1388,24 @@ impl MapEditor {
         }
 
         let reached = self.reach(position);
+        let before: Vec<_> = reached
+            .iter()
+            .map(|(target, _)| self.map.terrain_at(*target))
+            .collect();
         for (target, step) in &reached {
             self.apply_brush(*target, brush, *step);
         }
 
-        // The tiles around each edit are retuned, because a road that arrives
-        // beside a road changes both of them.
-        self.retune_around(&reached);
+        // The tiles around each new piece of ground are retuned, because a road
+        // that arrives beside a road changes both of them. Ground that did not
+        // change leaves its neighbors as the map drew them.
+        let changed: Vec<(Pos, usize)> = reached
+            .iter()
+            .zip(before)
+            .filter(|((target, _), was)| self.map.terrain_at(*target) != *was)
+            .map(|(reached, _)| *reached)
+            .collect();
+        self.retune_around(&changed);
 
         if single {
             self.end_stroke();
@@ -1427,8 +1490,12 @@ impl MapEditor {
                 self.set_terrain(position, terrain);
             }
             Brush::Connecting { connection } => {
-                let sides = self.sides_at(position, connection);
-                self.set_terrain(position, connection.build(sides));
+                // Repainting a road on a road keeps the piece the map drew.
+                let held = self.map.terrain_at(position).and_then(connection_of);
+                if held.is_none_or(|(kind, _)| kind != connection) {
+                    let sides = self.sides_at(position, connection);
+                    self.set_terrain(position, connection.build(sides));
+                }
             }
             brush @ Brush::Property { .. } => {
                 if let Some(terrain) = brush.sample() {
@@ -1475,6 +1542,14 @@ impl MapEditor {
             };
             if connection.joins(neighbor) {
                 sides = sides.with(direction);
+            }
+        }
+
+        // A bridge with no road to carry yet runs across the river it spans.
+        if connection == Connection::Bridge && sides == Sides::NONE {
+            let river = self.sides_at(position, Connection::River);
+            if river != Sides::NONE && !river.runs_vertically() {
+                return Sides::VERTICAL;
             }
         }
         sides
@@ -1919,6 +1994,91 @@ mod tests {
     }
 
     #[test]
+    fn picking_an_empty_silo_loads_its_palette_cell() {
+        let mut map = AwbwMap::new(Dimensions::new(3, 3), AwbwTerrain::Plain);
+        *map.terrain_at_mut(Pos::new(1, 1)).unwrap() =
+            AwbwTerrain::MissileSilo(MissileSiloStatus::Unloaded);
+
+        let picked = MapEditor::open(map)
+            .brush_at(Pos::new(1, 1), false)
+            .expect("on the board");
+
+        assert!(
+            terrain_palette(None)
+                .iter()
+                .any(|entry| entry.brush == picked)
+        );
+    }
+
+    /// A straight road beside a city, as an imported map holds it: autotiling
+    /// would turn the road toward the city.
+    fn imported_road() -> MapEditor {
+        let mut map = AwbwMap::new(Dimensions::new(3, 3), AwbwTerrain::Plain);
+        *map.terrain_at_mut(Pos::new(1, 1)).unwrap() = AwbwTerrain::Road(RoadType::Vertical);
+        *map.terrain_at_mut(Pos::new(2, 1)).unwrap() =
+            AwbwTerrain::Property(Property::City(Faction::Neutral));
+        MapEditor::open(map)
+    }
+
+    #[test]
+    fn a_unit_on_an_imported_road_leaves_the_ground_as_drawn() {
+        let mut editor = imported_road();
+
+        editor.paint(
+            Pos::new(1, 1),
+            Brush::Unit {
+                unit: Unit::Infantry,
+                faction: FactionCode::new(PlayerFaction::OrangeStar),
+                hp: VisualHp::new(10),
+            },
+        );
+        editor.paint(Pos::new(1, 1), Brush::EraseUnit);
+
+        assert!(!editor.board_changed());
+    }
+
+    #[test]
+    fn picking_an_imported_road_and_painting_it_back_leaves_it_alone() {
+        let mut editor = imported_road();
+
+        let picked = editor
+            .brush_at(Pos::new(1, 1), false)
+            .expect("on the board");
+        editor.paint(Pos::new(1, 1), picked);
+
+        assert!(!editor.board_changed());
+    }
+
+    #[test]
+    fn a_four_army_map_seats_its_corners_in_the_order_the_fold_visits_them() {
+        let mut map = AwbwMap::new(Dimensions::new(12, 8), AwbwTerrain::Plain);
+        for (x, y, army) in [
+            (0, 0, PlayerFaction::OrangeStar),
+            (11, 0, PlayerFaction::GreenEarth),
+            (0, 7, PlayerFaction::BlueMoon),
+            (11, 7, PlayerFaction::YellowComet),
+        ] {
+            *map.terrain_at_mut(Pos::new(x, y)).unwrap() =
+                AwbwTerrain::Property(Property::HQ(army));
+        }
+        let mut editor = MapEditor::open(map);
+        assert_eq!(editor.symmetry(), Symmetry::QuadMirror);
+
+        editor.paint(
+            Pos::new(2, 2),
+            Brush::Property {
+                property: PropertyKind::City,
+                faction: Some(FactionCode::new(PlayerFaction::OrangeStar)),
+            },
+        );
+
+        let city = |army| AwbwTerrain::Property(Property::City(Faction::Player(army)));
+        assert_eq!(terrain(&editor, 9, 2), city(PlayerFaction::GreenEarth));
+        assert_eq!(terrain(&editor, 2, 5), city(PlayerFaction::BlueMoon));
+        assert_eq!(terrain(&editor, 9, 5), city(PlayerFaction::YellowComet));
+    }
+
+    #[test]
     fn a_map_opens_under_the_armies_it_already_seats() {
         let mut drawing = editor(9, 5);
         for (x, faction) in [
@@ -2076,9 +2236,7 @@ mod tests {
     }
 
     #[test]
-    fn a_building_one_side_holds_alone_is_a_decision_and_not_a_broken_fold() {
-        // A base set where the second army takes it on turn one is how a map
-        // answers the first-turn advantage. The readout must leave it alone.
+    fn a_building_facing_plain_across_the_fold_is_uneven() {
         let mut drawing = editor(9, 5);
         assert!(drawing.set_symmetry(Symmetry::MirrorLeftRight));
         drawing.paint(
@@ -2096,7 +2254,47 @@ mod tests {
             },
         );
 
-        assert!(drawing.is_symmetric(Symmetry::MirrorLeftRight));
+        assert_eq!(
+            drawing.asymmetries(Symmetry::MirrorLeftRight),
+            vec![Pos::new(3, 2), Pos::new(5, 2)]
+        );
+    }
+
+    #[test]
+    fn a_building_must_face_its_own_kind_whoever_holds_either() {
+        let mut map = AwbwMap::new(Dimensions::new(20, 16), AwbwTerrain::Plain);
+        for (x, y, building) in [
+            (5, 7, Property::HQ(PlayerFaction::OrangeStar)),
+            (16, 7, Property::HQ(PlayerFaction::BlueMoon)),
+            (
+                5,
+                9,
+                Property::Base(Faction::Player(PlayerFaction::OrangeStar)),
+            ),
+            (
+                14,
+                9,
+                Property::Base(Faction::Player(PlayerFaction::BlueMoon)),
+            ),
+            (2, 3, Property::City(Faction::Neutral)),
+            (
+                17,
+                3,
+                Property::City(Faction::Player(PlayerFaction::BlueMoon)),
+            ),
+        ] {
+            *map.terrain_at_mut(Pos::new(x, y)).unwrap() = AwbwTerrain::Property(building);
+        }
+        let mut drawing = MapEditor::open(map);
+        assert!(drawing.set_symmetry(Symmetry::MirrorLeftRight));
+
+        assert_eq!(
+            drawing.uneven_groups(),
+            vec![
+                vec![Pos::new(3, 7), Pos::new(16, 7)],
+                vec![Pos::new(5, 7), Pos::new(14, 7)],
+            ]
+        );
     }
 
     #[test]
@@ -2114,7 +2312,7 @@ mod tests {
     }
 
     #[test]
-    fn two_buildings_of_different_kinds_across_the_fold_are_left_alone() {
+    fn two_buildings_of_different_kinds_across_the_fold_are_uneven() {
         let mut drawing = editor(9, 5);
         drawing.paint(
             Pos::new(1, 2),
@@ -2131,13 +2329,11 @@ mod tests {
             },
         );
 
-        assert!(drawing.is_symmetric(Symmetry::MirrorLeftRight));
+        assert!(!drawing.is_symmetric(Symmetry::MirrorLeftRight));
     }
 
     #[test]
     fn ground_that_does_not_fold_is_still_reported() {
-        // Leniency is about buildings and stops there. The shape of the land
-        // is the one thing the fold does promise.
         let mut drawing = editor(9, 5);
         drawing.paint(
             Pos::new(1, 2),
@@ -2347,6 +2543,47 @@ mod tests {
     }
 
     #[test]
+    fn a_bridge_runs_across_its_river_and_keeps_to_it_when_a_road_arrives() {
+        let river = Brush::Connecting {
+            connection: Connection::River,
+        };
+        let bridge = Brush::Connecting {
+            connection: Connection::Bridge,
+        };
+        let road = Brush::Connecting {
+            connection: Connection::Road,
+        };
+
+        let mut north_south = editor(3, 3);
+        north_south.paint(Pos::new(1, 0), river);
+        north_south.paint(Pos::new(1, 2), river);
+        north_south.paint(Pos::new(1, 1), bridge);
+        assert_eq!(
+            terrain(&north_south, 1, 1),
+            AwbwTerrain::Bridge(BridgeType::Horizontal)
+        );
+        north_south.paint(Pos::new(0, 1), road);
+        assert_eq!(
+            terrain(&north_south, 1, 1),
+            AwbwTerrain::Bridge(BridgeType::Horizontal)
+        );
+
+        let mut east_west = editor(3, 3);
+        east_west.paint(Pos::new(0, 1), river);
+        east_west.paint(Pos::new(2, 1), river);
+        east_west.paint(Pos::new(1, 1), bridge);
+        assert_eq!(
+            terrain(&east_west, 1, 1),
+            AwbwTerrain::Bridge(BridgeType::Vertical)
+        );
+        east_west.paint(Pos::new(1, 0), road);
+        assert_eq!(
+            terrain(&east_west, 1, 1),
+            AwbwTerrain::Bridge(BridgeType::Vertical)
+        );
+    }
+
+    #[test]
     fn a_mirrored_road_corner_turns_with_the_board() {
         let mut editor = editor(8, 4);
         editor.set_symmetry(Symmetry::MirrorLeftRight);
@@ -2490,6 +2727,50 @@ mod tests {
     }
 
     #[test]
+    fn undo_during_a_drag_takes_back_the_whole_stroke() {
+        let mut editor = editor(6, 3);
+        let brush = Brush::Terrain {
+            terrain: AwbwTerrain::Mountain,
+        };
+        editor.paint(Pos::new(0, 1), brush);
+
+        editor.begin_stroke();
+        editor.paint(Pos::new(1, 1), brush);
+        editor.paint(Pos::new(2, 1), brush);
+        editor.undo();
+        editor.paint(Pos::new(3, 1), brush);
+        editor.paint(Pos::new(4, 1), brush);
+        editor.end_stroke();
+
+        assert_eq!(terrain(&editor, 0, 1), AwbwTerrain::Mountain);
+        assert_eq!(terrain(&editor, 1, 1), AwbwTerrain::Plain);
+        assert_eq!(terrain(&editor, 2, 1), AwbwTerrain::Plain);
+
+        editor.undo();
+        assert_eq!(terrain(&editor, 3, 1), AwbwTerrain::Plain);
+        assert_eq!(terrain(&editor, 4, 1), AwbwTerrain::Plain);
+        assert_eq!(terrain(&editor, 0, 1), AwbwTerrain::Mountain);
+    }
+
+    #[test]
+    fn redo_during_a_drag_does_nothing() {
+        let mut editor = editor(6, 3);
+        editor.paint(
+            Pos::new(0, 1),
+            Brush::Terrain {
+                terrain: AwbwTerrain::Mountain,
+            },
+        );
+        editor.undo();
+
+        editor.begin_stroke();
+        editor.redo();
+        editor.end_stroke();
+
+        assert_eq!(terrain(&editor, 0, 1), AwbwTerrain::Plain);
+    }
+
+    #[test]
     fn an_edit_reports_only_the_tiles_that_look_different() {
         let mut editor = editor(6, 3);
         let brush = Brush::Terrain {
@@ -2626,6 +2907,26 @@ mod tests {
     }
 
     #[test]
+    fn a_pipe_runs_past_a_building_rather_than_into_it() {
+        let mut editor = editor(3, 1);
+        editor.paint(
+            Pos::new(0, 0),
+            Brush::Property {
+                property: PropertyKind::City,
+                faction: None,
+            },
+        );
+        let pipe = Brush::Connecting {
+            connection: Connection::Pipe,
+        };
+
+        editor.paint(Pos::new(1, 0), pipe);
+        editor.paint(Pos::new(2, 0), pipe);
+
+        assert_eq!(terrain(&editor, 1, 0), Connection::Pipe.build(Sides::EAST));
+    }
+
+    #[test]
     fn a_unit_brush_keeps_hit_points_a_map_can_hold() {
         let mut editor = editor(3, 1);
         for (asked, placed) in [(0, 1), (15, 10)] {
@@ -2734,6 +3035,50 @@ mod tests {
     }
 
     #[test]
+    fn a_headquarters_painted_from_any_image_seats_the_same_armies() {
+        let armies = [
+            PlayerFaction::OrangeStar,
+            PlayerFaction::BlueMoon,
+            PlayerFaction::GreenEarth,
+            PlayerFaction::YellowComet,
+            PlayerFaction::RedFire,
+            PlayerFaction::GreySky,
+            PlayerFaction::BrownDesert,
+            PlayerFaction::AmberBlossom,
+        ];
+
+        for size in 2..=armies.len() {
+            let roster = ArmyRoster::new(armies[..size].iter().copied());
+            for symmetry in Symmetry::ALL {
+                let painted = |position: Pos, faction: PlayerFaction| {
+                    let mut drawing = editor(8, 8);
+                    assert!(drawing.set_symmetry(symmetry));
+                    drawing.set_roster(roster.clone());
+                    drawing.paint(
+                        position,
+                        Brush::Property {
+                            property: PropertyKind::HQ,
+                            faction: Some(FactionCode::new(faction)),
+                        },
+                    );
+                    headquarters(&drawing)
+                };
+
+                for &army in roster.seats() {
+                    let first = painted(Pos::new(1, 2), army);
+                    for &(position, faction) in &first {
+                        assert_eq!(
+                            painted(position, faction),
+                            first,
+                            "{symmetry:?} with {size} armies, repainted from {position:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn an_army_off_the_roster_is_left_alone() {
         let roster = ArmyRoster::standard();
         assert_eq!(
@@ -2832,7 +3177,7 @@ mod tests {
     }
 
     #[test]
-    fn a_building_in_an_uneven_group_is_left_out_of_it() {
+    fn a_building_in_an_uneven_group_is_part_of_it() {
         let mut drawing = editor(6, 6);
         drawing.paint(Pos::new(1, 1), mountain());
         drawing.paint(Pos::new(4, 1), mountain());
@@ -2847,7 +3192,12 @@ mod tests {
 
         assert_eq!(
             drawing.uneven_groups(),
-            vec![vec![Pos::new(1, 1), Pos::new(4, 1), Pos::new(4, 4)]]
+            vec![vec![
+                Pos::new(1, 1),
+                Pos::new(4, 1),
+                Pos::new(1, 4),
+                Pos::new(4, 4)
+            ]]
         );
     }
 

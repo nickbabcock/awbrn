@@ -216,4 +216,20 @@ describe("GameRunner camera", () => {
     expect(useGameStore.getState().boardView).toBeNull();
     runner.dispose();
   });
+
+  it("does not hand the next editor screen the board the last one left", () => {
+    const { runner, internals } = cameraFixture();
+    const report = { type: "EditorStateChanged", historyId: 3 } as GameEvent;
+
+    internals.handleGameEvent(report);
+    const late = vi.fn();
+    runner.setEditorStateHandler(late);
+    expect(late).toHaveBeenCalledWith(report);
+
+    runner.setEditorStateHandler(undefined);
+    const next = vi.fn();
+    runner.setEditorStateHandler(next);
+    expect(next).not.toHaveBeenCalled();
+    runner.dispose();
+  });
 });

@@ -1,6 +1,6 @@
 use crate::MapError;
 use crate::deployment::{Deployment, Deployments};
-use awbrn_types::{AwbwTerrain, Faction, PLAYER_FACTION_METADATA, PlayerFaction};
+use awbrn_types::{AwbwTerrain, Faction, PLAYER_FACTION_METADATA, PlayerFaction, Property};
 use awvm::semantic::{Dimensions, Grid, Pos};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -174,6 +174,24 @@ impl AwbwMap {
             .collect();
         factions.sort_unstable();
         factions.dedup();
+        factions
+    }
+
+    /// The factions that hold no HQ, no Lab and no unit.
+    ///
+    /// A match ends for an army when its HQ or last Lab is captured or its last
+    /// unit is destroyed. One of these armies has none of them to lose, so it
+    /// could never be defeated.
+    pub fn undefeatable_factions(&self) -> Vec<PlayerFaction> {
+        let mut factions = self.factions();
+        factions.retain(|faction| {
+            let owner = Faction::Player(*faction);
+            !self.deployments.iter().any(|(_, unit)| unit.faction == *faction)
+                && !self.terrain.cells().any(|terrain| {
+                    matches!(terrain, AwbwTerrain::Property(property @ (Property::HQ(_) | Property::Lab(_)))
+                        if property.faction() == owner)
+                })
+        });
         factions
     }
 
@@ -625,6 +643,26 @@ mod tests {
             map.factions(),
             vec![PlayerFaction::OrangeStar, PlayerFaction::TealGalaxy]
         );
+    }
+
+    #[test]
+    fn an_army_with_no_hq_lab_or_unit_cannot_be_defeated() {
+        // An Orange Star HQ (42), a Blue Moon city (43), a Green Earth city
+        // (48) with a Green Earth unit beside it, and a Yellow Comet lab.
+        let mut map = AwbwMap::parse_txt("42,43,48,1,1").unwrap();
+        *map.terrain_at_mut(Pos::new(4, 0)).unwrap() =
+            AwbwTerrain::Property(Property::Lab(Faction::Player(PlayerFaction::YellowComet)));
+        map.deploy(
+            Pos::new(3, 0),
+            Deployment {
+                unit: awbrn_types::Unit::Infantry,
+                hp: awbrn_types::VisualHp::new(10),
+                faction: PlayerFaction::GreenEarth,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(map.undefeatable_factions(), vec![PlayerFaction::BlueMoon]);
     }
 
     #[test]

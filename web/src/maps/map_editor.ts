@@ -233,7 +233,9 @@ export function problems(state: EditorStateChanged, isPristine: boolean): Editor
     }
   }
   for (const army of state.armies) {
-    if (army.hqAt.length === 0) list.push({ kind: "no-hq", faction: army.faction });
+    if (army.hqAt.length === 0 && army.labs === 0) {
+      list.push({ kind: "no-hq", faction: army.faction });
+    }
   }
   for (const army of state.armies) {
     if (army.production === 0) list.push({ kind: "no-build", faction: army.faction });

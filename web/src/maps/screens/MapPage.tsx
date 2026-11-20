@@ -93,14 +93,16 @@ export function MapPage({ mapId }: { mapId: string }) {
             </Stack>
 
             <Stack gap={2} xstyle={styles.cta}>
-              <RouterButton
-                label="New match"
-                search={{ map: map.mapId }}
-                size="lg"
-                to="/matches/new"
-                variant="primary"
-                width="100%"
-              />
+              {map.playerCount >= 2 ? (
+                <RouterButton
+                  label="New match"
+                  search={{ map: map.mapId }}
+                  size="lg"
+                  to="/matches/new"
+                  variant="primary"
+                  width="100%"
+                />
+              ) : null}
               {/* The editor is desktop only. */}
               {mapEditGrant(map, actor) !== null ? (
                 <RouterButton

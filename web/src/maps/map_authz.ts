@@ -29,18 +29,18 @@ export function mapTagGrant(map: MapOwnership, actor: Actor | null): MapGrant {
 }
 
 /**
- * Who may write a new revision of a map: its author, or a moderator.
+ * Who may write a new revision of a map: its author alone.
  *
- * A player who is neither gets no grant, and the screen offers them a fork
- * instead. That is not a lesser act: a fork keeps the map they started from
- * intact, and gives them one of their own to answer for.
+ * Everybody else, moderators included, gets no grant, and the screen offers
+ * them a fork instead. That is not a lesser act: a fork keeps the map they
+ * started from intact, and gives them one of their own to answer for.
  */
 export function mapEditGrant(map: MapOwnership, actor: Actor | null): MapGrant {
   if (actor === null) return null;
   if (map.authorUserId !== null && map.authorUserId === actor.userId) {
     return actor.can({ map: ["write"] }) ? "owner" : null;
   }
-  return actor.can({ map: ["write", "edit-any"] }) ? "moderator" : null;
+  return null;
 }
 
 /**

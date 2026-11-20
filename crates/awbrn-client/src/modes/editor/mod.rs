@@ -143,6 +143,11 @@ impl EditorCommandQueue {
     pub fn push(&mut self, command: EditorCommand) {
         self.0.push_back(command);
     }
+
+    /// Drops commands meant for a board that is being replaced.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
 }
 
 /// Whether the editor holds a board, or is loading one.
@@ -169,6 +174,8 @@ pub struct EditorArmy {
     pub properties: u32,
     /// How many bases, airports and ports the army can build from.
     pub production: u32,
+    /// An army that holds a lab needs no headquarters.
+    pub labs: u32,
     pub units: u32,
     /// Funds per turn the army's buildings pay.
     pub income: u32,
@@ -243,19 +250,17 @@ pub(crate) enum StrokeInFlight {
 
 /// Drops what the last edit left behind when the editor closes.
 ///
-/// The commands run only in editor mode, so a command that arrives as the mode
-/// closes would otherwise wait in the queue and land on the next board. A
-/// stroke that was open when the mode closed would do the same, and the next
-/// drag would carry on from it. The session goes too, so that nothing reads
-/// or saves the old board while the next one loads.
+/// A stroke that was open when the mode closed would otherwise carry on into
+/// the next drag. The session goes too, so that nothing reads or saves the old
+/// board while the next one loads. The queue is not cleared here: reopening the
+/// editor passes through this, after the new board's first commands arrived.
+/// [`EditorCommandQueue::clear`] runs where a board is opened instead.
 pub(crate) fn cleanup_editor_input(
     mut commands: Commands,
-    mut queue: ResMut<EditorCommandQueue>,
     mut stroke: ResMut<StrokeInFlight>,
     mut ceiling: ResMut<FitCeiling>,
 ) {
     commands.remove_resource::<EditorSession>();
-    queue.0.clear();
     *stroke = StrokeInFlight::Closed;
     *ceiling = FitCeiling::Opening;
 }
@@ -364,6 +369,19 @@ pub(crate) fn run_editor_commands(world: &mut World) {
     // Every command reports, whether or not it moved a tile: loading a brush
     // and setting a fold both change what the panels have to say.
     report_state(world);
+}
+
+/// The map document for the open board, once every queued command has landed.
+///
+/// A save can arrive in the same frame as the last edits, before they run.
+pub fn editor_document(
+    world: &mut World,
+    name: String,
+    author: String,
+) -> Option<awbrn_map::AwbrnMapDocument> {
+    world.get_resource::<EditorSession>()?;
+    run_editor_commands(world);
+    Some(world.resource::<EditorSession>().document(name, author))
 }
 
 fn apply_command(world: &mut World, command: EditorCommand) -> BoardChanges {
@@ -524,6 +542,7 @@ fn read_state(session: &EditorSession) -> EditorStateChanged {
                     hq_at: Vec::new(),
                     properties: 0,
                     production: 0,
+                    labs: 0,
                     units: 0,
                     income: 0,
                 });
@@ -556,6 +575,9 @@ fn read_state(session: &EditorSession) -> EditorStateChanged {
         army.income = army.income.saturating_add(income);
         if matches!(property, Property::HQ(_)) {
             army.hq_at.push(position.into());
+        }
+        if matches!(property, Property::Lab(_)) {
+            army.labs += 1;
         }
         if matches!(
             property,
@@ -812,7 +834,10 @@ impl Plugin for EditorPlugin {
                     .run_if(in_state(GameMode::Editor)),
             )
             .add_systems(OnEnter(GameMode::Editor), let_the_board_fill_its_canvas)
-            .add_systems(OnExit(GameMode::Editor), cleanup_editor_input)
+            .add_systems(
+                OnExit(GameMode::Editor),
+                (cleanup_editor_input, marks::uncover_tiles),
+            )
             .add_systems(
                 Update,
                 run_editor_commands
@@ -909,6 +934,53 @@ mod tests {
             .get::<TerrainTile>()
             .expect("a terrain tile carries its terrain")
             .terrain
+    }
+
+    #[test]
+    fn reopening_the_editor_keeps_the_commands_sent_to_the_new_board() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<GameMode>()
+            .init_resource::<EditorCommandQueue>()
+            .init_resource::<StrokeInFlight>()
+            .init_resource::<FitCeiling>()
+            .add_systems(OnExit(GameMode::Editor), cleanup_editor_input);
+        app.world_mut()
+            .resource_mut::<NextState<GameMode>>()
+            .set(GameMode::Editor);
+        app.update();
+
+        queue(&mut app, EditorCommand::Undo);
+        app.world_mut()
+            .resource_mut::<NextState<GameMode>>()
+            .set(GameMode::Editor);
+        app.update();
+
+        assert_eq!(app.world().resource::<EditorCommandQueue>().0.len(), 1);
+    }
+
+    #[test]
+    fn a_save_reads_the_edits_still_in_the_queue() {
+        let mut app = editor_world(3, 3);
+        queue(
+            &mut app,
+            EditorCommand::SetBrush {
+                brush: Brush::Terrain {
+                    terrain: AwbwTerrain::Mountain,
+                },
+            },
+        );
+        queue(
+            &mut app,
+            EditorCommand::Paint {
+                position: Pos::new(1, 1),
+            },
+        );
+
+        let document = editor_document(app.world_mut(), "Draft".into(), "Map maker".into())
+            .expect("the editor is open");
+
+        assert_eq!(document.terrain[4], AwbwTerrain::Mountain);
     }
 
     #[test]
@@ -1099,6 +1171,130 @@ mod tests {
         );
     }
 
+    /// Points the keyboard cursor at `pointer` and draws the landings there.
+    fn draw_landings_at(app: &mut App, pointer: Pos) {
+        use crate::render::{TerrainAtlasResource, UnitAtlasResource};
+
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(crate::features::input::KeyboardCursor(Some(pointer)))
+            .insert_resource(TerrainAtlasResource {
+                texture: Handle::default(),
+                layout: Handle::default(),
+            })
+            .insert_resource(UnitAtlasResource {
+                texture: Handle::default(),
+                layout: Handle::default(),
+            })
+            .add_systems(Startup, marks::create_mark_art)
+            .add_systems(Update, marks::draw_landings);
+        app.update();
+    }
+
+    fn landing_marks(app: &mut App) -> usize {
+        app.world_mut()
+            .query_filtered::<(), With<marks::LandingMark>>()
+            .iter(app.world())
+            .count()
+    }
+
+    /// A building is clear in places and a unit around its edges. The board
+    /// shows the ground through both, so neither ghost may stand on a plate.
+    #[test]
+    fn a_building_or_unit_landing_draws_only_its_own_sprite() {
+        let mut app = editor_world(5, 5);
+        queue(
+            &mut app,
+            EditorCommand::SetBrush {
+                brush: Brush::Property {
+                    property: PropertyKind::City,
+                    faction: None,
+                },
+            },
+        );
+        run_editor_commands(app.world_mut());
+        draw_landings_at(&mut app, Pos::new(2, 2));
+
+        assert_eq!(landing_marks(&mut app), 1, "the city alone");
+
+        queue(
+            &mut app,
+            EditorCommand::SetBrush {
+                brush: Brush::Unit {
+                    unit: awbrn_types::Unit::Tank,
+                    faction: FactionCode::new(PlayerFaction::OrangeStar),
+                    hp: VisualHp::new(10),
+                },
+            },
+        );
+        run_editor_commands(app.world_mut());
+        app.update();
+
+        assert_eq!(landing_marks(&mut app), 1, "the tank alone");
+        let plain = app
+            .world()
+            .resource::<BoardIndex>()
+            .terrain_entity(Pos::new(2, 2))
+            .expect("the board holds this tile");
+        assert_ne!(
+            app.world().get::<Visibility>(plain),
+            Some(&Visibility::Hidden),
+            "a unit stands on the ground it lands on"
+        );
+    }
+
+    #[test]
+    fn a_landing_hides_the_tall_tile_it_replaces_until_it_moves_away() {
+        let mut app = editor_world(5, 5);
+        queue(
+            &mut app,
+            EditorCommand::SetBrush {
+                brush: Brush::Terrain {
+                    terrain: AwbwTerrain::Mountain,
+                },
+            },
+        );
+        queue(
+            &mut app,
+            EditorCommand::Paint {
+                position: Pos::new(2, 2),
+            },
+        );
+        queue(
+            &mut app,
+            EditorCommand::SetBrush {
+                brush: Brush::Terrain {
+                    terrain: AwbwTerrain::Plain,
+                },
+            },
+        );
+        run_editor_commands(app.world_mut());
+
+        draw_landings_at(&mut app, Pos::new(2, 2));
+
+        let mountain = app
+            .world()
+            .resource::<BoardIndex>()
+            .terrain_entity(Pos::new(2, 2))
+            .expect("the board holds this tile");
+        assert_eq!(
+            drawn_at(&mut app, Pos::new(2, 2)),
+            GraphicalTerrain::Mountain
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(mountain),
+            Some(&Visibility::Hidden)
+        );
+
+        app.insert_resource(crate::features::input::KeyboardCursor(Some(Pos::new(0, 0))));
+        app.update();
+
+        assert_eq!(
+            app.world().get::<Visibility>(mountain),
+            Some(&Visibility::Inherited)
+        );
+    }
+
     #[test]
     fn a_pick_changes_nothing_on_the_board_and_costs_no_undo_step() {
         let mut app = editor_world(5, 5);
@@ -1246,13 +1442,21 @@ mod tests {
                 faction: Some(FactionCode::new(PlayerFaction::OrangeStar)),
             },
         );
+        session.editor.paint(
+            Pos::new(1, 5),
+            Brush::Property {
+                property: PropertyKind::Lab,
+                faction: Some(FactionCode::new(PlayerFaction::OrangeStar)),
+            },
+        );
 
         let state = read_state(&session);
 
         assert_eq!(state.armies.len(), 2);
         for army in &state.armies {
-            assert_eq!(army.properties, 2);
+            assert_eq!(army.properties, 3);
             assert_eq!(army.production, 1);
+            assert_eq!(army.labs, 1);
             assert_eq!(army.income, 2_000);
         }
         assert_eq!(state.armies[0].hq_at, vec![EditorTile { x: 1, y: 1 }]);
@@ -1324,11 +1528,7 @@ mod tests {
     }
 
     #[test]
-    fn a_building_one_army_holds_alone_still_reads_as_symmetric() {
-        // A map maker answers the first-turn advantage with buildings that are
-        // meant to be uneven: a base the second army takes on turn one, a city
-        // one side reaches first. The fold is a promise about the ground, so
-        // it must not call those a broken board.
+    fn a_building_one_army_holds_alone_reads_as_uneven() {
         let mut session = session(10, 6);
         session.editor.set_symmetry(Symmetry::MirrorLeftRight);
         session.editor.paint(
@@ -1351,9 +1551,9 @@ mod tests {
 
         let state = read_state(&session);
 
-        assert!(
-            state.uneven_groups.is_empty(),
-            "a building placed on purpose is not a broken fold",
+        assert_eq!(
+            state.uneven_groups,
+            vec![vec![EditorTile { x: 2, y: 1 }, EditorTile { x: 7, y: 1 }]]
         );
     }
 

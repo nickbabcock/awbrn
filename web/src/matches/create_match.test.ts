@@ -139,6 +139,59 @@ describe("createMatch", () => {
     expect(unknown.ok ? null : unknown.error.code).toBe("participantInvalid");
   });
 
+  it("refuses a map that seats fewer than two armies", async () => {
+    const terrain = Array.from({ length: 5 }, (_, x) =>
+      Array.from({ length: 5 }, (_, y) => (x === 0 && y === 0 ? 42 : 1)),
+    );
+    const lone = await seedMap(
+      {
+        Name: "Lone Army",
+        Author: "Create Match Test",
+        "Player Count": 1,
+        "Published Date": "2026-01-01 00:00:00",
+        "Size X": 5,
+        "Size Y": 5,
+        "Terrain Map": terrain,
+        "Predeployed Units": [],
+      },
+      "cmtestmap010",
+    );
+
+    const result = await createMatch(
+      matchCreateRequestSchema.parse({ ...request, map: lone }),
+      creator,
+    );
+
+    expect(result.ok ? null : result.error.code).toBe("invalidMap");
+  });
+
+  it("refuses a map where an army has no HQ, Lab or unit to lose", async () => {
+    // An Orange Star HQ (42) and a Blue Moon city (43).
+    const terrain = Array.from({ length: 5 }, (_, x) =>
+      Array.from({ length: 5 }, (_, y) => (y === 0 ? (x === 0 ? 42 : x === 4 ? 43 : 1) : 1)),
+    );
+    const holdout = await seedMap(
+      {
+        Name: "Holdout",
+        Author: "Create Match Test",
+        "Player Count": 2,
+        "Published Date": "2026-01-01 00:00:00",
+        "Size X": 5,
+        "Size Y": 5,
+        "Terrain Map": terrain,
+        "Predeployed Units": [],
+      },
+      "cmtestmap011",
+    );
+
+    const result = await createMatch(
+      matchCreateRequestSchema.parse({ ...request, map: holdout }),
+      creator,
+    );
+
+    expect(result.ok ? null : result.error.code).toBe("invalidMap");
+  });
+
   it("rejects a session that names no account", async () => {
     await seed();
 

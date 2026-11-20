@@ -25,6 +25,7 @@ function army(overrides: Partial<EditorArmy> & { faction: string }): EditorArmy 
     hqAt: [{ x: 0, y: 0 }],
     properties: 4,
     production: 2,
+    labs: 0,
     units: 0,
     income: 0,
     ...overrides,
@@ -95,6 +96,11 @@ describe("problems", () => {
       { kind: "empty", factions: ["ge", "yc"] },
     ]);
   });
+
+  it("lets an army that holds a lab go without an HQ", () => {
+    const armies = [army({ faction: "os" }), army({ faction: "bm", hqAt: [], labs: 1 })];
+    expect(problems(state({ armies }), false)).toEqual([]);
+  });
 });
 
 describe("saving", () => {
@@ -162,7 +168,7 @@ describe("saving", () => {
 });
 
 describe("the brush tray", () => {
-  const ground = Array.from({ length: 14 }, (_, terrain) =>
+  const ground = Array.from({ length: 15 }, (_, terrain) =>
     cell("ground", { kind: "terrain", terrain }),
   );
   const property = (faction?: string) =>

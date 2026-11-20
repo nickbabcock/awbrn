@@ -13,6 +13,9 @@ describe("where sign-in returns to", () => {
       "/\\/evil.com",
       "https://evil.com",
       "evil.com",
+      "/\t/evil.com",
+      "/\n/evil.com",
+      "/.//evil.com",
     ]) {
       expect(signInReturn(value)).toBeUndefined();
     }
