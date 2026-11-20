@@ -12,6 +12,7 @@ import { MapCurationPanel, MapTagsKey } from "#/maps/components/MapCurationPanel
 import { MapJudgmentRecord } from "#/maps/components/MapJudgmentRecord.tsx";
 import { MapPicture, wholeScaleWidth } from "#/maps/components/MapPicture.tsx";
 import { mapPostage } from "#/maps/components/MapPlate.tsx";
+import { mapEditGrant } from "#/maps/map_authz.ts";
 import { MapRankMedal } from "#/maps/components/MapRankMedal.tsx";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { mapQueryOptions } from "#/maps/maps.queries.ts";
@@ -90,7 +91,7 @@ export function MapPage({ mapId }: { mapId: string }) {
               <MapRankMedal isUnrankedShown rank={map.rank} size="lg" xstyle={styles.medal} />
             </Stack>
 
-            <Stack xstyle={styles.cta}>
+            <Stack gap={2} xstyle={styles.cta}>
               <RouterButton
                 label="New match"
                 search={{ map: map.mapId }}
@@ -99,6 +100,26 @@ export function MapPage({ mapId }: { mapId: string }) {
                 variant="primary"
                 width="100%"
               />
+              {/* A map somebody else wrote is forked rather than edited: the
+                  board opens as it stands and is kept as a map of the
+                  player's own. Its author edits it into a new revision. */}
+              {mapEditGrant(map, actor) !== null ? (
+                <RouterButton
+                  label="Edit map"
+                  params={{ mapId: map.mapId }}
+                  to="/maps/$mapId/edit"
+                  variant="secondary"
+                  width="100%"
+                />
+              ) : (
+                <RouterButton
+                  label="Fork map"
+                  search={{ from: map.mapId }}
+                  to="/maps/new"
+                  variant="secondary"
+                  width="100%"
+                />
+              )}
             </Stack>
 
             <MapBoard map={map} />

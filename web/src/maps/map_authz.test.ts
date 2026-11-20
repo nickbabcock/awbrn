@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { actorFromRole } from "#/auth/actor.ts";
-import { mapRankGrant, mapTagGrant } from "./map_authz.ts";
+import { mapEditGrant, mapRankGrant, mapTagGrant } from "./map_authz.ts";
 
 const author = actorFromRole("u-author", "user");
 const stranger = actorFromRole("u-stranger", "user");
@@ -9,6 +9,30 @@ const authorMod = actorFromRole("u-author", "moderator");
 
 const ownedMap = { authorUserId: "u-author" };
 const importedMap = { authorUserId: null };
+
+describe("mapEditGrant", () => {
+  it("lets the author write another revision of their own map", () => {
+    expect(mapEditGrant(ownedMap, author)).toBe("owner");
+  });
+
+  it("sends a stranger to a fork rather than to the map", () => {
+    expect(mapEditGrant(ownedMap, stranger)).toBe(null);
+    expect(mapEditGrant(importedMap, stranger)).toBe(null);
+  });
+
+  it("lets a moderator past ownership, and says that is why", () => {
+    expect(mapEditGrant(ownedMap, moderator)).toBe("moderator");
+    expect(mapEditGrant(importedMap, moderator)).toBe("moderator");
+  });
+
+  it("gives an author who is also a moderator the plain owner grant", () => {
+    expect(mapEditGrant(ownedMap, authorMod)).toBe("owner");
+  });
+
+  it("refuses a signed-out visitor", () => {
+    expect(mapEditGrant(ownedMap, null)).toBe(null);
+  });
+});
 
 describe("mapTagGrant", () => {
   it("lets the author tag the map they wrote", () => {

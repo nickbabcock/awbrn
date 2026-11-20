@@ -55,6 +55,28 @@ pub enum ShoalType {
     VerticalEast,
 }
 
+impl ShoalType {
+    /// The shoal that lies against the land on these sides.
+    ///
+    /// The client draws a shoal from the tiles around it, so this variant is
+    /// what the map document records and not what the player sees. It names
+    /// the same side the picture does, which keeps a mirrored board equal to
+    /// its original tile for tile.
+    ///
+    /// AWBW has one variant for each of the four sides and no more. A shoal
+    /// with land on more than one side is recorded against one of them, in
+    /// this order: north, south, east, west. A shoal with no land is recorded
+    /// against the west.
+    pub const fn from_land(north: bool, east: bool, south: bool, west: bool) -> ShoalType {
+        match (north, east, south, west) {
+            (true, ..) => ShoalType::HorizontalNorth,
+            (false, _, true, _) => ShoalType::Horizontal,
+            (false, true, false, _) => ShoalType::VerticalEast,
+            (false, false, false, _) => ShoalType::Vertical,
+        }
+    }
+}
+
 /// Pipe configurations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum PipeType {
@@ -320,12 +342,27 @@ impl Property {
 }
 
 /// Property types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::VariantArray,
+)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
+#[serde(rename_all = "kebab-case")]
 pub enum PropertyKind {
     Airport,
     Base,
     City,
     ComTower,
+    // Two letters that stand for two words, which kebab case would break in
+    // half.
+    #[serde(rename = "hq")]
     HQ,
     Lab,
     Port,

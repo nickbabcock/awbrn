@@ -2,6 +2,7 @@ use crate::AwbwFactionId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, strum::VariantArray)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub enum PlayerFaction {
     AcidRain = 0,
     AmberBlossom,

@@ -195,6 +195,37 @@ impl MapRenderer {
     }
 }
 
+/// Check a map written here, and hash it the way an imported map is hashed.
+///
+/// A map from the editor arrives as a document rather than as an AWBW payload,
+/// so it needs no normalizing. It still needs the same three digests: the
+/// content hash names its pictures and its stored document, and the two
+/// signatures are what a replay is matched against later.
+///
+/// The player count is read off the board, not taken from the request. A draft
+/// that seats no army yet is kept with a count of zero.
+#[wasm_bindgen(js_name = canonicalizeMapDocument)]
+pub fn canonicalize_map_document(
+    document: Ts<AwbrnMapDocumentWire>,
+) -> Result<Ts<ImportedMapDocument>, JsError> {
+    let document = read_input("document", document)?;
+    let document = validated_map(document)?;
+    let digests = document.digests();
+    let player_count = u32::try_from(document.map().factions().len())
+        .expect("an AWBW map has fewer than u32 player factions");
+
+    let mut wire = AwbrnMapDocumentWire::from(document);
+    wire.metadata.player_count = player_count;
+
+    Ok(ImportedMapDocument {
+        document: wire,
+        content_hash: digests.content_hash.to_string(),
+        property_signature: digests.property_signature.to_string(),
+        unit_signature: digests.unit_signature.to_string(),
+    }
+    .into_ts()?)
+}
+
 /// Draw a map as a smallmap and return the PNG bytes.
 ///
 /// Four pixels for each tile, terrain only, from a fixed palette. No atlas is

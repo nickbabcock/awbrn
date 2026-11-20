@@ -17,6 +17,7 @@ import { Route as RankedRouteImport } from './routes/ranked'
 import { Route as ReplayRouteImport } from './routes/replay'
 import { Route as MapsIndexRouteImport } from './routes/maps/index'
 import { Route as MapsMapIdRouteImport } from './routes/maps/$mapId'
+import { Route as MapsNewRouteImport } from './routes/maps/new'
 import { Route as MatchesIndexRouteImport } from './routes/matches/index'
 import { Route as MatchesMatchIdRouteImport } from './routes/matches/$matchId'
 import { Route as MatchesNewRouteImport } from './routes/matches/new'
@@ -25,6 +26,7 @@ import { Route as MyMatchesRouteImport } from './routes/my/matches'
 import { Route as PlayersPlayerIdRouteImport } from './routes/players/$playerId'
 import { Route as ReplaysChar123matchIdChar125DotjsonRouteImport } from './routes/replays/{$matchId}[.]json'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as MapsMapIdEditRouteImport } from './routes/maps/$mapId_.edit'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
 import { Route as ApiAwbwSmallmapMapIdRouteImport } from './routes/api/awbw/smallmap.$mapId'
 import { Route as ApiAwbwUserUserIdRouteImport } from './routes/api/awbw/user.$userId'
@@ -70,6 +72,11 @@ const MapsMapIdRoute = MapsMapIdRouteImport.update({
   path: '/maps/$mapId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MapsNewRoute = MapsNewRouteImport.update({
+  id: '/maps/new',
+  path: '/maps/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MatchesIndexRoute = MatchesIndexRouteImport.update({
   id: '/matches/',
   path: '/matches/',
@@ -111,6 +118,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MapsMapIdEditRoute = MapsMapIdEditRouteImport.update({
+  id: '/maps/$mapId_/edit',
+  path: '/maps/$mapId/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAwbwMapMapIdRoute = ApiAwbwMapMapIdRouteImport.update({
   id: '/api/awbw/map/$mapId',
   path: '/api/awbw/map/$mapId',
@@ -141,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
+  '/maps/new': typeof MapsNewRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
   '/my/history': typeof MyHistoryRoute
@@ -150,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/maps/': typeof MapsIndexRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/maps/$mapId/edit': typeof MapsMapIdEditRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -163,6 +177,7 @@ export interface FileRoutesByTo {
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
+  '/maps/new': typeof MapsNewRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
   '/my/history': typeof MyHistoryRoute
@@ -172,6 +187,7 @@ export interface FileRoutesByTo {
   '/maps': typeof MapsIndexRoute
   '/matches': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/maps/$mapId/edit': typeof MapsMapIdEditRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -186,6 +202,7 @@ export interface FileRoutesById {
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
+  '/maps/new': typeof MapsNewRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
   '/my/history': typeof MyHistoryRoute
@@ -195,6 +212,7 @@ export interface FileRoutesById {
   '/maps/': typeof MapsIndexRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/maps/$mapId_/edit': typeof MapsMapIdEditRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -210,6 +228,7 @@ export interface FileRouteTypes {
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
+    | '/maps/new'
     | '/matches/$matchId'
     | '/matches/new'
     | '/my/history'
@@ -219,6 +238,7 @@ export interface FileRouteTypes {
     | '/maps/'
     | '/matches/'
     | '/api/auth/$'
+    | '/maps/$mapId/edit'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -232,6 +252,7 @@ export interface FileRouteTypes {
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
+    | '/maps/new'
     | '/matches/$matchId'
     | '/matches/new'
     | '/my/history'
@@ -241,6 +262,7 @@ export interface FileRouteTypes {
     | '/maps'
     | '/matches'
     | '/api/auth/$'
+    | '/maps/$mapId/edit'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -254,6 +276,7 @@ export interface FileRouteTypes {
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
+    | '/maps/new'
     | '/matches/$matchId'
     | '/matches/new'
     | '/my/history'
@@ -263,6 +286,7 @@ export interface FileRouteTypes {
     | '/maps/'
     | '/matches/'
     | '/api/auth/$'
+    | '/maps/$mapId_/edit'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -277,6 +301,7 @@ export interface RootRouteChildren {
   RankedRoute: typeof RankedRoute
   ReplayRoute: typeof ReplayRoute
   MapsMapIdRoute: typeof MapsMapIdRoute
+  MapsNewRoute: typeof MapsNewRoute
   MatchesMatchIdRoute: typeof MatchesMatchIdRoute
   MatchesNewRoute: typeof MatchesNewRoute
   MyHistoryRoute: typeof MyHistoryRoute
@@ -286,6 +311,7 @@ export interface RootRouteChildren {
   MapsIndexRoute: typeof MapsIndexRoute
   MatchesIndexRoute: typeof MatchesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  MapsMapIdEditRoute: typeof MapsMapIdEditRoute
   ApiAwbwMapMapIdRoute: typeof ApiAwbwMapMapIdRoute
   ApiAwbwSmallmapMapIdRoute: typeof ApiAwbwSmallmapMapIdRoute
   ApiAwbwUserUserIdRoute: typeof ApiAwbwUserUserIdRoute
@@ -350,6 +376,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MapsMapIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/maps/new': {
+      id: '/maps/new'
+      path: '/maps/new'
+      fullPath: '/maps/new'
+      preLoaderRoute: typeof MapsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/matches/': {
       id: '/matches/'
       path: '/matches'
@@ -406,6 +439,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/maps/$mapId_/edit': {
+      id: '/maps/$mapId_/edit'
+      path: '/maps/$mapId/edit'
+      fullPath: '/maps/$mapId/edit'
+      preLoaderRoute: typeof MapsMapIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/awbw/map/$mapId': {
       id: '/api/awbw/map/$mapId'
       path: '/api/awbw/map/$mapId'
@@ -445,6 +485,7 @@ const rootRouteChildren: RootRouteChildren = {
   RankedRoute: RankedRoute,
   ReplayRoute: ReplayRoute,
   MapsMapIdRoute: MapsMapIdRoute,
+  MapsNewRoute: MapsNewRoute,
   MatchesMatchIdRoute: MatchesMatchIdRoute,
   MatchesNewRoute: MatchesNewRoute,
   MyHistoryRoute: MyHistoryRoute,
@@ -455,6 +496,7 @@ const rootRouteChildren: RootRouteChildren = {
   MapsIndexRoute: MapsIndexRoute,
   MatchesIndexRoute: MatchesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  MapsMapIdEditRoute: MapsMapIdEditRoute,
   ApiAwbwMapMapIdRoute: ApiAwbwMapMapIdRoute,
   ApiAwbwSmallmapMapIdRoute: ApiAwbwSmallmapMapIdRoute,
   ApiAwbwUserUserIdRoute: ApiAwbwUserUserIdRoute,

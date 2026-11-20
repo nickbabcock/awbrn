@@ -74,6 +74,19 @@ impl Deployments {
         }
     }
 
+    /// Takes the unit off `position`, and reports the unit that stood there.
+    ///
+    /// A tile with no unit on it is not an error: an editor that erases a tile
+    /// twice has erased it once.
+    pub fn remove(&mut self, position: Pos) -> Option<Deployment> {
+        let cell = self.dimensions.cell_index(position)?;
+        let slot = self
+            .entries
+            .binary_search_by_key(&cell, |(cell, _)| *cell)
+            .ok()?;
+        Some(self.entries.remove(slot).1)
+    }
+
     /// The unit standing on `position`, if any.
     pub fn get(&self, position: Pos) -> Option<&Deployment> {
         let cell = self.dimensions.cell_index(position)?;

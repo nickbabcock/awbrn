@@ -20,6 +20,7 @@ import {
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
 import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import type { MapCatalogFilter } from "#/maps/schemas.ts";
+import { RouterButton } from "#/ui/astryx-links.tsx";
 import { Button } from "#/ui/Button.tsx";
 import { EmptySheet, ProblemBanner } from "#/ui/EmptySheet.tsx";
 import { IconRefresh } from "#/ui/icons.tsx";
@@ -72,12 +73,25 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
   });
 
   const mayImport = actor?.can({ map: ["import"] }) ?? false;
+  const mayDraw = actor?.can({ map: ["write"] }) ?? false;
 
   return (
     <Page>
       {/* The filters sit under the head at the head's own 16px, not the page's 24px. */}
       <Stack xstyle={styles.flow}>
-        <PageHeader actions={mayImport ? <MapImportKey /> : undefined} title="Maps" />
+        <PageHeader
+          actions={
+            mayDraw || mayImport ? (
+              <>
+                {mayDraw ? (
+                  <RouterButton label="Draw a map" to="/maps/new" variant="secondary" />
+                ) : null}
+                {mayImport ? <MapImportKey /> : null}
+              </>
+            ) : undefined
+          }
+          title="Maps"
+        />
         <MapFilterBar
           filterCount={filterCount}
           filters={filters}
