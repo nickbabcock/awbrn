@@ -257,7 +257,7 @@ export const loadBattleCatalog = async (): Promise<BattleCatalog> => {
  *
  * A top-level export for the same reason the battle catalog is one: the
  * palette is a fact about the game and not about a board, so it answers before
- * a map is open. The buildings and the units come in the colours of the army
+ * a map is open. The buildings and the units come in the colors of the army
  * that is named, because that is what the picker has to show.
  */
 export const loadEditorPalette = async (factionCode: string | null): Promise<EditorPalette> => {

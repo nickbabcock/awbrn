@@ -85,5 +85,6 @@ export function sectionForPath(pathname: string): SiteSection | null {
  * match as a tab, and map detail carries it as the page's own key.
  */
 export function pageOffersNewMatch(pathname: string): boolean {
-  return sectionForPath(pathname)?.id === "play" || /^\/maps\/[^/]+\/?$/.test(pathname);
+  // A map's page offers New match; the editor's `/maps/new` does not.
+  return sectionForPath(pathname)?.id === "play" || /^\/maps\/(?!new\/?$)[^/]+\/?$/.test(pathname);
 }

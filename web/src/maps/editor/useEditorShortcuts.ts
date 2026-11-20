@@ -1,121 +1,119 @@
-/**
- * The keys the drafting table answers to.
- *
- * A map maker who has drawn a board before does not reach across the screen
- * fifty times to change a tile. They keep one hand on the board and the other
- * on the rail, which means the rail has to be reachable without the pointer.
- * That is the whole of this file: it is what turns a palette a beginner can
- * click into an instrument somebody can play.
- *
- * Two things stay out of here on purpose. Undo lives in the engine, because
- * the board owns its own history. The eyedropper lives in the engine too,
- * because only the board knows what is on a tile. What is left is what the
- * rail knows and nothing else: which drawer is open, which brush is next in
- * it, and which army is being painted as.
- */
+import { useEffect, useEffectEvent } from "react";
+import { BRUSH_TABS, eraserOfTab, stepBrush, type BrushTab } from "#/maps/map_editor.ts";
+import type { Brush, PaletteCell } from "#/wasm/awbrn_wasm.js";
 
-import { useEffect } from "react";
-import {
-  eraserOfDrawer,
-  stepBrush,
-  type PaletteDrawer,
-  type PaletteSection,
-} from "#/maps/map_editor.ts";
-import type { Brush } from "#/wasm/awbrn_wasm.js";
-
-/** The drawers, in the order the number keys reach them. */
-const DRAWER_KEYS: readonly PaletteDrawer[] = ["terrain", "property", "unit"];
-
-/**
- * Whether the keystroke belongs to something the visitor is typing into.
- *
- * The map's name is a text field on this same screen, and a map maker naming a
- * board "1v1 Estuary" must not have the rail change under them three times
- * while they do it.
- */
-function isTyping(target: EventTarget | null): boolean {
+export function isField(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
+/** Keys for a field or an open menu belong to it, not to the editor. */
+export function isKeyedElsewhere(target: EventTarget | null): boolean {
+  return (
+    isField(target) || (target instanceof HTMLElement && target.closest('[role="dialog"]') !== null)
+  );
+}
+
+/**
+ * The rail's keys. Undo, pick up and zoom are the board's own, so they are
+ * forwarded to the canvas when focus sits on a control a keyboard user
+ * reached. Space stays with that control; a click hands focus back to the
+ * board, where Space pans.
+ */
 export function useEditorShortcuts({
   armies,
-  drawer,
+  canvas,
+  cells,
   isEnabled,
+  isKeysOpen,
   loadedBrush,
   onArmyChange,
-  onDrawerChange,
+  onKeysToggle,
   onSelect,
-  sections,
+  onStepProblem,
+  onTabChange,
+  tab,
 }: {
-  /** The armies the fold seats, in seat order. */
+  /** Roster seats, in seat order. */
   armies: readonly string[];
-  drawer: PaletteDrawer;
-  /** False while the board is still opening, when there is nothing to load. */
+  canvas: () => HTMLCanvasElement | null;
+  /** The open tab's brushes, in tray order. */
+  cells: readonly PaletteCell[];
   isEnabled: boolean;
+  isKeysOpen: boolean;
   loadedBrush: Brush | null;
   onArmyChange: (factionCode: string) => void;
-  onDrawerChange: (drawer: PaletteDrawer) => void;
+  onKeysToggle: (isOpen: boolean) => void;
   onSelect: (brush: Brush) => void;
-  sections: readonly PaletteSection[];
+  onStepProblem: (step: 1 | -1) => void;
+  onTabChange: (tab: BrushTab) => void;
+  tab: BrushTab;
 }): void {
-  useEffect(() => {
-    if (!isEnabled) return;
+  const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (isKeyedElsewhere(event.target)) return;
 
-    function onKeyDown(event: KeyboardEvent) {
-      // Alt belongs to the board, where it is the eyedropper, and ctrl and the
-      // command key belong to the browser and to undo. What is left is the
-      // bare key, which is the only thing the rail claims.
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (isTyping(event.target)) return;
-
-      // A seat is shift and its number, which reads as the shifted form of the
-      // number on most layouts, so the seat is taken off `event.code`.
-      if (event.shiftKey) {
-        const seat = /^Digit([1-8])$/.exec(event.code);
-        if (!seat?.[1]) return;
-        const army = armies[Number(seat[1]) - 1];
-        if (army === undefined) return;
-        event.preventDefault();
-        onArmyChange(army);
-        return;
-      }
-
-      const open = sections.find((section) => section.drawer === drawer) ?? sections[0];
-
-      switch (event.key) {
-        case "1":
-        case "2":
-        case "3": {
-          const wanted = DRAWER_KEYS[Number(event.key) - 1];
-          if (wanted === undefined) return;
-          if (!sections.some((section) => section.drawer === wanted)) return;
-          event.preventDefault();
-          onDrawerChange(wanted);
-          return;
-        }
-        case "[":
-        case "]": {
-          if (!open) return;
-          const next = stepBrush(open.cells, loadedBrush, event.key === "]" ? 1 : -1);
-          if (next === null) return;
-          event.preventDefault();
-          onSelect(next);
-          return;
-        }
-        case "e":
-        case "E": {
-          event.preventDefault();
-          onSelect(eraserOfDrawer(open?.drawer ?? drawer));
-          return;
-        }
-        default:
-          return;
-      }
+    if (event.key === "?" || (event.key === "Escape" && isKeysOpen)) {
+      event.preventDefault();
+      onKeysToggle(!isKeysOpen);
+      return;
+    }
+    if (event.key === "N" || event.key === "n") {
+      event.preventDefault();
+      onStepProblem(event.shiftKey ? -1 : 1);
+      return;
     }
 
+    if (event.shiftKey) {
+      // Shift turns the digit into a symbol on most layouts, so read the key's place.
+      const seat = /^Digit([1-8])$/.exec(event.code);
+      const army = seat?.[1] === undefined ? undefined : armies[Number(seat[1]) - 1];
+      if (army === undefined) return;
+      event.preventDefault();
+      onArmyChange(army);
+      return;
+    }
+
+    const wanted = BRUSH_TABS.find((entry) => entry.key === event.key);
+    if (wanted) {
+      event.preventDefault();
+      onTabChange(wanted.tab);
+      return;
+    }
+    if (event.key === "[" || event.key === "]") {
+      const next = stepBrush(cells, loadedBrush, event.key === "]" ? 1 : -1);
+      if (next === null) return;
+      event.preventDefault();
+      onSelect(next);
+      return;
+    }
+    if (event.key === "e" || event.key === "E") {
+      event.preventDefault();
+      onSelect(eraserOfTab(tab));
+    }
+  });
+
+  const forward = useEffectEvent((event: KeyboardEvent) => {
+    const board = canvas();
+    if (board === null || event.target === board || event.key === " ") return;
+    if (isKeyedElsewhere(event.target)) return;
+    board.dispatchEvent(new KeyboardEvent(event.type, { ...keyInit(event), cancelable: true }));
+  });
+
+  useEffect(() => {
+    if (!isEnabled) return;
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [armies, drawer, isEnabled, loadedBrush, onArmyChange, onDrawerChange, onSelect, sections]);
+    window.addEventListener("keydown", forward);
+    window.addEventListener("keyup", forward);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", forward);
+      window.removeEventListener("keyup", forward);
+    };
+  }, [isEnabled]);
+}
+
+function keyInit(event: KeyboardEvent): KeyboardEventInit {
+  const { altKey, code, ctrlKey, key, metaKey, repeat, shiftKey } = event;
+  return { altKey, code, ctrlKey, key, metaKey, repeat, shiftKey };
 }

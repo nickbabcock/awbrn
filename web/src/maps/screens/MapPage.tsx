@@ -26,6 +26,7 @@ import { figureStyles } from "#/ui/Figure.tsx";
 import { IconRefresh } from "#/ui/icons.tsx";
 import { Page } from "#/ui/Page.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { visibility } from "#/ui/visibility.stylex.ts";
 
 const BOARD_INSET = 22;
 const COLUMN_GAP = 32;
@@ -100,9 +101,7 @@ export function MapPage({ mapId }: { mapId: string }) {
                 variant="primary"
                 width="100%"
               />
-              {/* A map somebody else wrote is forked rather than edited: the
-                  board opens as it stands and is kept as a map of the
-                  player's own. Its author edits it into a new revision. */}
+              {/* The editor is desktop only. */}
               {mapEditGrant(map, actor) !== null ? (
                 <RouterButton
                   label="Edit map"
@@ -110,6 +109,7 @@ export function MapPage({ mapId }: { mapId: string }) {
                   to="/maps/$mapId/edit"
                   variant="secondary"
                   width="100%"
+                  xstyle={visibility.desktopOnly}
                 />
               ) : (
                 <RouterButton
@@ -118,6 +118,7 @@ export function MapPage({ mapId }: { mapId: string }) {
                   to="/maps/new"
                   variant="secondary"
                   width="100%"
+                  xstyle={visibility.desktopOnly}
                 />
               )}
             </Stack>

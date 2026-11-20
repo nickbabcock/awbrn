@@ -10,8 +10,9 @@ import { shellMarker } from "#/ui/shell.stylex.ts";
  *   `BackKey`.
  * - `task` (match setup, a ranked pairing): the tab bar steps aside on a phone
  *   so the screen can dock its task dock.
+ * - `tool` (the map editor): no footer, so the screen is exactly the window.
  */
-export function ShellMode({ mode }: { mode: "pushed" | "task" }) {
+export function ShellMode({ mode }: { mode: "pushed" | "task" | "tool" }) {
   // A marker is not a style, so it goes on as the class `stylex.props` gives
   // it rather than through `xstyle`.
   return <Stack as="span" data-shell-mode={mode} hidden {...stylex.props(shellMarker)} />;

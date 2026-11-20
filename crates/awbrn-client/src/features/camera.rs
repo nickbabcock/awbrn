@@ -101,6 +101,26 @@ pub struct FocusBoardOn {
     pub world: Vec2,
 }
 
+/// How far the fit scale may grow on a board smaller than its canvas.
+///
+/// A match keeps a small board at the opening scale. The editor lets it fill
+/// the canvas, so the board a map maker draws on gets the room.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FitCeiling {
+    #[default]
+    Opening,
+    Maximum,
+}
+
+impl FitCeiling {
+    fn scale(self) -> f32 {
+        match self {
+            FitCeiling::Opening => DEFAULT_CAMERA_SCALE,
+            FitCeiling::Maximum => MAX_CAMERA_SCALE,
+        }
+    }
+}
+
 /// Where the camera is traveling to, if anywhere.
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 struct CameraGoal(Option<Vec2>);
@@ -232,14 +252,14 @@ fn map_world_size(game_map: &GameMap) -> Vec2 {
     map_visual_world_size(game_map)
 }
 
-fn minimum_camera_scale(game_map: &GameMap, window: &Window) -> f32 {
+fn minimum_camera_scale(game_map: &GameMap, window: &Window, ceiling: FitCeiling) -> f32 {
     let map_size = map_world_size(game_map);
     if map_size.x <= 0.0 || map_size.y <= 0.0 {
         return DEFAULT_CAMERA_SCALE;
     }
 
     let fit_scale = (window.width() / map_size.x).min(window.height() / map_size.y);
-    fit_scale.clamp(MIN_CAMERA_SCALE, DEFAULT_CAMERA_SCALE)
+    fit_scale.clamp(MIN_CAMERA_SCALE, ceiling.scale())
 }
 
 fn viewport_to_world(
@@ -288,6 +308,7 @@ fn tile_center_on_map(tile: Pos, game_map: &GameMap) -> Option<Vec2> {
 fn compute_board_view(
     game_map: &GameMap,
     window: &Window,
+    ceiling: FitCeiling,
     camera_scale: f32,
     camera_translation: Vec2,
 ) -> Option<BoardView> {
@@ -303,7 +324,7 @@ fn compute_board_view(
 
     Some(BoardView {
         scale: camera_scale,
-        fit_scale: minimum_camera_scale(game_map, window),
+        fit_scale: minimum_camera_scale(game_map, window, ceiling),
         max_scale: MAX_CAMERA_SCALE,
         touch_floor_scale: touch_floor_scale(),
         view: TileRect {
@@ -402,9 +423,10 @@ fn place_camera(
     camera_scale: &mut CameraScale,
     window: &Window,
     game_map: &GameMap,
+    ceiling: FitCeiling,
     pose: CameraPose,
 ) {
-    camera_scale.set_clamped(pose.scale, minimum_camera_scale(game_map, window));
+    camera_scale.set_clamped(pose.scale, minimum_camera_scale(game_map, window, ceiling));
     apply_camera_scale_to_projection(*camera_scale, projection);
     transform.translation.x = pose.center.x;
     transform.translation.y = pose.center.y;
@@ -415,11 +437,10 @@ fn zoom_camera_at_viewport_position(
     projection: &mut Projection,
     camera_scale: &mut CameraScale,
     window: &Window,
-    game_map: &GameMap,
+    min_scale: f32,
     viewport_position: Vec2,
     target_scale: f32,
 ) {
-    let min_scale = minimum_camera_scale(game_map, window);
     let before_projection_scale =
         projection_world_units_per_viewport_pixel(projection).unwrap_or(1.0 / camera_scale.scale());
     let before = viewport_to_world(
@@ -443,10 +464,12 @@ fn zoom_camera_at_viewport_position(
     transform.translation += (before - after).extend(0.0);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_camera_scaling(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     game_map: Res<GameMap>,
+    ceiling: Res<FitCeiling>,
     mut camera_scale: ResMut<CameraScale>,
     mut goal: ResMut<CameraGoal>,
     mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
@@ -469,7 +492,7 @@ fn handle_camera_scaling(
             &mut projection,
             &mut camera_scale,
             window,
-            game_map.as_ref(),
+            minimum_camera_scale(game_map.as_ref(), window, *ceiling),
             viewport_center,
             target,
         );
@@ -482,7 +505,7 @@ fn handle_camera_scaling(
             &mut projection,
             &mut camera_scale,
             window,
-            game_map.as_ref(),
+            minimum_camera_scale(game_map.as_ref(), window, *ceiling),
             viewport_center,
             target,
         );
@@ -504,16 +527,18 @@ fn handle_camera_scaling(
             &mut projection,
             &mut camera_scale,
             window,
-            game_map.as_ref(),
+            minimum_camera_scale(game_map.as_ref(), window, *ceiling),
             anchor,
             target,
         );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_touch_camera(
     windows: Query<&Window>,
     game_map: Res<GameMap>,
+    ceiling: Res<FitCeiling>,
     mut camera_scale: ResMut<CameraScale>,
     mut goal: ResMut<CameraGoal>,
     mut touch_reader: MessageReader<TouchInput>,
@@ -594,7 +619,7 @@ fn handle_touch_camera(
                 previous_centroid,
             );
 
-            let min_scale = minimum_camera_scale(game_map.as_ref(), window);
+            let min_scale = minimum_camera_scale(game_map.as_ref(), window, *ceiling);
             camera_scale.set_clamped(target, min_scale);
             apply_camera_scale_to_projection(*camera_scale, &mut projection);
 
@@ -666,6 +691,7 @@ fn apply_touch_floor_on_first_board(
     mut requests: MessageReader<ReturnToTouchFloor>,
     windows: Query<&Window>,
     game_map: Res<GameMap>,
+    ceiling: Res<FitCeiling>,
     mut camera_scale: ResMut<CameraScale>,
     mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
 ) {
@@ -701,7 +727,7 @@ fn apply_touch_floor_on_first_board(
         &mut projection,
         &mut camera_scale,
         window,
-        game_map.as_ref(),
+        minimum_camera_scale(game_map.as_ref(), window, *ceiling),
         anchor,
         touch_floor_scale(),
     );
@@ -717,6 +743,7 @@ fn apply_camera_commands(
     mut requests: MessageReader<CameraCommand>,
     windows: Query<&Window>,
     game_map: Res<GameMap>,
+    ceiling: Res<FitCeiling>,
     reduced_motion: Res<ReducedMotion>,
     mut camera_scale: ResMut<CameraScale>,
     mut goal: ResMut<CameraGoal>,
@@ -752,7 +779,7 @@ fn apply_camera_commands(
                     &mut projection,
                     &mut camera_scale,
                     window,
-                    game_map,
+                    minimum_camera_scale(game_map, window, *ceiling),
                     anchor.unwrap_or_else(|| viewport_center(window)),
                     current.scale * factor,
                 );
@@ -766,8 +793,9 @@ fn apply_camera_commands(
                     &mut camera_scale,
                     window,
                     game_map,
+                    *ceiling,
                     CameraPose {
-                        scale: minimum_camera_scale(game_map, window),
+                        scale: minimum_camera_scale(game_map, window, *ceiling),
                         center: MAP_CENTER_WORLD,
                     },
                 );
@@ -785,6 +813,7 @@ fn apply_camera_commands(
                         &mut camera_scale,
                         window,
                         game_map,
+                        *ceiling,
                         CameraPose { scale, center },
                     ),
                     None => zoom_camera_at_viewport_position(
@@ -792,7 +821,7 @@ fn apply_camera_commands(
                         &mut projection,
                         &mut camera_scale,
                         window,
-                        game_map,
+                        minimum_camera_scale(game_map, window, *ceiling),
                         viewport_center(window),
                         scale,
                     ),
@@ -815,6 +844,7 @@ fn apply_camera_commands(
                     &mut camera_scale,
                     window,
                     game_map,
+                    *ceiling,
                     pose,
                 );
             }
@@ -829,13 +859,14 @@ fn apply_camera_commands(
 fn keep_scale_at_or_above_fit(
     windows: Query<&Window>,
     game_map: Res<GameMap>,
+    ceiling: Res<FitCeiling>,
     mut camera_scale: ResMut<CameraScale>,
     mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
 ) {
     let Ok(window) = windows.single() else {
         return;
     };
-    let fit_scale = minimum_camera_scale(game_map.as_ref(), window);
+    let fit_scale = minimum_camera_scale(game_map.as_ref(), window, *ceiling);
     if camera_scale.scale() >= fit_scale {
         return;
     }
@@ -847,7 +878,7 @@ fn keep_scale_at_or_above_fit(
         &mut projection,
         &mut camera_scale,
         window,
-        game_map.as_ref(),
+        minimum_camera_scale(game_map.as_ref(), window, *ceiling),
         viewport_center(window),
         fit_scale,
     );
@@ -937,6 +968,7 @@ fn snap_camera_to_device_pixels(
 fn emit_board_view(
     windows: Query<&Window>,
     game_map: Res<GameMap>,
+    ceiling: Res<FitCeiling>,
     camera_scale: Res<CameraScale>,
     cameras: Query<&Transform, With<Camera>>,
     sink: Res<EventSink<BoardView>>,
@@ -951,6 +983,7 @@ fn emit_board_view(
     let Some(view) = compute_board_view(
         game_map.as_ref(),
         window,
+        *ceiling,
         camera_scale.scale(),
         transform.translation.truncate(),
     ) else {
@@ -983,6 +1016,7 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraScale>()
+            .init_resource::<FitCeiling>()
             .init_resource::<TouchCameraState>()
             .init_resource::<CameraGoal>()
             .init_resource::<ReducedMotion>()
@@ -1118,7 +1152,7 @@ mod tests {
             &mut projection,
             &mut camera_scale,
             &window,
-            &game_map,
+            minimum_camera_scale(&game_map, &window, FitCeiling::Opening),
             anchor,
             3.0,
         );
@@ -1152,7 +1186,7 @@ mod tests {
             &mut projection,
             &mut camera_scale,
             &window,
-            &game_map,
+            minimum_camera_scale(&game_map, &window, FitCeiling::Opening),
             viewport_center,
             3.0,
         );
@@ -1170,6 +1204,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<GameMap>()
+            .init_resource::<FitCeiling>()
             .init_resource::<CameraScale>()
             .init_resource::<CameraGoal>()
             .add_message::<MouseWheel>()
@@ -1197,6 +1232,7 @@ mod tests {
     fn camera_command_app(window: Window, game_map: GameMap) -> App {
         let mut app = App::new();
         app.insert_resource(game_map)
+            .init_resource::<FitCeiling>()
             .init_resource::<CameraScale>()
             .init_resource::<CameraGoal>()
             .init_resource::<ReducedMotion>()
@@ -1242,6 +1278,7 @@ mod tests {
         compute_board_view(
             world.resource::<GameMap>(),
             &window,
+            *world.resource::<FitCeiling>(),
             pose.scale,
             pose.center,
         )
@@ -1253,7 +1290,8 @@ mod tests {
         let game_map = test_map(10, 10);
         let window = test_window(320, 160);
 
-        let view = compute_board_view(&game_map, &window, 2.0, Vec2::ZERO).unwrap();
+        let view =
+            compute_board_view(&game_map, &window, FitCeiling::Opening, 2.0, Vec2::ZERO).unwrap();
 
         // The canvas spans 160 by 80 map pixels: ten tiles by five, around the
         // middle of the drawn map, which sits half a tile above the grid's
@@ -1286,7 +1324,14 @@ mod tests {
         let game_map = test_map(10, 10);
         let window = test_window(320, 160);
 
-        let view = compute_board_view(&game_map, &window, 2.0, Vec2::new(32.0, -16.0)).unwrap();
+        let view = compute_board_view(
+            &game_map,
+            &window,
+            FitCeiling::Opening,
+            2.0,
+            Vec2::new(32.0, -16.0),
+        )
+        .unwrap();
 
         assert_eq!((view.view.x, view.view.y), (2.0, 3.0));
     }
@@ -1503,6 +1548,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(game_map)
             .insert_resource(CameraScale(0.5))
+            .init_resource::<FitCeiling>()
             .init_resource::<PointerIsCoarse>()
             .add_message::<ReturnToTouchFloor>()
             .add_systems(Update, apply_touch_floor_on_first_board);
@@ -1532,6 +1578,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(test_map(40, 40))
             .insert_resource(CameraScale(0.3))
+            .init_resource::<FitCeiling>()
             .add_systems(Update, keep_scale_at_or_above_fit);
         app.world_mut().spawn(test_window(400, 300));
         app.world_mut().spawn((
@@ -1546,7 +1593,11 @@ mod tests {
 
         app.update();
 
-        let fit = minimum_camera_scale(&test_map(40, 40), &test_window(400, 300));
+        let fit = minimum_camera_scale(
+            &test_map(40, 40),
+            &test_window(400, 300),
+            FitCeiling::Opening,
+        );
         assert_eq!(camera_pose(&mut app).scale, fit);
     }
 
@@ -1577,10 +1628,26 @@ mod tests {
         let game_map = test_map(40, 40);
         let window = test_window(400, 300);
 
-        let min_scale = minimum_camera_scale(&game_map, &window);
+        let min_scale = minimum_camera_scale(&game_map, &window, FitCeiling::Opening);
 
         assert!(min_scale < DEFAULT_CAMERA_SCALE);
         assert!(min_scale >= MIN_CAMERA_SCALE);
+    }
+
+    #[test]
+    fn a_raised_ceiling_lets_a_small_board_fill_its_canvas() {
+        // Ten tiles by ten, plus the overhang row, at three times their size.
+        let game_map = test_map(10, 10);
+        let window = test_window(480, 528);
+
+        assert_eq!(
+            minimum_camera_scale(&game_map, &window, FitCeiling::Opening),
+            DEFAULT_CAMERA_SCALE
+        );
+        assert_eq!(
+            minimum_camera_scale(&game_map, &window, FitCeiling::Maximum),
+            3.0
+        );
     }
 
     #[test]

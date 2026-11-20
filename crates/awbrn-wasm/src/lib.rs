@@ -148,20 +148,10 @@ fn palette_cell(entry: awbrn_map::editor::PaletteEntry) -> PaletteCell {
     }
 }
 
-/// The atlas cell one terrain is drawn as, on a board of nothing but itself.
-///
-/// The board decides how a tile looks from the tiles around it, so a sample of
-/// one terrain is put on a small board of that terrain and read back. That is
-/// how a palette cell stays the picture the board would draw, rather than a
-/// second table that has to be kept in step with the first.
+/// The atlas cell a palette cell draws, as the board would draw the terrain.
 fn sample_sprite_index(terrain: awbrn_types::AwbwTerrain) -> u32 {
-    let sample = awbrn_map::AwbwMap::new(awbrn_map::Dimensions::new(3, 3), terrain);
-    let drawn = awbrn_map::AwbrnMap::from_map(&sample);
-    let middle = drawn
-        .terrain_at(awbrn_map::Pos::new(1, 1))
-        .unwrap_or(awbrn_types::GraphicalTerrain::Plain);
-
-    u32::from(awbrn_content::spritesheet_index(awbrn_types::Weather::Clear, middle).index())
+    let drawn = awbrn_map::editor::sample_tile(terrain);
+    u32::from(awbrn_content::spritesheet_index(awbrn_types::Weather::Clear, drawn).index())
 }
 
 /// Wrapper around a JS callback that is safe to send across threads.

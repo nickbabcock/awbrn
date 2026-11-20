@@ -285,7 +285,7 @@ export class GameRunner {
   }
 
   /**
-   * Every brush the editor can load, in one army's colours. Fetched once.
+   * Every brush the editor can load, in one army's colors. Fetched once.
    *
    * It goes to the worker rather than to the board, so the palette is drawn
    * while the first map is still loading.

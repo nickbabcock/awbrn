@@ -165,6 +165,8 @@ export const mapEditorSizeSchema = z
   .min(MAP_EDITOR_MIN_SIZE)
   .max(MAP_EDITOR_MAX_SIZE);
 
+export const MAP_NAME_MAX = 80;
+
 /**
  * A map the editor asks AWBRN to keep.
  *
@@ -172,7 +174,7 @@ export const mapEditorSizeSchema = z
  * and map name it opened, so the server can refuse stale work.
  */
 const mapSaveContentSchema = z.object({
-  name: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(MAP_NAME_MAX),
   // The document schema holds every map the site reads, an imported one
   // included, so the board a map maker draws is held to the editor's own
   // smallest size here rather than there.
@@ -203,6 +205,18 @@ export interface MapSaveResult {
   /** False when the board was the same as the revision already held. */
   written: boolean;
 }
+
+/**
+ * The messages `saveMapFn` refuses a revision with, so the editor can tell
+ * which recovery applies. Each leaves saving it as a new map.
+ */
+export const MAP_SAVE_REFUSALS = {
+  changed: "This map changed after you opened it.",
+  missing: "Map not found",
+  forbidden: "This map is no longer yours to revise.",
+  /** Prefixes the reason the document checks give. */
+  board: "Board not accepted: ",
+} as const;
 
 /** An AWBW map a player asks AWBRN to hold. */
 export const awbwMapImportRequestSchema = z.object({

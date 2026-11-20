@@ -1,48 +1,53 @@
 import { describe, expect, it } from "vitest";
-import type { EditorArmy, EditorStateChanged, PaletteCell } from "#/wasm/awbrn_wasm.js";
+import type {
+  EditorArmy,
+  EditorPalette,
+  EditorStateChanged,
+  PaletteCell,
+} from "#/wasm/awbrn_wasm.js";
 import {
-  boardNotes,
-  brushKey,
-  EDITOR_SHORTCUTS,
-  eraserOfDrawer,
-  keyName,
-  paletteSections,
-  saveBlurb,
-  saveLabel,
+  isDirty,
+  nameProblem,
+  problems,
+  resizeKept,
+  rosterOfSize,
+  saveFailure,
+  saveKey,
+  savesAsNewMap,
   stepBrush,
-  SYMMETRY_LABELS,
   SYMMETRY_MODES,
+  trayCells,
 } from "./map_editor.ts";
+import { MAP_SAVE_REFUSALS } from "./schemas.ts";
 
 function army(overrides: Partial<EditorArmy> & { faction: string }): EditorArmy {
   return {
-    headquarters: 1,
+    hqAt: [{ x: 0, y: 0 }],
     properties: 4,
     production: 2,
     units: 0,
+    income: 0,
     ...overrides,
   };
 }
 
 function state(overrides: Partial<EditorStateChanged> = {}): EditorStateChanged {
   return {
-    revision: 1,
     width: 20,
     height: 16,
     armies: [army({ faction: "os" }), army({ faction: "bm" })],
     neutralProperties: 6,
     units: 0,
-    symmetry: "mirror-left-right",
+    symmetry: "rotate180",
     availableSymmetries: [...SYMMETRY_MODES],
-    symmetric: true,
-    unevenTiles: 0,
-    firstUnevenTile: undefined,
+    unevenGroups: [],
     boardIncome: 28_000,
-    incomePerArmy: 14_000,
     canUndo: false,
     canRedo: false,
+    historyId: 3,
+    boardChanged: false,
     brush: { kind: "terrain", terrain: 1 },
-    roster: ["os", "bm", "ge", "yc"],
+    roster: ["os", "bm"],
     ...overrides,
   };
 }
@@ -51,217 +56,186 @@ function cell(group: PaletteCell["group"], brush: PaletteCell["brush"]): Palette
   return { brush, name: "Cell", group, defense: 0 };
 }
 
-describe("the symmetry vocabulary", () => {
-  it("names every mode the engine can be put in", () => {
-    for (const mode of SYMMETRY_MODES) {
-      expect(SYMMETRY_LABELS[mode]).toBeTruthy();
-    }
-  });
-});
-
-describe("the palette rail", () => {
-  it("files cells under their own group, in a fixed order", () => {
-    const sections = paletteSections([
-      cell("property", { kind: "property", property: "city", faction: undefined }),
-      cell("ground", { kind: "terrain", terrain: 1 }),
-      cell("water", { kind: "terrain", terrain: 28 }),
-    ]);
-
-    expect(sections.map((section) => section.drawer)).toEqual(["terrain", "property"]);
+describe("problems", () => {
+  it("lists none on a pristine board, whatever it holds", () => {
+    expect(problems(state({ armies: [] }), true)).toEqual([]);
   });
 
-  it("leaves out a drawer with nothing in it", () => {
-    const sections = paletteSections([cell("ground", { kind: "terrain", terrain: 1 })]);
-    expect(sections).toHaveLength(1);
+  it("finds a seated board playable", () => {
+    expect(problems(state(), false)).toEqual([]);
   });
 
-  it("files the eraser last in the drawer it empties", () => {
-    const sections = paletteSections([
-      cell("ground", { kind: "terrain", terrain: 1 }),
-      cell("unit", { kind: "unit", unit: "infantry", faction: "os", hp: 10 }),
-    ]);
-
-    const land = sections.find((section) => section.drawer === "terrain");
-    const units = sections.find((section) => section.drawer === "unit");
-    expect(land?.cells.at(-1)?.brush).toEqual({ kind: "erase" });
-    expect(units?.cells.at(-1)?.brush).toEqual({ kind: "erase-unit" });
-  });
-
-  it("keeps a drawer that holds nothing but an eraser off the rail", () => {
-    const sections = paletteSections([
-      cell("property", { kind: "property", property: "city", faction: undefined }),
-    ]);
-
-    expect(sections.map((section) => section.drawer)).toEqual(["property"]);
-  });
-
-  it("tells two brushes apart by what they would paint", () => {
-    expect(brushKey({ kind: "terrain", terrain: 1 })).not.toBe(
-      brushKey({ kind: "terrain", terrain: 2 }),
-    );
-    expect(brushKey({ kind: "property", property: "city", faction: "os" })).not.toBe(
-      brushKey({ kind: "property", property: "city", faction: "bm" }),
-    );
-    expect(brushKey({ kind: "property", property: "city", faction: undefined })).toBe(
-      brushKey({ kind: "property", property: "city", faction: undefined }),
-    );
-  });
-});
-
-describe("what the board still needs", () => {
-  it("says nothing is left when every army is seated", () => {
-    expect(boardNotes(state())).toEqual([
-      { tone: "ready", message: "Every army is seated and can build." },
-    ]);
-  });
-
-  it("asks for a headquarters on an empty board", () => {
-    const notes = boardNotes(state({ armies: [] }));
-    expect(notes).toHaveLength(1);
-    expect(notes[0]?.message).toContain("headquarters");
-  });
-
-  it("names the army that holds no headquarters", () => {
-    const notes = boardNotes(
-      state({ armies: [army({ faction: "os" }), army({ faction: "bm", headquarters: 0 })] }),
-    );
-    expect(notes.some((note) => note.message.startsWith("Blue Moon"))).toBe(true);
-  });
-
-  it("names an army that cannot build", () => {
-    const notes = boardNotes(
-      state({ armies: [army({ faction: "os" }), army({ faction: "bm", production: 0 })] }),
-    );
-    expect(notes.some((note) => note.message.includes("cannot build"))).toBe(true);
-  });
-
-  it("reports a board that has drifted out of its own fold", () => {
-    const notes = boardNotes(state({ symmetric: false }));
-    expect(notes.some((note) => note.message.includes("left and right"))).toBe(true);
-  });
-
-  it("names the first tile that does not fold, and how many follow it", () => {
-    const notes = boardNotes(
-      state({ symmetric: false, unevenTiles: 3, firstUnevenTile: { x: 4, y: 7 } }),
-    );
-    expect(notes.some((note) => note.message.includes("(4, 7) and 2 more"))).toBe(true);
-  });
-
-  it("names a lone tile without a tail", () => {
-    const notes = boardNotes(
-      state({ symmetric: false, unevenTiles: 1, firstUnevenTile: { x: 4, y: 7 } }),
-    );
-    const uneven = notes.find((note) => note.message.includes("(4, 7)"));
-    expect(uneven?.message).toBe("1 tile does not fold under left and right: (4, 7).");
-  });
-
-  it("keeps no opinion about armies holding different things", () => {
-    // A base placed where the second army takes it on turn one is how a map
-    // answers the first-turn advantage. The readout prints the counts and
-    // leaves the decision alone.
-    const notes = boardNotes(
+  it("steps tile problems first, then each army's, then every empty seat as one", () => {
+    const pair = [
+      { x: 5, y: 7 },
+      { x: 16, y: 8 },
+    ];
+    const hqs = [
+      { x: 13, y: 5 },
+      { x: 13, y: 15 },
+    ];
+    const list = problems(
       state({
-        armies: [army({ faction: "os", properties: 4 }), army({ faction: "bm", properties: 6 })],
+        unevenGroups: [pair],
+        armies: [
+          army({ faction: "os", production: 0 }),
+          army({ faction: "bm", hqAt: [] }),
+          army({ faction: "bh", hqAt: hqs }),
+        ],
+        roster: ["os", "bm", "ge", "yc", "bh"],
       }),
+      false,
     );
 
-    expect(notes).toEqual([{ tone: "ready", message: "Every army is seated and can build." }]);
-  });
-
-  it("says nothing about symmetry when no fold is set", () => {
-    const notes = boardNotes(state({ symmetry: "none", symmetric: false }));
-    expect(notes.every((note) => !note.message.includes("read the same"))).toBe(true);
-  });
-});
-
-describe("what saving does", () => {
-  it("says which map the button writes to", () => {
-    expect(saveLabel("create")).toBe("Keep this map");
-    expect(saveLabel("revise")).toContain("revision");
-    expect(saveLabel("fork")).toContain("my own");
-  });
-
-  it("names the revision an edit will become", () => {
-    expect(saveBlurb("revise", 3)).toContain("Revision 4");
+    expect(list).toEqual([
+      { kind: "uneven", tiles: pair },
+      { kind: "extra-hq", faction: "bh", tiles: hqs },
+      { kind: "no-hq", faction: "bm" },
+      { kind: "no-build", faction: "os" },
+      { kind: "empty", factions: ["ge", "yc"] },
+    ]);
   });
 });
 
-describe("stepping along a drawer", () => {
-  const cells = [
-    cell("ground", { kind: "terrain", terrain: 1 }),
-    cell("ground", { kind: "terrain", terrain: 2 }),
-    cell("ground", { kind: "terrain", terrain: 3 }),
-  ];
-
-  it("moves to the next key and to the one before", () => {
-    expect(stepBrush(cells, { kind: "terrain", terrain: 2 }, 1)).toEqual({
-      kind: "terrain",
-      terrain: 3,
-    });
-    expect(stepBrush(cells, { kind: "terrain", terrain: 2 }, -1)).toEqual({
-      kind: "terrain",
-      terrain: 1,
-    });
+describe("saving", () => {
+  it("is unsaved when the history or the name moved", () => {
+    const savedAt = { historyId: 3, name: "Twin Fords" };
+    expect(isDirty({ historyId: 3 }, savedAt, "Twin Fords")).toBe(false);
+    expect(isDirty({ historyId: 4 }, savedAt, "Twin Fords")).toBe(true);
+    expect(isDirty({ historyId: 3 }, savedAt, "Twin Fords II")).toBe(true);
   });
 
-  it("wraps at both ends, so the last key is never the hardest to reach", () => {
-    expect(stepBrush(cells, { kind: "terrain", terrain: 3 }, 1)).toEqual({
-      kind: "terrain",
-      terrain: 1,
+  it("names what a save writes, and is red only while unsaved", () => {
+    expect(saveKey("create", false)).toEqual({ label: "Save map", isRed: false, isInert: true });
+    expect(saveKey("create", true)).toEqual({ label: "Save map", isRed: true, isInert: false });
+    expect(saveKey("revise", false)).toEqual({ label: "No changes", isRed: false, isInert: true });
+    expect(saveKey("revise", true)).toEqual({
+      label: "Save changes",
+      isRed: true,
+      isInert: false,
     });
-    expect(stepBrush(cells, { kind: "terrain", terrain: 1 }, -1)).toEqual({
-      kind: "terrain",
-      terrain: 3,
+    // A clean fork still writes a map of one's own.
+    expect(saveKey("fork", false)).toEqual({
+      label: "Save as new map",
+      isRed: false,
+      isInert: false,
     });
   });
 
-  it("starts at the front when the loaded brush is not in this drawer", () => {
-    expect(stepBrush(cells, { kind: "erase-unit" }, 1)).toEqual({ kind: "terrain", terrain: 1 });
-    expect(stepBrush(cells, null, 1)).toEqual({ kind: "terrain", terrain: 1 });
+  it("reads each refusal as its recovery", () => {
+    expect(saveFailure(new Error(MAP_SAVE_REFUSALS.changed))).toEqual({ kind: "changed" });
+    expect(saveFailure(new Error(MAP_SAVE_REFUSALS.missing))).toEqual({ kind: "missing" });
+    expect(saveFailure(new Error(MAP_SAVE_REFUSALS.forbidden))).toEqual({ kind: "forbidden" });
+    expect(saveFailure(new Error("too many requests; try again in a minute"))).toEqual({
+      kind: "busy",
+    });
+    expect(
+      saveFailure(new Error(`${MAP_SAVE_REFUSALS.board}predeployed unit is outside the map`)),
+    ).toEqual({ kind: "refused", reason: "predeployed unit is outside the map" });
+    const issues = [
+      { code: "too_small", path: ["document"], message: "a board is at least 5 tiles on a side" },
+    ];
+    expect(saveFailure(new Error(JSON.stringify(issues)))).toEqual({
+      kind: "refused",
+      reason: "a board is at least 5 tiles on a side",
+    });
   });
 
-  it("answers nothing for an empty drawer", () => {
-    expect(stepBrush([], { kind: "terrain", terrain: 1 }, 1)).toBeNull();
-  });
-
-  it("empties the ground in a drawer of ground and the unit in a drawer of units", () => {
-    expect(eraserOfDrawer("terrain")).toEqual({ kind: "erase" });
-    expect(eraserOfDrawer("property")).toEqual({ kind: "erase" });
-    expect(eraserOfDrawer("unit")).toEqual({ kind: "erase-unit" });
-  });
-});
-
-describe("a key's name", () => {
-  it("marks where a name too long for one line may break", () => {
-    expect(keyName("Submarine")).toBe("Sub\u00ADmarine");
-    expect(keyName("Piperunner")).toBe("Pipe\u00ADrunner");
-  });
-
-  it("leaves a name that fits alone", () => {
-    expect(keyName("Plain")).toBe("Plain");
-    expect(keyName("Missile silo")).toBe("Missile silo");
-  });
-});
-
-describe("the key legend", () => {
-  it("gives every row a key and something it does", () => {
-    for (const shortcut of EDITOR_SHORTCUTS) {
-      expect(shortcut.keys.length).toBeGreaterThan(0);
-      expect(shortcut.does).toBeTruthy();
+  it("calls anything else a failed save, not a refused board", () => {
+    for (const message of ["Failed to fetch", "Unauthorized", "Internal Server Error", "[]"]) {
+      expect(saveFailure(new Error(message))).toEqual({ kind: "failed" });
     }
   });
 
-  it("prints a fragment against each key rather than a sentence", () => {
-    for (const shortcut of EDITOR_SHORTCUTS) {
-      expect(shortcut.does.length).toBeLessThanOrEqual(24);
-      expect(shortcut.does).not.toMatch(/\.$/);
+  it("offers a new map only when the revision can no longer be written", () => {
+    expect(savesAsNewMap({ kind: "changed" })).toBe(true);
+    expect(savesAsNewMap({ kind: "forbidden" })).toBe(true);
+    expect(savesAsNewMap({ kind: "busy" })).toBe(false);
+    expect(savesAsNewMap({ kind: "refused", reason: "" })).toBe(false);
+  });
+
+  it("checks the name before sending it", () => {
+    expect(nameProblem("   ", 80)).toBe("Name required");
+    expect(nameProblem("x".repeat(81), 80)).toBe("80 characters at most");
+    expect(nameProblem(" Twin Fords ", 80)).toBeNull();
+  });
+});
+
+describe("the brush tray", () => {
+  const ground = Array.from({ length: 14 }, (_, terrain) =>
+    cell("ground", { kind: "terrain", terrain }),
+  );
+  const property = (faction?: string) =>
+    (["city", "base", "airport", "port", "com-tower", "lab", "hq"] as const)
+      .filter((kind) => faction !== undefined || kind !== "hq")
+      .map((kind) => cell("property", { kind: "property", property: kind, faction }));
+  const army: EditorPalette = {
+    terrain: [...ground, ...property("os")],
+    units: [
+      cell("unit", { kind: "unit", unit: "lander", faction: "os", hp: 10 }),
+      cell("unit", { kind: "unit", unit: "infantry", faction: "os", hp: 10 }),
+      cell("unit", { kind: "unit", unit: "fighter", faction: "os", hp: 10 }),
+    ],
+  };
+  const neutral: EditorPalette = { terrain: [...ground, ...property()], units: [] };
+
+  it("keeps the eraser in the last row's seventh slot of every tab", () => {
+    for (const tab of ["terrain", "buildings", "units"] as const) {
+      const cells = trayCells(tab, army, neutral);
+      expect(cells.length % 7).toBe(0);
+      expect(cells.at(-1)?.brush.kind).toBe(tab === "units" ? "erase-unit" : "erase");
     }
   });
 
-  it("leaves the pointer gestures to the strip under the board", () => {
-    for (const shortcut of EDITOR_SHORTCUTS) {
-      expect(shortcut.keys.join(" ")).not.toMatch(/alt/i);
-      expect(shortcut.does).not.toMatch(/click/i);
-    }
+  it("follows the army's buildings with the neutral ones", () => {
+    const cells = trayCells("buildings", army, neutral);
+    expect(cells.slice(0, 7).every((entry) => entry?.brush.kind === "property")).toBe(true);
+    expect(cells[0]?.brush).toMatchObject({ faction: "os" });
+    expect(cells[7]?.brush).toMatchObject({ faction: undefined });
+  });
+
+  it("files units in build-list order, a row per facility", () => {
+    const units = trayCells("units", army, neutral).map((entry) =>
+      entry?.brush.kind === "unit" ? entry.brush.unit : (entry?.brush.kind ?? null),
+    );
+    expect(units.indexOf("infantry")).toBe(0);
+    expect(units.indexOf("fighter")).toBe(7);
+    expect(units.indexOf("lander")).toBe(14);
+  });
+
+  it("steps through a tab and wraps at both ends", () => {
+    const cells = ground.slice(0, 3);
+    expect(stepBrush(cells, cells[2]!.brush, 1)).toEqual(cells[0]!.brush);
+    expect(stepBrush(cells, cells[0]!.brush, -1)).toEqual(cells[2]!.brush);
+    expect(stepBrush(cells, { kind: "erase" }, 1)).toEqual(cells[0]!.brush);
+  });
+});
+
+describe("board setup", () => {
+  it("grows the roster in game order and keeps the seats it holds", () => {
+    expect(rosterOfSize(["rf", "bd"], 3)).toEqual(["rf", "bd", "os"]);
+    expect(rosterOfSize(["os", "bm", "ge"], 1)).toEqual(["os", "bm"]);
+  });
+
+  it("keeps the part of the board a resize keeps, as the engine anchors it", () => {
+    const from = { width: 18, height: 18 };
+    expect(resizeKept(from, { width: 18, height: 16 }, "top-left")).toEqual({
+      x0: 0,
+      y0: 0,
+      x1: 18,
+      y1: 16,
+    });
+    expect(resizeKept(from, { width: 18, height: 15 }, "center")).toEqual({
+      x0: 0,
+      y0: 1,
+      x1: 18,
+      y1: 16,
+    });
+    expect(resizeKept(from, { width: 20, height: 16 }, "bottom-right")).toEqual({
+      x0: 0,
+      y0: 2,
+      x1: 18,
+      y1: 18,
+    });
   });
 });

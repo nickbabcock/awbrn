@@ -1,12 +1,3 @@
-/**
- * The editor, as a screen holds it.
- *
- * The board keeps the map: every edit is applied inside the engine, where the
- * rules for a road and a mirror already are. This hook is the wire between
- * that and the panels around it. It sends what the map maker asked for and
- * holds the last report the board sent back.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameRunner } from "#/engine/game_runner.ts";
 import type { AwbrnMapDocument } from "#/maps/map_document.ts";
@@ -15,28 +6,26 @@ import type {
   EditorCommand,
   EditorPalette,
   EditorStateChanged,
+  EditorTile,
   ResizeAnchor,
   Symmetry,
 } from "#/wasm/awbrn_wasm.js";
 
 export interface MapEditorSource {
-  /** Fork or edit this map, or open a blank board when it is absent. */
+  /** The map to open, or null for a blank board. */
   document: AwbrnMapDocument | null;
-  /** The revision the editor opened, or null for a new board. */
-  revision: number | null;
-  /** The size of a blank board. Ignored when a document is given. */
   width: number;
   height: number;
 }
 
 export interface MapEditorHandle {
-  /** The last report the board sent, or null before the first one. */
   state: EditorStateChanged | null;
-  /** Whether the current source has opened on the board. */
+  /** Whether `source` has opened on the board. */
   sourceReady: boolean;
-  /** Every brush the palette can offer, in the selected army's colours. */
+  /** The chosen army's buildings and units. */
   palette: EditorPalette | null;
-  /** What went wrong, in the words it went wrong in. */
+  /** The neutral buildings. */
+  neutralPalette: EditorPalette | null;
   error: string | null;
   setBrush: (brush: Brush) => void;
   setSymmetry: (symmetry: Symmetry) => void;
@@ -45,8 +34,13 @@ export interface MapEditorHandle {
   fill: (terrain: number) => void;
   undo: () => void;
   redo: () => void;
-  /** The map as the board now stands. */
+  /** Rings `tiles`; `center` also brings the first into view. */
+  focusTiles: (tiles: EditorTile[], center: boolean) => void;
   readDocument: (name: string, author: string) => Promise<AwbrnMapDocument>;
+}
+
+function message(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function useMapEditor({
@@ -54,20 +48,15 @@ export function useMapEditor({
   runner,
   source,
 }: {
-  /** The army whose buildings and units the palette offers. */
-  factionCode: string | null;
+  factionCode: string;
   runner: GameRunner;
   source: MapEditorSource | null;
 }): MapEditorHandle {
   const [state, setState] = useState<EditorStateChanged | null>(null);
   const [palette, setPalette] = useState<EditorPalette | null>(null);
+  const [neutralPalette, setNeutralPalette] = useState<EditorPalette | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openedSource, setOpenedSource] = useState<MapEditorSource | null>(null);
-
-  // The board reports on its own schedule, so the handler is registered once
-  // and reads through a ref rather than being replaced on every report.
-  const stateRef = useRef<EditorStateChanged | null>(null);
-  stateRef.current = state;
 
   useEffect(() => {
     runner.setEditorStateHandler((next) => setState(next));
@@ -75,66 +64,53 @@ export function useMapEditor({
   }, [runner]);
 
   useEffect(() => {
-    if (!source) {
-      setOpenedSource(null);
-      return;
-    }
-
-    let cancelled = false;
+    if (!source) return;
+    let canceled = false;
+    // Deferred, so a mount that is torn down at once (Strict Mode) opens nothing.
     void Promise.resolve()
       .then(async () => {
-        if (cancelled) return;
-        if (source.document) {
-          await runner.openEditor(source.document);
-        } else {
-          await runner.openBlankEditor(source.width, source.height);
-        }
-        if (!cancelled) setOpenedSource(source);
+        if (canceled) return;
+        if (source.document) await runner.openEditor(source.document);
+        else await runner.openBlankEditor(source.width, source.height);
+        if (!canceled) setOpenedSource(source);
       })
       .catch((cause: unknown) => {
-        if (cancelled) return;
-        setError(cause instanceof Error ? cause.message : "The board did not open.");
+        if (!canceled) setError(message(cause));
       });
-
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [runner, source]);
 
   useEffect(() => {
-    let cancelled = false;
-    void runner
-      .loadEditorPalette(factionCode)
-      .then((next) => {
-        if (!cancelled) setPalette(next);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        setError(cause instanceof Error ? cause.message : "The palette could not be read.");
-      });
-
+    let canceled = false;
+    Promise.all([runner.loadEditorPalette(factionCode), runner.loadEditorPalette(null)]).then(
+      ([army, neutral]) => {
+        if (canceled) return;
+        setPalette(army);
+        setNeutralPalette(neutral);
+      },
+      (cause: unknown) => {
+        if (!canceled) setError(message(cause));
+      },
+    );
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [factionCode, runner]);
 
-  // Commands are answered out of order, so each one carries a number and only
-  // the newest one may write the error line. Without it a refusal from a
-  // command two strokes back could land on top of what the board just said,
-  // and the map maker would read the wrong reason.
+  // Commands answer out of order; only the newest may set or clear the error.
   const sent = useRef(0);
-
   const send = useCallback(
     (command: EditorCommand) => {
       sent.current += 1;
       const mine = sent.current;
-      void runner.sendEditorCommand(command).then(
+      runner.sendEditorCommand(command).then(
         () => {
           if (mine === sent.current) setError(null);
         },
         (cause: unknown) => {
-          if (mine !== sent.current) return;
-          setError(cause instanceof Error ? cause.message : "The board refused that.");
+          if (mine === sent.current) setError(message(cause));
         },
       );
     },
@@ -145,6 +121,7 @@ export function useMapEditor({
     state,
     sourceReady: source !== null && openedSource === source,
     palette,
+    neutralPalette,
     error,
     setBrush: useCallback((brush: Brush) => send({ type: "setBrush", brush }), [send]),
     setSymmetry: useCallback(
@@ -160,6 +137,10 @@ export function useMapEditor({
     fill: useCallback((terrain: number) => send({ type: "fill", terrain }), [send]),
     undo: useCallback(() => send({ type: "undo" }), [send]),
     redo: useCallback(() => send({ type: "redo" }), [send]),
+    focusTiles: useCallback(
+      (tiles: EditorTile[], center: boolean) => send({ type: "focusTiles", tiles, center }),
+      [send],
+    ),
     readDocument: useCallback(
       (name: string, author: string) => runner.readEditorDocument(name, author),
       [runner],

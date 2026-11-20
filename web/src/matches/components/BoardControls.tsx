@@ -561,7 +561,8 @@ const styles = stylex.create({
   readout: {
     display: "inline-grid",
     placeItems: "center",
-    inlineSize: matchLayout.scaleReadout,
+    minInlineSize: matchLayout.scaleReadout,
+    paddingInline: spacingVars["--spacing-1"],
     blockSize: matchLayout.target,
     borderInlineColor: awbrnVars.ink700,
     borderInlineStyle: "solid",

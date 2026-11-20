@@ -28,7 +28,14 @@ interface AuthProblem {
   isSignInFix: boolean;
 }
 
-export function AuthPage({ isRegister }: { isRegister: boolean }) {
+export function AuthPage({
+  isRegister,
+  returnTo,
+}: {
+  isRegister: boolean;
+  /** A path on this site to go to once signed in. */
+  returnTo?: string;
+}) {
   const navigate = useNavigate();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -41,7 +48,10 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
 
   function changeMode(next: Mode): void {
     setProblem(null);
-    void navigate({ search: { mode: next === "register" ? "register" : undefined }, to: "/auth" });
+    void navigate({
+      search: { mode: next === "register" ? "register" : undefined, redirect: returnTo },
+      to: "/auth",
+    });
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -66,7 +76,7 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
       // Drop loads cached while signed out, but do not reload this page: its
       // guard would redirect home too, holding the form up for a second load.
       router.clearCache();
-      await navigate({ to: "/" });
+      await navigate({ href: returnTo ?? "/" });
     } catch (nextError) {
       setProblem({
         isSignInFix: false,

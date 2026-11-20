@@ -7,7 +7,7 @@ import { mapRevisions, maps, user } from "#/db/global.ts";
 import { MAP_CATALOG_PAGE_SIZE } from "./map_catalog.ts";
 import type { AwbrnMapDocument } from "./map_document.ts";
 import { listCatalogMaps, loadMapRevision, saveEditedMap } from "./maps.server.ts";
-import { mapSaveRequestSchema, type MapRank } from "./schemas.ts";
+import { MAP_SAVE_REFUSALS, mapSaveRequestSchema, type MapRank } from "./schemas.ts";
 
 const db = drizzle(env.DB);
 
@@ -134,6 +134,18 @@ describe("saving map drafts", () => {
       mapId = created.mapId;
 
       expect(created).toMatchObject({ revision: 1, written: true });
+      await expect(
+        saveEditedMap(
+          mapSaveRequestSchema.parse({
+            mapId,
+            expectedRevision: 1,
+            expectedName: "Draft",
+            name: "Taken",
+            document: draft(2),
+          }),
+          actorFromRole(`map-save-other-${crypto.randomUUID()}`, "user"),
+        ),
+      ).rejects.toThrow(MAP_SAVE_REFUSALS.forbidden);
       await expect(loadMapRevision({ mapId, revision: 1 })).resolves.toMatchObject({
         metadata: { player_count: 0 },
       });

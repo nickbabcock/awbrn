@@ -27,7 +27,7 @@ struct NearbyTiles {
 impl AwbrnMap {
     /// The terrain around `position`.
     ///
-    /// A neighbour off any edge reads as `None`: [`Pos::offset`] has no
+    /// A neighbor off any edge reads as `None`: [`Pos::offset`] has no
     /// coordinate past the origin, and the grid bounds-checks the rest.
     fn get_nearby_tiles(map: &AwbwMap, position: Pos) -> NearbyTiles {
         let at = |dx, dy| position.offset(dx, dy).and_then(|pos| map.terrain_at(pos));
@@ -44,7 +44,7 @@ impl AwbrnMap {
         }
     }
 
-    /// Whether a shore drawn against this neighbour is drawn against land.
+    /// Whether a shore drawn against this neighbor is drawn against land.
     ///
     /// A tile off the edge of the board is water, so a coast at the edge is
     /// drawn as a coast. The rule for the tiles that are on the board is

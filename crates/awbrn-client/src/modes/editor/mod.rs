@@ -9,13 +9,14 @@
 //! the camera and the tile cursor are the ones the client already has, so a map
 //! is edited against exactly the picture it will be played on.
 
-use crate::core::coords::position_to_world_translation;
+mod marks;
+
+use crate::core::coords::tile_center_world_position;
 use crate::core::{AppState, GameMode, LoadingState};
+use crate::features::CameraCommand;
+use crate::features::camera::{FitCeiling, FocusBoardOn};
 use crate::features::event_bus::EventSink;
-use crate::features::input::{
-    BoardCursor, DragOwner, PointerGesture, PointerGestureKind, PointerSet, TILE_CORE_SPRITE_SIZE,
-};
-use crate::render::UiAtlas;
+use crate::features::input::{DragOwner, PointerGesture, PointerGestureKind, PointerSet};
 use awbrn_bevy::MapPosition;
 use awbrn_bevy::world::{
     BoardIndex, BoardOf, Faction, GameMap, GraphicalHp, TerrainTile, Unit, UnitActive, board_root,
@@ -34,8 +35,8 @@ use std::collections::VecDeque;
 pub struct EditorSession {
     editor: MapEditor,
     brush: Brush,
-    /// Counts the edits, so the browser can tell one report from the next.
-    revision: u32,
+    /// The tiles of the problem the page has in focus, ringed on the board.
+    focus: Vec<Pos>,
 }
 
 impl EditorSession {
@@ -45,7 +46,7 @@ impl EditorSession {
             brush: Brush::Terrain {
                 terrain: AwbwTerrain::Plain,
             },
-            revision: 0,
+            focus: Vec::new(),
         }
     }
 
@@ -124,6 +125,14 @@ pub enum EditorCommand {
         height: u8,
         anchor: ResizeAnchor,
     },
+    /// Ring the tiles of one problem, and with `center` bring the first into
+    /// view. No tiles clears the ring.
+    FocusTiles {
+        tiles: Vec<EditorTile>,
+        #[serde(default)]
+        #[cfg_attr(target_family = "wasm", tsify(optional))]
+        center: bool,
+    },
 }
 
 /// The commands that arrived since the last frame.
@@ -147,19 +156,22 @@ pub fn editor_is_open(world: &World) -> bool {
 }
 
 /// One army on the board, and what it holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
 #[serde(rename_all = "camelCase")]
 pub struct EditorArmy {
     #[cfg_attr(target_family = "wasm", tsify(type = "string"))]
     pub faction: FactionCode,
-    /// How many headquarters the army holds. A playable army holds one.
-    pub headquarters: u32,
+    /// Where the army's headquarters stand, in board order. A playable army
+    /// holds one.
+    pub hq_at: Vec<EditorTile>,
     /// Every building the army holds, headquarters included.
     pub properties: u32,
     /// How many bases, airports and ports the army can build from.
     pub production: u32,
     pub units: u32,
+    /// Funds per turn the army's buildings pay.
+    pub income: u32,
 }
 
 /// One tile, named the way the board names it.
@@ -171,17 +183,26 @@ pub struct EditorTile {
     pub y: u8,
 }
 
-/// What the board holds, as the editor reads it.
-///
-/// This is the map maker's readout. It is derived after every edit rather than
-/// asked for, because the answer to "is this map fair yet" is the one thing a
-/// symmetry mode cannot promise on its own: a mirror keeps the ground equal,
-/// and says nothing about a headquarters that was never placed.
+impl EditorTile {
+    fn pos(self) -> Pos {
+        Pos::new(self.x, self.y)
+    }
+}
+
+impl From<Pos> for EditorTile {
+    fn from(position: Pos) -> Self {
+        EditorTile {
+            x: position.x,
+            y: position.y,
+        }
+    }
+}
+
+/// What the board holds, as the editor reads it, after every command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
 #[serde(rename_all = "camelCase")]
 pub struct EditorStateChanged {
-    pub revision: u32,
     pub width: u8,
     pub height: u8,
     /// The armies that hold anything, in the order the game lists them.
@@ -192,23 +213,19 @@ pub struct EditorStateChanged {
     /// The modes this board can be folded with. A board that is not square
     /// refuses the quarter turn and both diagonals.
     pub available_symmetries: Vec<Symmetry>,
-    /// Whether the ground as it stands already reads the same under its mode.
-    pub symmetric: bool,
-    /// How many tiles do not read the same under the mode in use.
-    pub uneven_tiles: u32,
-    /// The first of those tiles in board order. A count with no coordinate is
-    /// a fault report a map maker cannot act on.
-    pub first_uneven_tile: Option<EditorTile>,
+    /// The tiles whose ground does not fold under the mode in use, one group
+    /// per set of tiles a stroke reaches together, in board order.
+    pub uneven_groups: Vec<Vec<EditorTile>>,
     /// Funds per turn every income-paying building on the board is worth,
-    /// whoever holds it. A com tower and a lab are held like any other
-    /// building and pay nothing, so this is not the building count.
+    /// whoever holds it.
     pub board_income: u32,
-    /// That figure shared evenly between the armies on the roster. It is what
-    /// one side of the map is worth when the sides are equal. A map maker
-    /// draws towards this number.
-    pub income_per_army: u32,
     pub can_undo: bool,
     pub can_redo: bool,
+    /// The step of history the board is at: 0 as opened, a new id for each
+    /// edit, and the id of the step an undo or redo lands on.
+    pub history_id: u32,
+    /// Whether the terrain or units differ from the board as opened.
+    pub board_changed: bool,
     pub brush: Brush,
     #[cfg_attr(target_family = "wasm", tsify(type = "string[]"))]
     pub roster: Vec<FactionCode>,
@@ -235,10 +252,17 @@ pub(crate) fn cleanup_editor_input(
     mut commands: Commands,
     mut queue: ResMut<EditorCommandQueue>,
     mut stroke: ResMut<StrokeInFlight>,
+    mut ceiling: ResMut<FitCeiling>,
 ) {
     commands.remove_resource::<EditorSession>();
     queue.0.clear();
     *stroke = StrokeInFlight::Closed;
+    *ceiling = FitCeiling::Opening;
+}
+
+/// The board a map maker draws on opens as large as its canvas allows.
+fn let_the_board_fill_its_canvas(mut ceiling: ResMut<FitCeiling>) {
+    *ceiling = FitCeiling::Maximum;
 }
 
 /// Puts the open map on the board once the assets are ready.
@@ -258,6 +282,7 @@ pub(crate) fn initialize_editor_world(world: &mut World) {
 
     rebuild_board(world);
     report_state(world);
+    world.write_message(CameraCommand::FitBoard);
 }
 
 /// Rebuilds every tile and unit from the open map.
@@ -309,7 +334,7 @@ fn spawn_editor_unit(
         Faction(faction),
         GraphicalHp::Visible(hp),
         // Nothing on an edited board has spent its turn, so every unit is drawn
-        // at full strength rather than greyed out.
+        // at full strength rather than grayed out.
         UnitActive,
         BoardOf(root),
     ));
@@ -338,7 +363,6 @@ pub(crate) fn run_editor_commands(world: &mut World) {
 
     // Every command reports, whether or not it moved a tile: loading a brush
     // and setting a fold both change what the panels have to say.
-    world.resource_mut::<EditorSession>().revision += 1;
     report_state(world);
 }
 
@@ -398,7 +422,26 @@ fn apply_command(world: &mut World, command: EditorCommand) -> BoardChanges {
                     .resize(Dimensions::new(width, height), anchor)
             }
         }
+        EditorCommand::FocusTiles { tiles, center } => {
+            focus_tiles(world, tiles, center);
+            BoardChanges::default()
+        }
     }
+}
+
+fn focus_tiles(world: &mut World, tiles: Vec<EditorTile>, center: bool) {
+    let mut session = world.resource_mut::<EditorSession>();
+    let dimensions = session.editor.dimensions();
+    session.focus = tiles
+        .into_iter()
+        .map(EditorTile::pos)
+        .filter(|tile| dimensions.contains(*tile))
+        .collect();
+    let Some(lead) = session.focus.first().copied().filter(|_| center) else {
+        return;
+    };
+    let lead = tile_center_world_position(lead, world.resource::<GameMap>()).to_vec2();
+    world.write_message(FocusBoardOn { world: lead });
 }
 
 /// Gives the board the tiles an edit changed, and nothing else.
@@ -407,6 +450,8 @@ fn apply_changes(world: &mut World, changes: &BoardChanges) {
         let drawn = world.resource::<EditorSession>().editor.drawn().clone();
         world.resource_mut::<GameMap>().set(drawn);
         rebuild_board(world);
+        // A board of a new shape opens fitted, as the first one did.
+        world.write_message(CameraCommand::FitBoard);
         return;
     }
 
@@ -452,13 +497,13 @@ fn apply_changes(world: &mut World, changes: &BoardChanges) {
     }
 }
 
-/// Tells the browser what the board now holds.
+/// Tells the browser what the board now holds, and marks its problems.
 fn report_state(world: &mut World) {
-    let Some(sink) = world.get_resource::<EventSink<EditorStateChanged>>() else {
-        return;
-    };
-    let session = world.resource::<EditorSession>();
-    sink.emit(read_state(session));
+    let state = read_state(world.resource::<EditorSession>());
+    marks::redraw_problem_marks(world, &state);
+    if let Some(sink) = world.get_resource::<EventSink<EditorStateChanged>>() {
+        sink.emit(state);
+    }
 }
 
 /// Reads the board, army by army.
@@ -466,74 +511,69 @@ fn read_state(session: &EditorSession) -> EditorStateChanged {
     let editor = &session.editor;
     let map = editor.map();
     let dimensions = map.dimensions();
+    let property_income = u32::try_from(DEFAULT_INCOME_PER_PROPERTY).unwrap_or(u32::MAX);
 
     let mut armies: Vec<EditorArmy> = Vec::new();
-    let mut neutral_properties = 0;
-    fn seat_of(armies: &mut Vec<EditorArmy>, faction: PlayerFaction) -> usize {
+    fn army_of(armies: &mut Vec<EditorArmy>, faction: PlayerFaction) -> &mut EditorArmy {
         let faction = FactionCode::from(faction);
-        match armies.iter().position(|held| held.faction == faction) {
+        let seat = match armies.iter().position(|held| held.faction == faction) {
             Some(seat) => seat,
             None => {
                 armies.push(EditorArmy {
                     faction,
-                    headquarters: 0,
+                    hq_at: Vec::new(),
                     properties: 0,
                     production: 0,
                     units: 0,
+                    income: 0,
                 });
                 armies.len() - 1
             }
-        }
+        };
+        &mut armies[seat]
     }
 
-    // What the board is worth, whoever ends up holding it. Which buildings pay
-    // is the ruleset's answer rather than a list kept here — a com tower and a
-    // lab are held like any other building and pay nothing — and the rate is
-    // the one a real match is set up with.
+    let mut neutral_properties = 0;
     let mut board_income: u32 = 0;
-
-    for (_, terrain) in map.iter() {
+    for (position, terrain) in map.iter() {
         let AwbwTerrain::Property(property) = terrain else {
             continue;
         };
-        if pays_income(terrain) {
-            board_income = board_income
-                .saturating_add(u32::try_from(DEFAULT_INCOME_PER_PROPERTY).unwrap_or(u32::MAX));
-        }
+        // The ruleset says which buildings pay: a com tower and a lab pay
+        // nothing.
+        let income = if pays_income(terrain) {
+            property_income
+        } else {
+            0
+        };
+        board_income = board_income.saturating_add(income);
         let awbrn_types::Faction::Player(faction) = property.faction() else {
             neutral_properties += 1;
             continue;
         };
-        let seat = seat_of(&mut armies, faction);
-        armies[seat].properties += 1;
+        let army = army_of(&mut armies, faction);
+        army.properties += 1;
+        army.income = army.income.saturating_add(income);
         if matches!(property, Property::HQ(_)) {
-            armies[seat].headquarters += 1;
+            army.hq_at.push(position.into());
         }
         if matches!(
             property,
             Property::Base(_) | Property::Airport(_) | Property::Port(_)
         ) {
-            armies[seat].production += 1;
+            army.production += 1;
         }
     }
 
     let mut units = 0;
     for (_, deployment) in map.deployments().iter() {
         units += 1;
-        let seat = seat_of(&mut armies, deployment.faction);
-        armies[seat].units += 1;
+        army_of(&mut armies, deployment.faction).units += 1;
     }
 
     armies.sort_by_key(|held| held.faction.faction());
 
-    let uneven = editor.asymmetries(editor.symmetry());
-    // Divided between the armies on the roster, not the armies that hold
-    // something now. A board drawn for four is drawn towards a quarter each,
-    // even before the fourth army holds anything.
-    let seats = editor.roster().seats().len();
-
     EditorStateChanged {
-        revision: session.revision,
         width: dimensions.width(),
         height: dimensions.height(),
         armies,
@@ -544,16 +584,16 @@ fn read_state(session: &EditorSession) -> EditorStateChanged {
             .into_iter()
             .filter(|symmetry| symmetry.fits(dimensions))
             .collect(),
-        symmetric: uneven.is_empty(),
-        uneven_tiles: u32::try_from(uneven.len()).unwrap_or(u32::MAX),
-        first_uneven_tile: uneven.first().map(|position| EditorTile {
-            x: position.x,
-            y: position.y,
-        }),
+        uneven_groups: editor
+            .uneven_groups()
+            .into_iter()
+            .map(|group| group.into_iter().map(EditorTile::from).collect())
+            .collect(),
         board_income,
-        income_per_army: board_income / u32::try_from(seats).unwrap_or(1).max(1),
         can_undo: editor.can_undo(),
         can_redo: editor.can_redo(),
+        history_id: editor.history_id(),
+        board_changed: editor.board_changed(),
         brush: session.brush,
         roster: editor
             .roster()
@@ -562,106 +602,6 @@ fn read_state(session: &EditorSession) -> EditorStateChanged {
             .copied()
             .map(FactionCode::from)
             .collect(),
-    }
-}
-
-/// One of the cursors drawn where a stroke would also land.
-///
-/// A fold means a stroke is never one tile, and until this was drawn the only
-/// way to find out where the other tiles were was to make the stroke and look.
-/// The images are the answer to "where is this going to land", given before it
-/// lands rather than in a sentence in the settings column.
-#[derive(Component, Debug)]
-pub struct FoldCursor;
-
-/// How many images a fold can add beside the tile under the pointer.
-///
-/// The widest fold is the quarter turn, which takes four tiles: the one the
-/// pointer is on and three more. The cursors are spawned once and moved,
-/// because a cursor that is spawned and despawned as the pointer travels is a
-/// cursor that flickers.
-const FOLD_CURSOR_COUNT: usize = 3;
-
-/// How much of the cursor an image keeps.
-///
-/// The same orange the board's own cursor wears, at half strength: an image is
-/// a consequence of where the pointer is, and it must never be mistaken for
-/// where the pointer is.
-const FOLD_CURSOR_ALPHA: f32 = 0.5;
-
-pub(crate) fn spawn_fold_cursors(
-    mut commands: Commands,
-    ui_atlas: UiAtlas,
-    existing: Query<(), With<FoldCursor>>,
-) {
-    // Every map the editor opens completes a load. The cursors from the first
-    // one serve all of them.
-    if !existing.is_empty() {
-        return;
-    }
-
-    for _ in 0..FOLD_CURSOR_COUNT {
-        let mut sprite = ui_atlas.sprite_for("Effects/TileCursor.png");
-        sprite.color = Color::srgba(1.0, 1.0, 1.0, FOLD_CURSOR_ALPHA);
-        commands.spawn((
-            sprite,
-            // Under the cursor the pointer is on, so that the two never argue
-            // about which one is in front where a board is small enough for
-            // them to meet.
-            Transform::from_translation(Vec3::new(
-                0.0,
-                0.0,
-                TILE_CORE_SPRITE_SIZE.z_index as f32 - 0.5,
-            )),
-            Visibility::Hidden,
-            FoldCursor,
-        ));
-    }
-}
-
-/// Where else the stroke under the pointer would land.
-///
-/// The editor works the images out, because it is the one that would paint
-/// them; the screen only asks. Nothing is drawn while the fold is free, and
-/// nothing is drawn while the eyedropper is held, because a pick lands on the
-/// one tile it is pointing at.
-fn fold_images(
-    cursor: &BoardCursor<'_, '_>,
-    keys: &ButtonInput<KeyCode>,
-    session: &EditorSession,
-) -> Vec<Pos> {
-    if session.editor.symmetry() == Symmetry::None || eyedropper(keys).is_some() {
-        return Vec::new();
-    }
-
-    let Some(tile) = cursor.tile() else {
-        return Vec::new();
-    };
-
-    let mut images = session.editor.images(tile);
-    images.retain(|image| *image != tile);
-    images
-}
-
-pub(crate) fn update_fold_cursors(
-    cursor: BoardCursor<'_, '_>,
-    keys: Res<ButtonInput<KeyCode>>,
-    game_map: Res<GameMap>,
-    session: Res<EditorSession>,
-    mut cursors: Query<(&mut Transform, &mut Visibility), With<FoldCursor>>,
-) {
-    let mut images = fold_images(&cursor, &keys, &session).into_iter();
-
-    for (mut transform, mut visibility) in &mut cursors {
-        let Some(image) = images.next() else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        let center =
-            position_to_world_translation(&TILE_CORE_SPRITE_SIZE, image, game_map.as_ref());
-        transform.translation.x = center.x;
-        transform.translation.y = center.y;
-        *visibility = Visibility::Visible;
     }
 }
 
@@ -792,7 +732,7 @@ fn tiles_between(from: Pos, to: Pos) -> Vec<Pos> {
     let mut tiles = Vec::with_capacity(usize::try_from(across + down).unwrap_or(0));
     let (mut moved_x, mut moved_y) = (0, 0);
     while moved_x < across || moved_y < down {
-        // Step along the axis whose next tile centre is nearer the line.
+        // Step along the axis whose next tile center is nearer the line.
         if (1 + 2 * moved_x) * down < (1 + 2 * moved_y) * across {
             x += step_x;
             moved_x += 1;
@@ -853,16 +793,17 @@ impl Plugin for EditorPlugin {
             )
             .add_systems(
                 OnEnter(LoadingState::Complete),
-                spawn_fold_cursors
-                    .after(crate::loading::setup_ui_atlas)
+                marks::create_mark_art
+                    .before(initialize_editor_world)
                     .run_if(in_state(GameMode::Editor)),
             )
             .add_systems(
                 Update,
-                update_fold_cursors
+                marks::draw_landings
                     .run_if(in_state(AppState::InGame))
                     .run_if(in_state(GameMode::Editor))
-                    .run_if(resource_exists::<EditorSession>),
+                    .run_if(resource_exists::<EditorSession>)
+                    .run_if(resource_exists::<marks::MarkArt>),
             )
             .add_systems(
                 Update,
@@ -870,6 +811,7 @@ impl Plugin for EditorPlugin {
                     .run_if(in_state(AppState::InGame))
                     .run_if(in_state(GameMode::Editor)),
             )
+            .add_systems(OnEnter(GameMode::Editor), let_the_board_fill_its_canvas)
             .add_systems(OnExit(GameMode::Editor), cleanup_editor_input)
             .add_systems(
                 Update,
@@ -902,7 +844,9 @@ mod tests {
     fn editor_world(width: u8, height: u8) -> App {
         let mut app = App::new();
         app.add_plugins(awbrn_bevy::GameWorldPlugin);
-        app.init_resource::<EditorCommandQueue>();
+        app.init_resource::<EditorCommandQueue>()
+            .add_message::<CameraCommand>()
+            .add_message::<FocusBoardOn>();
         app.world_mut()
             .insert_resource(crate::loading::LoadedEditorMap(AwbwMap::new(
                 Dimensions::new(width, height),
@@ -1307,11 +1251,13 @@ mod tests {
 
         assert_eq!(state.armies.len(), 2);
         for army in &state.armies {
-            assert_eq!(army.headquarters, 1);
             assert_eq!(army.properties, 2);
             assert_eq!(army.production, 1);
+            assert_eq!(army.income, 2_000);
         }
-        assert!(state.symmetric);
+        assert_eq!(state.armies[0].hq_at, vec![EditorTile { x: 1, y: 1 }]);
+        assert_eq!(state.armies[1].hq_at, vec![EditorTile { x: 8, y: 1 }]);
+        assert!(state.uneven_groups.is_empty());
     }
 
     /// The board's worth is money rather than a count of buildings: a com
@@ -1344,36 +1290,14 @@ mod tests {
         let state = read_state(&session);
 
         assert_eq!(state.board_income, 2_000, "the com tower pays nothing");
-        assert_eq!(state.income_per_army, 1_000, "shared between the two seats");
-    }
-
-    /// The share is taken over the seats on the roster, not the armies that
-    /// hold something now. A board drawn for four is drawn towards a quarter
-    /// each before the fourth army holds anything.
-    #[test]
-    fn the_share_follows_the_roster_rather_than_the_board() {
-        let mut session = session(12, 12);
-        session.editor.set_roster(ArmyRoster::standard());
-        session.editor.set_symmetry(Symmetry::QuadMirror);
-        session.editor.paint(
-            Pos::new(1, 1),
-            Brush::Property {
-                property: PropertyKind::City,
-                faction: None,
-            },
+        assert_eq!(
+            state.armies[0].income, 1_000,
+            "an army is paid for what it holds"
         );
-
-        let state = read_state(&session);
-
-        assert_eq!(state.armies.len(), 0, "a neutral city seats nobody");
-        assert_eq!(state.board_income, 4_000, "the fold put down four cities");
-        assert_eq!(state.income_per_army, 1_000);
     }
 
-    /// A count with no coordinate is a fault report a map maker cannot act on,
-    /// so the readout names the first tile that does not fold.
     #[test]
-    fn an_uneven_board_names_its_first_tile() {
+    fn an_uneven_board_names_each_pair_that_does_not_fold() {
         let mut session = session(10, 6);
         session.editor.set_symmetry(Symmetry::MirrorLeftRight);
         session.editor.paint(
@@ -1393,9 +1317,10 @@ mod tests {
         session.editor.set_symmetry(Symmetry::MirrorLeftRight);
         let state = read_state(&session);
 
-        assert!(!state.symmetric);
-        assert_eq!(state.uneven_tiles, 2);
-        assert_eq!(state.first_uneven_tile, Some(EditorTile { x: 2, y: 1 }));
+        assert_eq!(
+            state.uneven_groups,
+            vec![vec![EditorTile { x: 2, y: 1 }, EditorTile { x: 7, y: 1 }]]
+        );
     }
 
     #[test]
@@ -1427,7 +1352,7 @@ mod tests {
         let state = read_state(&session);
 
         assert!(
-            state.symmetric,
+            state.uneven_groups.is_empty(),
             "a building placed on purpose is not a broken fold",
         );
     }
@@ -1444,7 +1369,7 @@ mod tests {
         );
         session.editor.set_symmetry(Symmetry::MirrorLeftRight);
 
-        assert!(!read_state(&session).symmetric);
+        assert!(!read_state(&session).uneven_groups.is_empty());
     }
 
     #[test]
@@ -1457,7 +1382,7 @@ mod tests {
                 connection: Connection::Road,
             },
         );
-        assert!(read_state(&session).symmetric);
+        assert!(read_state(&session).uneven_groups.is_empty());
 
         session.editor.set_symmetry(Symmetry::None);
         session.editor.paint(
@@ -1468,82 +1393,79 @@ mod tests {
         );
         session.editor.set_symmetry(Symmetry::MirrorLeftRight);
 
-        assert!(!read_state(&session).symmetric);
-    }
-
-    /// The cursors the fold draws, with the keyboard holding the tile so that
-    /// no window and no camera are needed to say where the pointer is.
-    fn fold_cursor_positions(app: &mut App, at: Pos, symmetry: Symmetry) -> Vec<Vec3> {
-        app.world_mut()
-            .resource_mut::<EditorSession>()
-            .editor
-            .set_symmetry(symmetry);
-        app.world_mut()
-            .insert_resource(crate::features::input::KeyboardCursor(Some(at)));
-        app.world_mut().init_resource::<ButtonInput<KeyCode>>();
-
-        for _ in 0..FOLD_CURSOR_COUNT {
-            app.world_mut()
-                .spawn((Transform::default(), Visibility::Hidden, FoldCursor));
-        }
-
-        app.add_systems(Update, update_fold_cursors);
-        app.update();
-
-        app.world_mut()
-            .query::<(&Transform, &Visibility, &FoldCursor)>()
-            .iter(app.world())
-            .filter(|(_, visibility, _)| **visibility == Visibility::Visible)
-            .map(|(transform, _, _)| transform.translation)
-            .collect()
+        assert!(!read_state(&session).uneven_groups.is_empty());
     }
 
     #[test]
-    fn the_fold_draws_a_cursor_wherever_else_the_stroke_would_land() {
-        let mut app = editor_world(5, 5);
-        let drawn = fold_cursor_positions(&mut app, Pos::new(0, 1), Symmetry::Rotate180);
-
-        let map = app.world().resource::<GameMap>();
-        let far_corner = position_to_world_translation(&TILE_CORE_SPRITE_SIZE, Pos::new(4, 3), map);
-
-        assert_eq!(drawn.len(), 1);
-        assert_eq!(drawn[0].x, far_corner.x);
-        assert_eq!(drawn[0].y, far_corner.y);
-    }
-
-    #[test]
-    fn the_eyedropper_puts_the_images_away_because_a_pick_lands_on_one_tile() {
-        let mut app = editor_world(5, 5);
-        app.world_mut().init_resource::<ButtonInput<KeyCode>>();
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::AltLeft);
-
-        assert!(fold_cursor_positions(&mut app, Pos::new(0, 1), Symmetry::Rotate180).is_empty());
-    }
-
-    #[test]
-    fn a_free_board_draws_no_cursor_but_the_one_under_the_pointer() {
-        let mut app = editor_world(5, 5);
-
-        assert!(fold_cursor_positions(&mut app, Pos::new(0, 1), Symmetry::None).is_empty());
-    }
-
-    #[test]
-    fn a_tile_on_the_fold_draws_no_second_cursor_on_itself() {
-        let mut app = editor_world(5, 5);
-
-        assert!(
-            fold_cursor_positions(&mut app, Pos::new(2, 3), Symmetry::MirrorLeftRight).is_empty()
+    fn focusing_a_problem_rings_its_tiles_and_brings_the_first_into_view() {
+        let mut app = editor_world(6, 6);
+        queue(
+            &mut app,
+            EditorCommand::FocusTiles {
+                tiles: vec![EditorTile { x: 4, y: 2 }, EditorTile { x: 40, y: 2 }],
+                center: true,
+            },
         );
+        run_editor_commands(app.world_mut());
+
+        assert_eq!(
+            app.world().resource::<EditorSession>().focus,
+            vec![Pos::new(4, 2)],
+            "a tile off the board is not ringed",
+        );
+        let lead =
+            tile_center_world_position(Pos::new(4, 2), app.world().resource::<GameMap>()).to_vec2();
+        let sent: Vec<FocusBoardOn> = app
+            .world_mut()
+            .resource_mut::<Messages<FocusBoardOn>>()
+            .drain()
+            .collect();
+        assert_eq!(sent, vec![FocusBoardOn { world: lead }]);
     }
 
     #[test]
-    fn a_quarter_turn_draws_the_other_three_corners() {
-        let mut app = editor_world(5, 5);
-        let drawn = fold_cursor_positions(&mut app, Pos::new(0, 1), Symmetry::Rotate90);
+    fn a_ring_alone_leaves_the_view_where_it_is() {
+        let mut app = editor_world(6, 6);
+        queue(
+            &mut app,
+            EditorCommand::FocusTiles {
+                tiles: vec![EditorTile { x: 4, y: 2 }],
+                center: false,
+            },
+        );
+        run_editor_commands(app.world_mut());
 
-        assert_eq!(drawn.len(), 3);
+        assert_eq!(
+            app.world().resource::<EditorSession>().focus,
+            vec![Pos::new(4, 2)]
+        );
+        assert!(app.world().resource::<Messages<FocusBoardOn>>().is_empty());
+    }
+
+    #[test]
+    fn a_resize_and_its_undo_each_refit_the_board() {
+        let mut app = editor_world(6, 6);
+        app.world_mut()
+            .resource_mut::<Messages<CameraCommand>>()
+            .clear();
+        queue(
+            &mut app,
+            EditorCommand::Resize {
+                width: 8,
+                height: 6,
+                anchor: ResizeAnchor::TopLeft,
+            },
+        );
+        queue(&mut app, EditorCommand::Undo);
+        run_editor_commands(app.world_mut());
+
+        let fits = app
+            .world_mut()
+            .resource_mut::<Messages<CameraCommand>>()
+            .drain()
+            .filter(|command| matches!(command, CameraCommand::FitBoard))
+            .count();
+        assert_eq!(fits, 2);
     }
 
     #[test]

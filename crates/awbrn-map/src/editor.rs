@@ -2,15 +2,15 @@
 //!
 //! A map is edited as AWBW terrain, because that is what a map document holds.
 //! The graphical terrain the client draws comes from [`AwbrnMap`], which reads
-//! the neighbours of a tile, so this module never picks a sprite. It picks the
+//! the neighbors of a tile, so this module never picks a sprite. It picks the
 //! terrain, and lets the map decide how the terrain looks.
 //!
 //! Two rules do the work that a map maker would otherwise do by hand:
 //!
 //! * **Autotiling.** Roads, rivers, bridges, pipes, pipe seams and shoals come
-//!   in one variant for each way they can join their neighbours. A brush names
+//!   in one variant for each way they can join their neighbors. A brush names
 //!   the kind, and [`MapEditor`] gives the tile and the four tiles around it the
-//!   variant their neighbours ask for.
+//!   variant their neighbors ask for.
 //! * **Symmetry.** A competitive map is the same board for every army on it, so
 //!   an edit is repeated onto each image of the tile it landed on. The terrain
 //!   is turned with the image, and a property or a unit changes to the army that
@@ -27,6 +27,7 @@ use awbrn_types::{
 };
 use awvm::semantic::{Dimensions, Pos};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// The most edits [`MapEditor`] keeps for undo.
 ///
@@ -447,7 +448,7 @@ pub enum Brush {
         #[cfg_attr(feature = "typescript", tsify(type = "number"))]
         terrain: AwbwTerrain,
     },
-    /// Terrain that joins its neighbours. The variant is decided by the board.
+    /// Terrain that joins its neighbors. The variant is decided by the board.
     Connecting { connection: Connection },
     /// A building, and the army that holds it. No army means neutral ground.
     Property {
@@ -473,7 +474,7 @@ impl Brush {
     /// The brush that the editor's own rules apply to.
     ///
     /// The browser can name any terrain as [`Brush::Terrain`]. A road named
-    /// that way must still join its neighbours, and a building must still
+    /// that way must still join its neighbors, and a building must still
     /// change army under a fold. A unit's hit points stay in the range a map
     /// can hold.
     fn normalized(self) -> Brush {
@@ -490,6 +491,48 @@ impl Brush {
             brush => brush,
         }
     }
+
+    /// The terrain this brush is shown as, or `None` for a unit or an eraser.
+    pub fn sample(self) -> Option<AwbwTerrain> {
+        match self {
+            Brush::Terrain { terrain } => Some(terrain),
+            Brush::Connecting { connection } => Some(connection.sample()),
+            Brush::Property { property, faction } => Some(property_terrain(
+                property,
+                faction.map_or(Faction::Neutral, |owner| Faction::Player(owner.faction())),
+            )),
+            Brush::Unit { .. } | Brush::Erase | Brush::EraseUnit => None,
+        }
+    }
+
+    /// This brush as it lands on the image at `step` of `symmetry`: a building
+    /// or a unit changes army by the roster, as [`MapEditor::paint`] does.
+    pub fn for_image(self, roster: &ArmyRoster, symmetry: Symmetry, step: usize) -> Brush {
+        let rotate = |faction: FactionCode| {
+            FactionCode::from(roster.rotate(faction.faction(), symmetry, step))
+        };
+        match self {
+            Brush::Property { property, faction } => Brush::Property {
+                property,
+                faction: faction.map(rotate),
+            },
+            Brush::Unit { unit, faction, hp } => Brush::Unit {
+                unit,
+                faction: rotate(faction),
+                hp,
+            },
+            brush => brush,
+        }
+    }
+}
+
+/// How `terrain` is drawn on a board of nothing but itself, which is how a
+/// palette cell or a brush ghost shows it.
+pub fn sample_tile(terrain: AwbwTerrain) -> GraphicalTerrain {
+    let sample = AwbwMap::new(Dimensions::new(3, 3), terrain);
+    AwbrnMap::from_map(&sample)
+        .terrain_at(Pos::new(1, 1))
+        .unwrap_or(GraphicalTerrain::Plain)
 }
 
 /// Terrain that takes its shape from the tiles around it.
@@ -507,6 +550,19 @@ pub enum Connection {
 }
 
 impl Connection {
+    /// The variant a palette cell shows for this kind.
+    pub fn sample(self) -> AwbwTerrain {
+        match self {
+            Connection::Road => AwbwTerrain::Road(RoadType::Horizontal),
+            Connection::River => AwbwTerrain::River(RiverType::Horizontal),
+            Connection::Bridge => AwbwTerrain::Bridge(BridgeType::Horizontal),
+            Connection::Pipe => AwbwTerrain::Pipe(PipeType::Horizontal),
+            Connection::PipeSeam => AwbwTerrain::PipeSeam(PipeSeamType::Horizontal),
+            Connection::PipeRubble => AwbwTerrain::PipeRubble(PipeRubbleType::Horizontal),
+            Connection::Shoal => AwbwTerrain::Shoal(ShoalType::Horizontal),
+        }
+    }
+
     /// The terrain of this kind that reaches out to `sides`.
     ///
     /// Roads and rivers have no variant for one side or for none. A bridge, a
@@ -563,31 +619,31 @@ impl Connection {
         }
     }
 
-    /// Whether terrain of this kind joins onto `neighbour`.
+    /// Whether terrain of this kind joins onto `neighbor`.
     ///
     /// The answer is the one AWBW draws: a road meets a road, a bridge, and a
     /// building, because a building has a road through it. A river meets a
     /// river and a bridge. A pipe meets a pipe, a seam, and its own rubble.
-    fn joins(self, neighbour: AwbwTerrain) -> bool {
+    fn joins(self, neighbor: AwbwTerrain) -> bool {
         match self {
             Connection::Road => matches!(
-                neighbour,
+                neighbor,
                 AwbwTerrain::Road(_) | AwbwTerrain::Bridge(_) | AwbwTerrain::Property(_)
             ),
             Connection::River => {
-                matches!(neighbour, AwbwTerrain::River(_) | AwbwTerrain::Bridge(_))
+                matches!(neighbor, AwbwTerrain::River(_) | AwbwTerrain::Bridge(_))
             }
             // A bridge carries whatever crosses the water, so it joins the road
             // or the river at either end of it.
             Connection::Bridge => matches!(
-                neighbour,
+                neighbor,
                 AwbwTerrain::Bridge(_)
                     | AwbwTerrain::Road(_)
                     | AwbwTerrain::River(_)
                     | AwbwTerrain::Property(_)
             ),
             Connection::Pipe | Connection::PipeSeam | Connection::PipeRubble => matches!(
-                neighbour,
+                neighbor,
                 AwbwTerrain::Pipe(_)
                     | AwbwTerrain::PipeSeam(_)
                     | AwbwTerrain::PipeRubble(_)
@@ -597,7 +653,7 @@ impl Connection {
             // the shoals beside it. The land is the land the client draws a
             // coast against, which is not the land a unit can walk on: a
             // bridge, a reef and another shoal are all water here.
-            Connection::Shoal => neighbour.is_shore_land(),
+            Connection::Shoal => neighbor.is_shore_land(),
         }
     }
 }
@@ -711,7 +767,7 @@ fn connection_of(terrain: AwbwTerrain) -> Option<(Connection, Sides)> {
 
 /// The brush that draws `terrain`, which is not always the terrain itself.
 ///
-/// A tile the board tuned to its neighbours reads back as the kind it was
+/// A tile the board tuned to its neighbors reads back as the kind it was
 /// drawn as, never as the corner piece it ended up: picking a road bend and
 /// painting it somewhere else gives the road that place asks for. A building
 /// reads back with the army that holds it, so picking an army's base and
@@ -793,59 +849,24 @@ pub fn terrain_palette(owner: Option<PlayerFaction>) -> Vec<PaletteEntry> {
     ground(AwbwTerrain::Sea, "Sea", PaletteGroup::Water);
     ground(AwbwTerrain::Reef, "Reef", PaletteGroup::Water);
 
-    let mut connecting =
-        |connection: Connection, name: &'static str, group: PaletteGroup, sample: AwbwTerrain| {
-            palette.push(PaletteEntry {
-                brush: Brush::Connecting { connection },
-                name,
-                group,
-                sample: Some(sample),
-                defense: sample.defense_stars(),
-            });
-        };
-
-    connecting(
-        Connection::Shoal,
-        "Shoal",
-        PaletteGroup::Water,
-        AwbwTerrain::Shoal(ShoalType::Horizontal),
-    );
-    connecting(
-        Connection::River,
-        "River",
-        PaletteGroup::Water,
-        AwbwTerrain::River(RiverType::Horizontal),
-    );
-    connecting(
-        Connection::Road,
-        "Road",
-        PaletteGroup::Ways,
-        AwbwTerrain::Road(RoadType::Horizontal),
-    );
-    connecting(
-        Connection::Bridge,
-        "Bridge",
-        PaletteGroup::Ways,
-        AwbwTerrain::Bridge(BridgeType::Horizontal),
-    );
-    connecting(
-        Connection::Pipe,
-        "Pipe",
-        PaletteGroup::Ways,
-        AwbwTerrain::Pipe(PipeType::Horizontal),
-    );
-    connecting(
-        Connection::PipeSeam,
-        "Pipe seam",
-        PaletteGroup::Ways,
-        AwbwTerrain::PipeSeam(PipeSeamType::Horizontal),
-    );
-    connecting(
-        Connection::PipeRubble,
-        "Pipe rubble",
-        PaletteGroup::Ways,
-        AwbwTerrain::PipeRubble(PipeRubbleType::Horizontal),
-    );
+    for (connection, name, group) in [
+        (Connection::Shoal, "Shoal", PaletteGroup::Water),
+        (Connection::River, "River", PaletteGroup::Water),
+        (Connection::Road, "Road", PaletteGroup::Ways),
+        (Connection::Bridge, "Bridge", PaletteGroup::Ways),
+        (Connection::Pipe, "Pipe", PaletteGroup::Ways),
+        (Connection::PipeSeam, "Pipe seam", PaletteGroup::Ways),
+        (Connection::PipeRubble, "Pipe rubble", PaletteGroup::Ways),
+    ] {
+        let sample = connection.sample();
+        palette.push(PaletteEntry {
+            brush: Brush::Connecting { connection },
+            name,
+            group,
+            sample: Some(sample),
+            defense: sample.defense_stars(),
+        });
+    }
 
     for property in [
         PropertyKind::City,
@@ -973,12 +994,24 @@ pub enum ResizeAnchor {
 pub struct MapEditor {
     map: AwbwMap,
     drawn: AwbrnMap,
+    /// The board as it was opened, so a save can tell whether it changed.
+    opened: AwbwMap,
     symmetry: Symmetry,
     roster: ArmyRoster,
-    undo: Vec<AwbwMap>,
-    redo: Vec<AwbwMap>,
+    /// Which step of history the board is at. Never reused, so a page that
+    /// noted the id at a save can tell whether undo and redo came back to it.
+    history_id: u32,
+    last_history_id: u32,
+    undo: Vec<HistoryStep>,
+    redo: Vec<HistoryStep>,
     /// The board as the stroke in flight found it, for one undo step.
     stroke: Option<AwbwMap>,
+}
+
+#[derive(Debug, Clone)]
+struct HistoryStep {
+    board: AwbwMap,
+    id: u32,
 }
 
 impl MapEditor {
@@ -993,10 +1026,13 @@ impl MapEditor {
         let drawn = AwbrnMap::from_map(&map);
         let roster = ArmyRoster::from_map(&map);
         let mut editor = MapEditor {
+            opened: map.clone(),
             map,
             drawn,
             symmetry: Symmetry::None,
             roster,
+            history_id: 0,
+            last_history_id: 0,
             undo: Vec::new(),
             redo: Vec::new(),
             stroke: None,
@@ -1046,12 +1082,12 @@ impl MapEditor {
     }
 
     /// Every tile a stroke on `position` reaches, with the step of the fold
-    /// that reaches it.
+    /// that reaches it, for [`Brush::for_image`].
     ///
     /// A tile that is its own image is listed only for the first step that
     /// reaches it. The identity comes first, so a tile on the axis keeps the
     /// army the brush names.
-    fn reach(&self, position: Pos) -> Vec<(Pos, usize)> {
+    pub fn reach(&self, position: Pos) -> Vec<(Pos, usize)> {
         let dimensions = self.dimensions();
         let mut reached: Vec<(Pos, usize)> = Vec::with_capacity(self.symmetry.order());
         for (step, isometry) in self.symmetry.isometries().iter().enumerate() {
@@ -1116,8 +1152,7 @@ impl MapEditor {
 
     /// Every tile whose ground does not read the same under `symmetry`.
     ///
-    /// The result is in board order. It lets the screen show the number of
-    /// uneven tiles and the first one. Units and property owners are ignored.
+    /// The result is in board order. Units and property owners are ignored.
     /// The readout also allows map makers to place buildings for a deliberate
     /// first-turn advantage.
     pub fn asymmetries(&self, symmetry: Symmetry) -> Vec<Pos> {
@@ -1133,6 +1168,29 @@ impl MapEditor {
             }
         }
         found
+    }
+
+    /// The tiles of [`Self::asymmetries`] under the mode in use, one group per
+    /// set of tiles a stroke reaches together, so each group is one fix.
+    pub fn uneven_groups(&self) -> Vec<Vec<Pos>> {
+        let uneven = self.asymmetries(self.symmetry);
+        let lookup: HashSet<Pos> = uneven.iter().copied().collect();
+        let mut grouped: HashSet<Pos> = HashSet::new();
+        let mut groups: Vec<Vec<Pos>> = Vec::new();
+        for position in &uneven {
+            if grouped.contains(position) {
+                continue;
+            }
+            let mut group: Vec<Pos> = self
+                .images(*position)
+                .into_iter()
+                .filter(|image| lookup.contains(image))
+                .collect();
+            group.sort_by_key(|tile| (tile.y, tile.x));
+            grouped.extend(group.iter().copied());
+            groups.push(group);
+        }
+        groups
     }
 
     /// Whether one tile keeps the fold's promise about the ground.
@@ -1188,6 +1246,17 @@ impl MapEditor {
         !self.redo.is_empty()
     }
 
+    /// The step of history the board is at: 0 as opened, a new id for each
+    /// recorded edit, and the id of the step undo or redo lands on.
+    pub fn history_id(&self) -> u32 {
+        self.history_id
+    }
+
+    /// Whether the board differs from the one opened.
+    pub fn board_changed(&self) -> bool {
+        self.map != self.opened
+    }
+
     /// Marks the start of a stroke, so that the whole stroke is one undo step.
     ///
     /// A drag across twenty tiles is one act to the person who drew it. The
@@ -1215,8 +1284,8 @@ impl MapEditor {
         let Some(previous) = self.undo.pop() else {
             return BoardChanges::default();
         };
-        let current = std::mem::replace(&mut self.map, previous);
-        self.redo.push(current);
+        let step = self.leave_for(previous);
+        self.redo.push(step);
         self.redraw()
     }
 
@@ -1226,8 +1295,8 @@ impl MapEditor {
         let Some(next) = self.redo.pop() else {
             return BoardChanges::default();
         };
-        let current = std::mem::replace(&mut self.map, next);
-        self.undo.push(current);
+        let step = self.leave_for(next);
+        self.undo.push(step);
         self.redraw()
     }
 
@@ -1240,7 +1309,7 @@ impl MapEditor {
     ///
     /// What comes back is the brush, not the tile. A road picked off the board
     /// returns [`Brush::Connecting`] rather than the exact corner piece it was
-    /// drawn as, so the picked road keeps joining its neighbours. Picking then
+    /// drawn as, so the picked road keeps joining its neighbors. Picking then
     /// painting on the same tile therefore always leaves the board as it was.
     ///
     /// A tile with a unit on it holds two answers. `ground_only` asks for the
@@ -1284,7 +1353,7 @@ impl MapEditor {
     /// Fills the whole board with one terrain, and clears every unit.
     ///
     /// Only ground fills a board. Connecting terrain takes its shape from its
-    /// neighbours, and a building needs an owner, so the editor refuses them.
+    /// neighbors, and a building needs an owner, so the editor refuses them.
     pub fn fill(&mut self, terrain: AwbwTerrain) -> BoardChanges {
         if !matches!(brush_for_terrain(terrain), Brush::Terrain { .. }) {
             return BoardChanges::default();
@@ -1353,7 +1422,7 @@ impl MapEditor {
     /// The brush is normalized, so ground is the only terrain that comes here
     /// as [`Brush::Terrain`]. Ground has no variant to turn with the image.
     fn apply_brush(&mut self, position: Pos, brush: Brush, step: usize) {
-        match brush {
+        match brush.for_image(&self.roster, self.symmetry, step) {
             Brush::Terrain { terrain } => {
                 self.set_terrain(position, terrain);
             }
@@ -1361,22 +1430,19 @@ impl MapEditor {
                 let sides = self.sides_at(position, connection);
                 self.set_terrain(position, connection.build(sides));
             }
-            Brush::Property { property, faction } => {
-                // Neutral ground stays neutral however the board is folded.
-                let owner = faction.map_or(Faction::Neutral, |player| {
-                    Faction::Player(self.roster.rotate(player.faction(), self.symmetry, step))
-                });
-                self.set_terrain(position, property_terrain(property, owner));
+            brush @ Brush::Property { .. } => {
+                if let Some(terrain) = brush.sample() {
+                    self.set_terrain(position, terrain);
+                }
             }
             Brush::Unit { unit, faction, hp } => {
-                let owner = self.roster.rotate(faction.faction(), self.symmetry, step);
                 self.map.deployments_mut().remove(position);
                 let _ = self.map.deploy(
                     position,
                     Deployment {
                         unit,
                         hp,
-                        faction: owner,
+                        faction: faction.faction(),
                     },
                 );
             }
@@ -1401,13 +1467,13 @@ impl MapEditor {
         let mut sides = Sides::NONE;
         for direction in Direction::ALL {
             let (dx, dy) = direction.step();
-            let Some(neighbour) = position
+            let Some(neighbor) = position
                 .offset(dx, dy)
                 .and_then(|next| self.map.terrain_at(next))
             else {
                 continue;
             };
-            if connection.joins(neighbour) {
+            if connection.joins(neighbor) {
                 sides = sides.with(direction);
             }
         }
@@ -1415,7 +1481,7 @@ impl MapEditor {
     }
 
     /// Gives every reached tile, and the tiles beside them, the variant their
-    /// neighbours now ask for.
+    /// neighbors now ask for.
     ///
     /// Only connecting terrain moves. Everything else was decided by the brush.
     fn retune_around(&mut self, reached: &[(Pos, usize)]) {
@@ -1424,7 +1490,7 @@ impl MapEditor {
 
         for (target, _) in reached {
             let target = *target;
-            for neighbour in std::iter::once(target).chain(
+            for neighbor in std::iter::once(target).chain(
                 Direction::ALL
                     .iter()
                     .filter_map(|direction| {
@@ -1433,8 +1499,8 @@ impl MapEditor {
                     })
                     .filter(|next| dimensions.contains(*next)),
             ) {
-                if !retune.contains(&neighbour) {
-                    retune.push(neighbour);
+                if !retune.contains(&neighbor) {
+                    retune.push(neighbor);
                 }
             }
         }
@@ -1450,11 +1516,24 @@ impl MapEditor {
 
     /// Records one step of undo, and drops the redo branch it grew from.
     fn record(&mut self, before: AwbwMap) {
-        self.undo.push(before);
+        self.undo.push(HistoryStep {
+            board: before,
+            id: self.history_id,
+        });
         if self.undo.len() > UNDO_DEPTH {
             self.undo.remove(0);
         }
         self.redo.clear();
+        self.last_history_id += 1;
+        self.history_id = self.last_history_id;
+    }
+
+    /// Moves the board to `step`, and returns the step it left.
+    fn leave_for(&mut self, step: HistoryStep) -> HistoryStep {
+        HistoryStep {
+            board: std::mem::replace(&mut self.map, step.board),
+            id: std::mem::replace(&mut self.history_id, step.id),
+        }
     }
 
     /// Redraws the graphical map, and reports the tiles that changed.
@@ -1515,7 +1594,7 @@ impl MapEditor {
 /// different armies.
 ///
 /// Connecting terrain matches on its kind, not on its variant. The variant
-/// comes from the neighbours, and the neighbours are compared on their own
+/// comes from the neighbors, and the neighbors are compared on their own
 /// tiles. A shoal variant also records only one side of land, so a mirror
 /// cannot always give the variant that the far side holds.
 fn same_fold_terrain(left: AwbwTerrain, right: AwbwTerrain) -> bool {
@@ -1598,11 +1677,11 @@ mod tests {
         MapEditor::open(drawing.map().clone())
     }
 
-    /// Every way three kinds of neighbour can stand around one tile.
+    /// Every way three kinds of neighbor can stand around one tile.
     ///
     /// Land, open water and more shoal are the three answers the shore rule
     /// gives, so the four sides make eighty-one boards.
-    fn shore_neighbours() -> impl Iterator<Item = [AwbwTerrain; 4]> {
+    fn shore_neighbors() -> impl Iterator<Item = [AwbwTerrain; 4]> {
         let kinds = [
             AwbwTerrain::Plain,
             AwbwTerrain::Sea,
@@ -1621,7 +1700,7 @@ mod tests {
 
     #[test]
     fn a_painted_shoal_records_the_land_the_client_draws_it_against() {
-        let centre = Pos::new(1, 1);
+        let center = Pos::new(1, 1);
         let around = [
             Pos::new(1, 0),
             Pos::new(2, 1),
@@ -1629,24 +1708,24 @@ mod tests {
             Pos::new(0, 1),
         ];
 
-        for neighbours in shore_neighbours() {
+        for neighbors in shore_neighbors() {
             let mut drawing = editor(3, 3);
-            for (position, terrain) in around.iter().zip(neighbours) {
+            for (position, terrain) in around.iter().zip(neighbors) {
                 drawing.paint(*position, Brush::Terrain { terrain });
             }
             drawing.paint(
-                centre,
+                center,
                 Brush::Connecting {
                     connection: Connection::Shoal,
                 },
             );
 
             let recorded = terrain(&drawing, 1, 1);
-            let drawn = AwbrnMap::shoal_direction(drawing.map(), centre);
+            let drawn = AwbrnMap::shoal_direction(drawing.map(), center);
             assert_eq!(
                 recorded,
                 AwbwTerrain::Shoal(drawn.shoal_type()),
-                "a shoal with {neighbours:?} around it is drawn as {drawn:?}",
+                "a shoal with {neighbors:?} around it is drawn as {drawn:?}",
             );
         }
     }
@@ -1956,7 +2035,7 @@ mod tests {
             assert_eq!(
                 terrain(&editor, 2, 2),
                 AwbwTerrain::Property(Property::HQ(PlayerFaction::OrangeStar)),
-                "{symmetry:?} gave the centre to another army"
+                "{symmetry:?} gave the center to another army"
             );
         }
     }
@@ -2531,7 +2610,7 @@ mod tests {
     }
 
     #[test]
-    fn a_road_named_as_ground_still_joins_its_neighbours() {
+    fn a_road_named_as_ground_still_joins_its_neighbors() {
         let mut editor = editor(3, 1);
         let road = Brush::Terrain {
             terrain: AwbwTerrain::Road(RoadType::Cross),
@@ -2718,6 +2797,134 @@ mod tests {
             vec![Pos::new(1, 1), Pos::new(4, 1)]
         );
         assert!(!drawing.is_symmetric(Symmetry::MirrorLeftRight));
+    }
+
+    fn mountain() -> Brush {
+        Brush::Terrain {
+            terrain: AwbwTerrain::Mountain,
+        }
+    }
+
+    #[test]
+    fn uneven_tiles_are_grouped_by_the_tiles_one_stroke_reaches() {
+        let mut drawing = editor(6, 6);
+        drawing.paint(Pos::new(1, 1), mountain());
+        drawing.paint(Pos::new(2, 0), mountain());
+        drawing.set_symmetry(Symmetry::QuadMirror);
+
+        assert_eq!(
+            drawing.uneven_groups(),
+            vec![
+                vec![
+                    Pos::new(2, 0),
+                    Pos::new(3, 0),
+                    Pos::new(2, 5),
+                    Pos::new(3, 5)
+                ],
+                vec![
+                    Pos::new(1, 1),
+                    Pos::new(4, 1),
+                    Pos::new(1, 4),
+                    Pos::new(4, 4)
+                ],
+            ]
+        );
+    }
+
+    #[test]
+    fn a_building_in_an_uneven_group_is_left_out_of_it() {
+        let mut drawing = editor(6, 6);
+        drawing.paint(Pos::new(1, 1), mountain());
+        drawing.paint(Pos::new(4, 1), mountain());
+        drawing.paint(
+            Pos::new(1, 4),
+            Brush::Property {
+                property: PropertyKind::City,
+                faction: None,
+            },
+        );
+        drawing.set_symmetry(Symmetry::QuadMirror);
+
+        assert_eq!(
+            drawing.uneven_groups(),
+            vec![vec![Pos::new(1, 1), Pos::new(4, 1), Pos::new(4, 4)]]
+        );
+    }
+
+    #[test]
+    fn undo_and_redo_return_to_the_history_ids_they_left() {
+        let mut drawing = editor(6, 4);
+        assert_eq!(drawing.history_id(), 0);
+
+        drawing.paint(Pos::new(1, 1), mountain());
+        let painted = drawing.history_id();
+        assert_ne!(painted, 0);
+
+        drawing.undo();
+        assert_eq!(drawing.history_id(), 0);
+        drawing.redo();
+        assert_eq!(drawing.history_id(), painted);
+    }
+
+    /// A page that saved at one step must not read a different board as that
+    /// step once undo has dropped it and a new edit has taken its place.
+    #[test]
+    fn an_edit_after_an_undo_never_reuses_the_id_it_replaced() {
+        let mut drawing = editor(6, 4);
+        drawing.paint(Pos::new(1, 1), mountain());
+        let dropped = drawing.history_id();
+        drawing.undo();
+
+        drawing.paint(Pos::new(2, 2), mountain());
+
+        assert_ne!(drawing.history_id(), dropped);
+        assert_ne!(drawing.history_id(), 0);
+    }
+
+    #[test]
+    fn an_edit_that_changes_nothing_keeps_the_history_id() {
+        let mut drawing = editor(6, 4);
+        drawing.paint(
+            Pos::new(1, 1),
+            Brush::Terrain {
+                terrain: AwbwTerrain::Plain,
+            },
+        );
+        drawing.fill(AwbwTerrain::Plain);
+
+        assert_eq!(drawing.history_id(), 0);
+    }
+
+    #[test]
+    fn a_board_drawn_back_to_how_it_opened_is_unchanged() {
+        let mut drawing = editor(6, 4);
+        drawing.paint(Pos::new(1, 1), mountain());
+        assert!(drawing.board_changed());
+
+        drawing.paint(
+            Pos::new(1, 1),
+            Brush::Terrain {
+                terrain: AwbwTerrain::Plain,
+            },
+        );
+
+        assert!(!drawing.board_changed());
+        assert_ne!(drawing.history_id(), 0, "the history still moved");
+    }
+
+    #[test]
+    fn a_unit_is_a_change_to_the_board() {
+        let mut drawing = editor(6, 4);
+        drawing.paint(
+            Pos::new(1, 1),
+            Brush::Unit {
+                unit: Unit::Infantry,
+                faction: FactionCode::new(PlayerFaction::OrangeStar),
+                hp: VisualHp::new(10),
+            },
+        );
+
+        assert!(drawing.board_changed());
     }
 
     #[test]

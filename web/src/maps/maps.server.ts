@@ -24,6 +24,7 @@ import type {
   MapSaveResult,
   MapTag,
 } from "./schemas.ts";
+import { MAP_SAVE_REFUSALS } from "./schemas.ts";
 import { normalizeMapCatalogFilters, sortMapTags } from "./map_taxonomy.ts";
 import {
   decodeMapCatalogCursor,
@@ -131,9 +132,16 @@ export async function storeAwbwMap(sourceMapId: number, data: AwbwMapData): Prom
  * player who presses save again after a failed request needs it to be.
  */
 export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Promise<MapSaveResult> {
-  const imported = importedMapDocumentSchema.parse(
-    canonicalizeMapDocument({ ...request.document, metadata: { ...request.document.metadata } }),
-  );
+  let imported;
+  try {
+    imported = importedMapDocumentSchema.parse(
+      canonicalizeMapDocument({ ...request.document, metadata: { ...request.document.metadata } }),
+    );
+  } catch (cause) {
+    throw new Error(
+      MAP_SAVE_REFUSALS.board + (cause instanceof Error ? cause.message : String(cause)),
+    );
+  }
   const { document } = imported;
   const now = new Date();
   const author = await mapAuthorName(actor);
@@ -179,10 +187,11 @@ export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Prom
     )
     .where(eq(maps.id, request.mapId))
     .get();
-  if (!held) throw new Error("Map not found");
-  if (mapEditGrant(held, actor) === null) throw new Response("Forbidden", { status: 403 });
+  if (!held) throw new Error(MAP_SAVE_REFUSALS.missing);
+  // A thrown Response reaches a server function's caller as its result.
+  if (mapEditGrant(held, actor) === null) throw new Error(MAP_SAVE_REFUSALS.forbidden);
   if (held.currentRevision !== request.expectedRevision || held.name !== request.expectedName) {
-    throw new Error("This map changed after you opened it. Reload the editor before saving.");
+    throw new Error(MAP_SAVE_REFUSALS.changed);
   }
 
   if (held.contentHash === imported.contentHash) {
@@ -199,7 +208,7 @@ export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Prom
       )
       .run();
     if (updated.meta.changes !== 1) {
-      throw new Error("This map changed after you opened it. Reload the editor before saving.");
+      throw new Error(MAP_SAVE_REFUSALS.changed);
     }
     return { mapId: request.mapId, revision: held.currentRevision, written: false };
   }
@@ -259,7 +268,7 @@ export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Prom
   ]);
 
   if (updateResult.meta.changes !== 1) {
-    throw new Error("This map changed after you opened it. Reload the editor before saving.");
+    throw new Error(MAP_SAVE_REFUSALS.changed);
   }
 
   return { mapId: request.mapId, revision, written: true };

@@ -306,3 +306,82 @@ export const IconSpinner = drawn(
   </>,
   { strokeLinecap: "round" },
 );
+
+const roundJoins = { strokeLinecap: "round", strokeLinejoin: "round" } as const;
+
+export const IconUndo = drawn(
+  "IconUndo",
+  <path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />,
+  roundJoins,
+);
+
+export const IconRedo = drawn(
+  "IconRedo",
+  <path d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />,
+  roundJoins,
+);
+
+export const IconKeyboard = drawn(
+  "IconKeyboard",
+  <>
+    <rect x="2.5" y="6" width="19" height="12" rx="2" />
+    <path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M7.5 14h9" />
+  </>,
+  roundJoins,
+);
+
+export const IconEyedropper = drawn(
+  "IconEyedropper",
+  <path d="m13.5 6.5 4 4M15.5 4.5a2.1 2.1 0 0 1 3 0l1 1a2.1 2.1 0 0 1 0 3l-2 2-4-4zM13.5 8.5 5 17v2h2l8.5-8.5M3.5 20.5l1.5-1.5" />,
+  roundJoins,
+);
+
+export const IconErase = drawn(
+  "IconErase",
+  <path d="m7 21-4-4 10-10 8 8-6 6M7 21h13M8 12l7 7" />,
+  roundJoins,
+);
+
+/** The unit comes off; the ground stays. */
+export const IconLift = drawn("IconLift", <path d="M12 15V4M8 8l4-4 4 4M5 20h14" />, roundJoins);
+
+export const IconFork = drawn(
+  "IconFork",
+  <>
+    <circle cx="6" cy="5" r="2" />
+    <circle cx="18" cy="5" r="2" />
+    <circle cx="12" cy="19" r="2" />
+    <path d="M6 7v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7M12 12v5" />
+  </>,
+  roundJoins,
+);
+
+export const IconExternal = drawn(
+  "IconExternal",
+  <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />,
+  roundJoins,
+);
+
+export const IconWarn = drawn(
+  "IconWarn",
+  <path d="M12 4 2.5 20h19zM12 10v4.5M12 17.5h.01" />,
+  roundJoins,
+);
+
+export const IconOk = drawn(
+  "IconOk",
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8 12.5 3 3 5-6" />
+  </>,
+  roundJoins,
+);
+
+export const IconAlert = drawn(
+  "IconAlert",
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5v5.5M12 16.5h.01" />
+  </>,
+  roundJoins,
+);

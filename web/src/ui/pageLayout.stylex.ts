@@ -28,6 +28,8 @@ export const pageLayout = stylex.defineConsts({
   tabletMedia: "@media (min-width: 721px) and (max-width: 1180px)",
   phoneMedia: "@media (max-width: 720px)",
   coarseMedia: "@media (pointer: coarse)",
+  /** A laptop's height, where the map editor's rail tightens. */
+  shortMedia: "@media (max-height: 820px)",
   /**
    * Hover tones live only under this, so a tap never leaves one behind; pair
    * each with the same tone on `:active` for touch.

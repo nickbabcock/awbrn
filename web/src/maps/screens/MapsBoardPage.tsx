@@ -24,6 +24,7 @@ import { RouterButton } from "#/ui/astryx-links.tsx";
 import { Button } from "#/ui/Button.tsx";
 import { EmptySheet, ProblemBanner } from "#/ui/EmptySheet.tsx";
 import { IconRefresh } from "#/ui/icons.tsx";
+import { visibility } from "#/ui/visibility.stylex.ts";
 import { Page, PageHeader } from "#/ui/Page.tsx";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -84,7 +85,12 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
             mayDraw || mayImport ? (
               <>
                 {mayDraw ? (
-                  <RouterButton label="Draw a map" to="/maps/new" variant="secondary" />
+                  <RouterButton
+                    label="Draw a map"
+                    to="/maps/new"
+                    variant="secondary"
+                    xstyle={visibility.desktopOnly}
+                  />
                 ) : null}
                 {mayImport ? <MapImportKey /> : null}
               </>
