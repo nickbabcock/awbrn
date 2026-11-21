@@ -198,6 +198,7 @@ CREATE TABLE `ranked_maps` (
 	`season` integer NOT NULL,
 	`pool` text NOT NULL,
 	`mapId` text NOT NULL,
+	`revision` integer NOT NULL,
 	`addedAt` integer DEFAULT (unixepoch()) NOT NULL,
 	PRIMARY KEY(`season`, `pool`, `mapId`),
 	FOREIGN KEY (`season`) REFERENCES `seasons`(`number`) ON UPDATE no action ON DELETE restrict,

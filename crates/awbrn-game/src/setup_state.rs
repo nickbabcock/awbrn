@@ -2,10 +2,8 @@
 
 use std::collections::HashMap;
 
-use awbrn_types::{
-    AwbwTerrain, Faction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
-};
-use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain};
+use awbrn_types::{AwbwTerrain, Faction, GraphicalTerrain, MissileSiloStatus, PlayerFaction};
+use awvm::ruleset::{RULESET_ID, RULESET_REVISION};
 use awvm::semantic::{
     Board, CommanderBans, Player, PlayerId, PlayerIdx, Roster, RulesetId, RulesetRef,
     RulesetRevision, Settings, Silo, State, TeamId, Tile, TileOwner, Toggle, WeatherSetting,
@@ -13,7 +11,7 @@ use awvm::semantic::{
 use awvm::setup::{MatchSetup, PlayerSetup as AwvmPlayerSetup, UnitDeployment};
 
 use crate::setup::{GameSetup, SetupError};
-use awbrn_map::AwbrnMap;
+use awbrn_map::{AwbrnMap, semantic_terrain};
 
 /// Converts a game setup to an AWVM state.
 ///
@@ -75,7 +73,7 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
         },
         Settings {
             fog: setup.fog_enabled,
-            income_per_property: 1_000,
+            income_per_property: awbrn_map::DEFAULT_INCOME_PER_PROPERTY,
             starting_funds,
             powers: Toggle::Enabled,
             tags: false,
@@ -198,34 +196,6 @@ fn tile(
     (tile, seam_hp)
 }
 
-/// The AWVM terrain an AWBW terrain becomes.
-pub fn semantic_terrain(terrain: AwbwTerrain) -> Terrain {
-    match terrain {
-        AwbwTerrain::Plain | AwbwTerrain::PipeRubble(_) => Terrain::Plain,
-        AwbwTerrain::Mountain => Terrain::Mountain,
-        AwbwTerrain::Wood => Terrain::Wood,
-        AwbwTerrain::River(_) => Terrain::River,
-        AwbwTerrain::Road(_) => Terrain::Road,
-        AwbwTerrain::Bridge(_) => Terrain::Bridge,
-        AwbwTerrain::Sea => Terrain::Sea,
-        AwbwTerrain::Shoal(_) => Terrain::Shoal,
-        AwbwTerrain::Reef => Terrain::Reef,
-        AwbwTerrain::Property(property) => match property {
-            Property::City(_) => Terrain::City,
-            Property::Base(_) => Terrain::Base,
-            Property::Airport(_) => Terrain::Airport,
-            Property::Port(_) => Terrain::Port,
-            Property::ComTower(_) => Terrain::ComTower,
-            Property::Lab(_) => Terrain::Lab,
-            Property::HQ(_) => Terrain::Hq,
-        },
-        AwbwTerrain::Pipe(_) => Terrain::Pipe,
-        AwbwTerrain::MissileSilo(_) => Terrain::MissileSilo,
-        AwbwTerrain::PipeSeam(_) => Terrain::PipeSeam,
-        AwbwTerrain::Teleporter => Terrain::Teleporter,
-    }
-}
-
 /// The identifier of the seat at `index`.
 ///
 /// A seat is named by its position in the roster, so the same setup always
@@ -258,7 +228,7 @@ pub fn faction_players(setup: &GameSetup) -> HashMap<PlayerFaction, PlayerId> {
 mod tests {
     use super::*;
     use awbrn_map::{AwbwMap, Deployments};
-    use awbrn_types::Co;
+    use awbrn_types::{Co, Property};
     use awvm::semantic::Dimensions;
 
     use crate::setup::PlayerSetup;

@@ -1,9 +1,11 @@
 import { env } from "cloudflare:workers";
 import {
+  canonicalizeMapDocument as canonicalizeMapDocumentWasm,
   importAwbwMapDocument,
   initSync,
   MapRenderer,
   mapSlotFactions,
+  mapUndefeatableFactions,
   renderSmallMapScreenshot,
 } from "#/wasm/awbrn_server.js";
 import type {
@@ -24,6 +26,18 @@ export function canonicalizeAwbwMap(source: AwbwMapDataWire): ImportedMapDocumen
 }
 
 /**
+ * Check a map written in the editor, and hash it the way an import is hashed.
+ *
+ * The browser is not trusted with either half. The board is put back through
+ * the same validation an imported map goes through, and the three digests come
+ * from the same code, so a map drawn here and a map imported from AWBW are
+ * stored and matched by the same rules.
+ */
+export function canonicalizeMapDocument(document: AwbrnMapDocumentWire): ImportedMapDocument {
+  return canonicalizeMapDocumentWasm(document);
+}
+
+/**
  * The faction each of a map's seats starts with, as faction codes.
  *
  * The map decides this, not the seat: a seat's faction is which of the map's
@@ -34,6 +48,11 @@ export function canonicalizeAwbwMap(source: AwbwMapDataWire): ImportedMapDocumen
  */
 export function mapSlotFactionCodes(document: AwbrnMapDocumentWire): string[] {
   return mapSlotFactions(document);
+}
+
+/** The factions on a map that hold no HQ, no Lab and no unit, as faction codes. */
+export function mapUndefeatableFactionCodes(document: AwbrnMapDocumentWire): string[] {
+  return mapUndefeatableFactions(document);
 }
 
 /**

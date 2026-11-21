@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "be06f1e6-2b22-4aee-b883-24928905cac5",
+  "id": "300d7ee5-3e24-49cc-89e2-4e71a1e61763",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -1246,6 +1246,13 @@
         "mapId": {
           "name": "mapId",
           "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false

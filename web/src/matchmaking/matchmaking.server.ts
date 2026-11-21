@@ -3,7 +3,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { env } from "cloudflare:workers";
 import { isKnownCoId } from "#/co_roster.ts";
 import {
-  maps,
   matchParticipants,
   matches,
   pairings,
@@ -53,10 +52,7 @@ interface CandidateRow extends RawRow<
 
 type ActivePairRow = RawRow<PairingColumns, "userOneId" | "userTwoId">;
 
-interface RankedMapRow extends RawRow<typeof rankedMaps.$inferSelect, "mapId"> {
-  /** `maps.currentRevision`, under the name the query gives it. */
-  revision: RawCol<typeof maps.$inferSelect, "currentRevision">;
-}
+type RankedMapRow = RawRow<typeof rankedMaps.$inferSelect, "mapId" | "revision">;
 
 export interface SeekSnapshot {
   pool: RankedPool;
@@ -323,10 +319,9 @@ export async function runMatchmakingPass(
 
   const mapResult = await database
     .prepare(`
-      SELECT rm.mapId, m.currentRevision AS revision
+      SELECT rm.mapId, rm.revision
       FROM ranked_maps rm
-      JOIN maps m ON m.id = rm.mapId
-      JOIN map_revisions mr ON mr.mapId = m.id AND mr.revision = m.currentRevision
+      JOIN map_revisions mr ON mr.mapId = rm.mapId AND mr.revision = rm.revision
       WHERE rm.pool = ? AND rm.season = ? AND mr.playerCount = 2
       ORDER BY rm.mapId
       LIMIT 100

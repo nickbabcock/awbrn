@@ -1,6 +1,6 @@
 use crate::MapError;
 use crate::deployment::{Deployment, Deployments};
-use awbrn_types::{AwbwTerrain, Faction, PLAYER_FACTION_METADATA, PlayerFaction};
+use awbrn_types::{AwbwTerrain, Faction, PLAYER_FACTION_METADATA, PlayerFaction, Property};
 use awvm::semantic::{Dimensions, Grid, Pos};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -177,6 +177,24 @@ impl AwbwMap {
         factions
     }
 
+    /// The factions that hold no HQ, no Lab and no unit.
+    ///
+    /// A match ends for an army when its HQ or last Lab is captured or its last
+    /// unit is destroyed. One of these armies has none of them to lose, so it
+    /// could never be defeated.
+    pub fn undefeatable_factions(&self) -> Vec<PlayerFaction> {
+        let mut factions = self.factions();
+        factions.retain(|faction| {
+            let owner = Faction::Player(*faction);
+            !self.deployments.iter().any(|(_, unit)| unit.faction == *faction)
+                && !self.terrain.cells().any(|terrain| {
+                    matches!(terrain, AwbwTerrain::Property(property @ (Property::HQ(_) | Property::Lab(_)))
+                        if property.faction() == owner)
+                })
+        });
+        factions
+    }
+
     /// The faction each of `slot_count` seats starts with.
     ///
     /// A seat's faction decides which of the map's properties it owns, so no
@@ -282,6 +300,14 @@ impl AwbwMap {
     /// The units that the map places before the first turn.
     pub fn deployments(&self) -> &Deployments {
         &self.deployments
+    }
+
+    /// The units, so that a caller can move one or take one away.
+    ///
+    /// Editing is what needs this. Loading a map does not, because a map that
+    /// is being read never loses a unit.
+    pub fn deployments_mut(&mut self) -> &mut Deployments {
+        &mut self.deployments
     }
 
     /// Places a unit on `position` before the first turn.
@@ -617,6 +643,26 @@ mod tests {
             map.factions(),
             vec![PlayerFaction::OrangeStar, PlayerFaction::TealGalaxy]
         );
+    }
+
+    #[test]
+    fn an_army_with_no_hq_lab_or_unit_cannot_be_defeated() {
+        // An Orange Star HQ (42), a Blue Moon city (43), a Green Earth city
+        // (48) with a Green Earth unit beside it, and a Yellow Comet lab.
+        let mut map = AwbwMap::parse_txt("42,43,48,1,1").unwrap();
+        *map.terrain_at_mut(Pos::new(4, 0)).unwrap() =
+            AwbwTerrain::Property(Property::Lab(Faction::Player(PlayerFaction::YellowComet)));
+        map.deploy(
+            Pos::new(3, 0),
+            Deployment {
+                unit: awbrn_types::Unit::Infantry,
+                hp: awbrn_types::VisualHp::new(10),
+                faction: PlayerFaction::GreenEarth,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(map.undefeatable_factions(), vec![PlayerFaction::BlueMoon]);
     }
 
     #[test]

@@ -55,6 +55,31 @@ pub enum ShoalType {
     VerticalEast,
 }
 
+impl ShoalType {
+    /// The shoal that lies against the land on these sides.
+    ///
+    /// The client draws a shoal from the tiles around it, so this variant is
+    /// what the map document records and not what the player sees. It names
+    /// the same side the picture does, which keeps a mirrored board equal to
+    /// its original tile for tile.
+    ///
+    /// AWBW has one variant for each of the four sides and no more. A shoal
+    /// with land on more than one side is recorded against one of them, in
+    /// this order: north, south, east, west. A shoal with no land is recorded
+    /// against the west.
+    ///
+    /// The names read against the land: AWBW maps put `HShoal` below land and
+    /// `HShoalN` above it, `VShoal` left of land and `VShoalE` right of it.
+    pub const fn from_land(north: bool, east: bool, south: bool, west: bool) -> ShoalType {
+        match (north, east, south, west) {
+            (true, ..) => ShoalType::Horizontal,
+            (false, _, true, _) => ShoalType::HorizontalNorth,
+            (false, true, false, _) => ShoalType::Vertical,
+            (false, false, false, _) => ShoalType::VerticalEast,
+        }
+    }
+}
+
 /// Pipe configurations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum PipeType {
@@ -320,12 +345,27 @@ impl Property {
 }
 
 /// Property types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::VariantArray,
+)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
+#[serde(rename_all = "kebab-case")]
 pub enum PropertyKind {
     Airport,
     Base,
     City,
     ComTower,
+    // Two letters that stand for two words, which kebab case would break in
+    // half.
+    #[serde(rename = "hq")]
     HQ,
     Lab,
     Port,
@@ -413,6 +453,27 @@ impl GameplayTerrain {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Taken from the replay player's tile table and the shoals in assets/maps.
+    #[test]
+    fn a_shoal_is_recorded_as_the_awbw_variant_for_its_land() {
+        assert_eq!(
+            ShoalType::from_land(true, false, false, false),
+            ShoalType::Horizontal
+        );
+        assert_eq!(
+            ShoalType::from_land(false, false, true, false),
+            ShoalType::HorizontalNorth
+        );
+        assert_eq!(
+            ShoalType::from_land(false, true, false, false),
+            ShoalType::Vertical
+        );
+        assert_eq!(
+            ShoalType::from_land(false, false, false, true),
+            ShoalType::VerticalEast
+        );
+    }
 
     #[test]
     fn property_defense_stars() {

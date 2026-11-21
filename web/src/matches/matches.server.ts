@@ -47,6 +47,7 @@ import { getMatchStub } from "./match_service";
 import { banDraft, canonicalBans, leavesACo, ownBans, seatBans, seatListsFor } from "./co_bans";
 import { moveSeat, teamsProblem } from "./teams";
 import { labTiles } from "./unit_rules";
+import { mapUndefeatableFactionCodes } from "#/server_wasm.ts";
 import { drizzle } from "drizzle-orm/d1";
 import {
   and,
@@ -168,8 +169,12 @@ export async function createMatch(
     const mapDocument = await loadMapRevision(mapRef);
     const maxPlayers = mapDocument.metadata.player_count;
 
-    if (!Number.isSafeInteger(maxPlayers) || maxPlayers <= 0) {
+    // An editor draft can be saved before it seats two armies.
+    if (!Number.isSafeInteger(maxPlayers) || maxPlayers < 2) {
       return err("invalidMap", "selected map has an invalid player count", 400);
+    }
+    if (mapUndefeatableFactionCodes(mapDocument).length > 0) {
+      return err("invalidMap", "an army on this map has no HQ, Lab or unit to lose", 400);
     }
 
     const aiSeats = input.aiSeats;

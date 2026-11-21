@@ -5,6 +5,9 @@ describe("roleAllows", () => {
   it("gives a player what every signed-in player holds", () => {
     expect(roleAllows("user", { map: ["import"] })).toBe(true);
     expect(roleAllows("user", { map: ["tag"] })).toBe(true);
+    // Every signed-in player draws maps; whose map they may write over is
+    // decided by `mapEditGrant`, not by the role.
+    expect(roleAllows("user", { map: ["write"] })).toBe(true);
   });
 
   it("keeps curation and abuse tools away from a player", () => {

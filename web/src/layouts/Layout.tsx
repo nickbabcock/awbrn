@@ -74,6 +74,7 @@ const styles = stylex.create({
     [shellVars.footerDisplay]: {
       default: "flex",
       [stylex.when.descendant('[data-shell-mode="pushed"]', shellMarker)]: "none",
+      [stylex.when.descendant('[data-shell-mode="tool"]', shellMarker)]: "none",
     },
     [shellVars.newMatchDisplay]: {
       default: "contents",

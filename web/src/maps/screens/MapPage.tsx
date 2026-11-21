@@ -12,6 +12,7 @@ import { MapCurationPanel, MapTagsKey } from "#/maps/components/MapCurationPanel
 import { MapJudgmentRecord } from "#/maps/components/MapJudgmentRecord.tsx";
 import { MapPicture, wholeScaleWidth } from "#/maps/components/MapPicture.tsx";
 import { mapPostage } from "#/maps/components/MapPlate.tsx";
+import { mapEditGrant } from "#/maps/map_authz.ts";
 import { MapRankMedal } from "#/maps/components/MapRankMedal.tsx";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { mapQueryOptions } from "#/maps/maps.queries.ts";
@@ -25,6 +26,7 @@ import { figureStyles } from "#/ui/Figure.tsx";
 import { IconRefresh } from "#/ui/icons.tsx";
 import { Page } from "#/ui/Page.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { visibility } from "#/ui/visibility.stylex.ts";
 
 const BOARD_INSET = 22;
 const COLUMN_GAP = 32;
@@ -90,15 +92,37 @@ export function MapPage({ mapId }: { mapId: string }) {
               <MapRankMedal isUnrankedShown rank={map.rank} size="lg" xstyle={styles.medal} />
             </Stack>
 
-            <Stack xstyle={styles.cta}>
-              <RouterButton
-                label="New match"
-                search={{ map: map.mapId }}
-                size="lg"
-                to="/matches/new"
-                variant="primary"
-                width="100%"
-              />
+            <Stack gap={2} xstyle={styles.cta}>
+              {map.playerCount >= 2 ? (
+                <RouterButton
+                  label="New match"
+                  search={{ map: map.mapId }}
+                  size="lg"
+                  to="/matches/new"
+                  variant="primary"
+                  width="100%"
+                />
+              ) : null}
+              {/* The editor is desktop only. */}
+              {mapEditGrant(map, actor) !== null ? (
+                <RouterButton
+                  label="Edit map"
+                  params={{ mapId: map.mapId }}
+                  to="/maps/$mapId/edit"
+                  variant="secondary"
+                  width="100%"
+                  xstyle={visibility.desktopOnly}
+                />
+              ) : (
+                <RouterButton
+                  label="Fork map"
+                  search={{ from: map.mapId }}
+                  to="/maps/new"
+                  variant="secondary"
+                  width="100%"
+                  xstyle={visibility.desktopOnly}
+                />
+              )}
             </Stack>
 
             <MapBoard map={map} />

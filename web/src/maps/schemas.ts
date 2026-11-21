@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { awbrnMapDocumentSchema } from "./map_document.ts";
 import { MAP_SEARCH_MAX_LENGTH } from "./map_catalog.ts";
 import { MAP_ID_LENGTH } from "./map_id.ts";
 import { moderationReasonSchema } from "#/moderation/schemas.ts";
@@ -143,6 +144,79 @@ export const mapCatalogRequestSchema = mapCatalogFilterSchema.extend({
 });
 
 export type MapCatalogRequest = z.infer<typeof mapCatalogRequestSchema>;
+
+/**
+ * How large a board the editor will open.
+ *
+ * The floor is the smallest board that can seat two armies and still have
+ * ground between them; the ceiling is the largest board
+ * `awbrnMapDocumentSchema` takes. Both are stated here so the editor and the
+ * server refuse the same sizes.
+ */
+export const MAP_EDITOR_MIN_SIZE = 5;
+export const MAP_EDITOR_MAX_SIZE = 64;
+
+/** The board a new map starts on: the size most AWBW maps are drawn at. */
+export const MAP_EDITOR_DEFAULT_SIZE = { width: 20, height: 16 } as const;
+
+export const mapEditorSizeSchema = z
+  .number()
+  .int()
+  .min(MAP_EDITOR_MIN_SIZE)
+  .max(MAP_EDITOR_MAX_SIZE);
+
+export const MAP_NAME_MAX = 80;
+
+/**
+ * A map the editor asks AWBRN to keep.
+ *
+ * A request with no `mapId` writes a new map. An edit also names the revision
+ * and map name it opened, so the server can refuse stale work.
+ */
+const mapSaveContentSchema = z.object({
+  name: z.string().trim().min(1).max(MAP_NAME_MAX),
+  // The document schema holds every map the site reads, an imported one
+  // included, so the board a map maker draws is held to the editor's own
+  // smallest size here rather than there.
+  document: awbrnMapDocumentSchema.refine(
+    (document) => document.width >= MAP_EDITOR_MIN_SIZE && document.height >= MAP_EDITOR_MIN_SIZE,
+    { message: `a board is at least ${MAP_EDITOR_MIN_SIZE} tiles on a side` },
+  ),
+});
+
+export const mapSaveRequestSchema = z.union([
+  mapSaveContentSchema.extend({
+    mapId: mapIdSchema,
+    expectedRevision: z.number().int().positive(),
+    expectedName: z.string(),
+  }),
+  mapSaveContentSchema.extend({
+    mapId: z.undefined().optional(),
+    expectedRevision: z.undefined().optional(),
+  }),
+]);
+
+export type MapSaveRequest = z.infer<typeof mapSaveRequestSchema>;
+
+/** Where a saved map now lives, and what number it is on. */
+export interface MapSaveResult {
+  mapId: string;
+  revision: number;
+  /** False when the map already held the board as a revision. */
+  written: boolean;
+}
+
+/**
+ * The messages `saveMapFn` refuses a revision with, so the editor can tell
+ * which recovery applies. Each leaves saving it as a new map.
+ */
+export const MAP_SAVE_REFUSALS = {
+  changed: "This map changed after you opened it.",
+  missing: "Map not found",
+  forbidden: "This map is no longer yours to revise.",
+  /** Prefixes the reason the document checks give. */
+  board: "Board not accepted: ",
+} as const;
 
 /** An AWBW map a player asks AWBRN to hold. */
 export const awbwMapImportRequestSchema = z.object({

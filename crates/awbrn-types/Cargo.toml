@@ -9,6 +9,8 @@ workspace = true
 [features]
 default = []
 bevy = ["dep:bevy"]
+# Generated TypeScript declarations for the types that cross the wasm boundary.
+typescript = ["awbw-types/typescript", "awvm/typescript"]
 
 [dependencies]
 awbw-types.path = "../awbw-types"

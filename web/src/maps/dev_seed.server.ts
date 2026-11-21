@@ -76,8 +76,9 @@ async function runSeed(): Promise<void> {
 async function seedDevRankedMap(): Promise<void> {
   const db = drizzle(env.DB, { schema: { maps, mapSources, rankedMaps, seasons } });
   const amberValley = await db
-    .select({ mapId: mapSources.mapId })
+    .select({ mapId: mapSources.mapId, revision: maps.currentRevision })
     .from(mapSources)
+    .innerJoin(maps, eq(maps.id, mapSources.mapId))
     .where(and(eq(mapSources.source, "awbw"), eq(mapSources.sourceMapId, 61748)))
     .get();
   if (!amberValley) {
@@ -93,7 +94,13 @@ async function seedDevRankedMap(): Promise<void> {
     }),
     db
       .insert(rankedMaps)
-      .values({ season: DEV_SEASON_NUMBER, pool: "async", mapId: amberValley.mapId, addedAt: now })
+      .values({
+        season: DEV_SEASON_NUMBER,
+        pool: "async",
+        mapId: amberValley.mapId,
+        revision: amberValley.revision,
+        addedAt: now,
+      })
       .onConflictDoNothing(),
   ]);
   console.log(`[dev-seed] ranked pool async includes Amber Valley for season ${DEV_SEASON_NUMBER}`);
