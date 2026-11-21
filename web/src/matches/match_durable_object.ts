@@ -79,28 +79,6 @@ function clockActionFromPayload(payload: unknown, at: number): ClockAction | nul
   };
 }
 
-/**
- * Turns the server plays for its own seats in one wake.
- *
- * A drain almost always ends at a person: a lobby keeps a seat for its host,
- * so the turn comes back within one lap of the table. The bound is for the
- * match that has lost its last person to an elimination and is now the server
- * playing itself, which is a match that has to finish without spending one
- * invocation's whole budget doing it. What is left over is picked up on the
- * next wake, which `nextWakeAt` asks for.
- */
-const MAX_AI_TURNS_PER_WAKE = 16;
-
-/**
- * How long a match waits before playing a turn the server still owes.
- *
- * That is a turn it could not fit in one wake, or one that failed after a
- * person's command. A couple of seconds finishes an unattended endgame at a
- * pace nobody is waiting on. A turn that fails in a settle waits on the
- * settle backoff instead.
- */
-const AI_TURN_ALARM_DELAY_MS = 2_000;
-
 /** Retry delay for an unwritten result. */
 const RESULT_ALARM_DELAY_MS = 10_000;
 
@@ -142,6 +120,19 @@ const MATCHMAKER_WAKE_ATTEMPTS = 6;
  * that happened in it.
  */
 const SETTLE_FAILURES_KEY = "settleFailures";
+
+/** Failed attempts in a row at one owed server turn; only these delay that turn's wake. */
+const AI_TURN_FAILURES_KEY = "aiTurnFailures";
+
+/** One seat's turn. A seat has one turn a day. */
+interface SeatTurn {
+  slot: number;
+  day: number;
+}
+
+interface TurnFailures extends SeatTurn {
+  failures: number;
+}
 
 /**
  * How long to wait before looking at a match that would not settle.
@@ -307,7 +298,6 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       }
       this.broadcastActionResponse(response, setup, game);
       this.broadcastClock(setup, game);
-      this.playPendingAiTurns(setup, game);
       // The badge that counts a player's waiting matches reads the global
       // database, and nothing here waits on that read, so the publish stays
       // off the path the acting player is timed on. A publish that fails is
@@ -326,7 +316,7 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     }
   }
 
-  /** Time out a seat whose clock ran out, and retry an unwritten result. */
+  /** Time out a seat whose clock ran out, play an owed turn, and retry an unwritten result. */
   async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
     const setup = this.readSetupEvent();
     if (!setup) {
@@ -352,10 +342,6 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
 
       this.wasmMatch = new WasmMatch(setup);
       this.appendEvent({ kind: "setup", payload: setup });
-      // A match whose first seat is the server's opens on that seat's turn.
-      // Playing it now is what stops its clock running down to a timeout
-      // while everyone waits for a board that was never going to change.
-      this.playPendingAiTurns(setup, this.wasmMatch);
       // The opening turn is published as the match starts, and a publish that
       // fails is made again by the next settle rather than failing the start.
       this.ctx.waitUntil(
@@ -573,13 +559,7 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     }
   }
 
-  /**
-   * Bring the match up to date and set the next alarm.
-   *
-   * The alarm has one use at a time: a running match wakes on its clock, and a
-   * finished one wakes to retry a result the global database has not taken
-   * yet. Both are settled here so neither can overwrite the other's alarm.
-   */
+  /** Bring the match up to date and set its one alarm. */
   private async settle(setup: MatchSetup, context: SettleContext): Promise<void> {
     let failed = false;
 
@@ -590,13 +570,30 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       console.error("Failed to enforce the match clock:", error);
     }
 
+    let turnOwed = false;
     try {
       const game = this.loadGame();
-      // A seat's turn that fails, or a log that does not read back (as after
-      // a trap broke the wasm instance), is a failed settle, so it is tried
-      // again on the backoff rather than every few seconds or never.
-      if (game === null || !this.playPendingAiTurns(setup, game)) {
+      if (game === null) {
+        // A log that does not read back (as after a trap broke the wasm
+        // instance) is a failed settle, retried on the backoff.
         failed = true;
+      } else {
+        // Only the alarm plays an owed turn, so each turn has an invocation to itself.
+        const slot = context.fromAlarm ? game.pendingAiSlot() : undefined;
+        if (slot !== undefined) {
+          const turn = { slot, day: game.playerGameState(slot).day };
+          let played = false;
+          try {
+            played = await this.playPendingAiTurn(setup, game);
+          } catch (error) {
+            console.error("Failed to play the server's seats:", error);
+          }
+          await this.recordTurnFailure(turn, !played);
+          if (!played) {
+            failed = true;
+          }
+        }
+        turnOwed = this.loadGame()?.pendingAiSlot() !== undefined;
       }
     } catch (error) {
       failed = true;
@@ -610,11 +607,21 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       console.error("Failed to record match results:", error);
     }
 
-    try {
-      await this.publishTurnState(setup);
-    } catch (error) {
-      failed = true;
-      console.error("Failed to publish the match turn:", error);
+    if (turnOwed) {
+      // The next turn's wake cannot start until this one returns. The settle
+      // that reaches a person waits on its publish and retries a failed one.
+      this.ctx.waitUntil(
+        this.publishTurnState(setup).catch((error: unknown) => {
+          console.error("Failed to publish the match turn:", error);
+        }),
+      );
+    } else {
+      try {
+        await this.publishTurnState(setup);
+      } catch (error) {
+        failed = true;
+        console.error("Failed to publish the match turn:", error);
+      }
     }
 
     const failures = await this.recordSettleFailures(failed);
@@ -646,6 +653,28 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     const failures = previous + 1;
     await this.ctx.storage.put(SETTLE_FAILURES_KEY, failures);
     return failures;
+  }
+
+  /** Count an attempt at `turn`: one that plays clears the count. */
+  private async recordTurnFailure(turn: SeatTurn, failed: boolean): Promise<void> {
+    const stored = await this.ctx.storage.get<TurnFailures>(AI_TURN_FAILURES_KEY);
+    if (!failed) {
+      if (stored !== undefined) {
+        await this.ctx.storage.delete(AI_TURN_FAILURES_KEY);
+      }
+      return;
+    }
+    const previous = stored?.slot === turn.slot && stored.day === turn.day ? stored.failures : 0;
+    await this.ctx.storage.put(AI_TURN_FAILURES_KEY, { ...turn, failures: previous + 1 });
+  }
+
+  /** How many times in a row the turn `slot` owes now has failed. */
+  private async turnFailures(game: WasmMatch, slot: number): Promise<number> {
+    const stored = await this.ctx.storage.get<TurnFailures>(AI_TURN_FAILURES_KEY);
+    if (stored?.slot !== slot) {
+      return 0;
+    }
+    return stored.day === game.playerGameState(slot).day ? stored.failures : 0;
   }
 
   /**
@@ -687,56 +716,67 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   }
 
   /**
-   * Play every turn the server owes its own seats, and send them on.
+   * Play the next turn the server owes one of its own seats, and send it on.
    *
    * Each command an opponent gets accepted is written down and broadcast the
    * way a person's is, because it is the same command through the same
    * authority. A person watching sees the turn play out rather than finding
    * the board already changed.
    *
-   * Returns false when a seat could not take its turn. That is not thrown,
-   * because the person whose command started the turn had that command taken.
+   * Returns false when the seat could not take its turn.
    */
-  private playPendingAiTurns(setup: MatchSetup, game: WasmMatch): boolean {
-    for (let turn = 0; turn < MAX_AI_TURNS_PER_WAKE; turn += 1) {
-      const slot = game.pendingAiSlot();
-      if (slot === undefined) {
-        return true;
-      }
-
-      let actions;
-      try {
-        actions = game.runAiTurn(slot).actions;
-      } catch (error) {
-        // The seat could not take its turn. Leaving the match on that seat is
-        // better than leaving it on a board nobody agreed to: the turn is
-        // owed, the next wake asks for it again, and the seat's own clock is
-        // what ends a match that never gets it.
-        console.error("Failed to play a server-held seat:", {
-          matchId: setup.matchId,
-          slot,
-          error,
-        });
-        // The turn stopped part-way, so the match object may hold commands the
-        // log never took, or be unusable after a trap. Read it back from the
-        // log. That cannot repair a broken wasm instance; then the rebuild
-        // fails too and each settle retries on the backoff.
-        this.restoreGameFromPersistedEvents();
-        return false;
-      }
-
-      for (const action of actions) {
-        try {
-          this.appendEvent({ kind: "action", payload: action.storedActionEvent });
-        } catch (error) {
-          this.restoreGameFromPersistedEvents();
-          throw error;
-        }
-        this.broadcastActionResponse(action, setup, game);
-      }
-      this.broadcastClock(setup, game);
+  private async playPendingAiTurn(setup: MatchSetup, game: WasmMatch): Promise<boolean> {
+    const slot = game.pendingAiSlot();
+    if (slot === undefined) {
+      return true;
     }
 
+    let actions;
+    try {
+      actions = game.runAiTurn(slot).actions;
+    } catch (error) {
+      // The turn stays owed for the next wake, and the seat's clock ends a match
+      // that never gets it.
+      console.error("Failed to play a server-held seat:", {
+        matchId: setup.matchId,
+        slot,
+        error,
+      });
+      // The match may hold commands the log never took, or be broken by a trap.
+      this.restoreGameFromPersistedEvents();
+      return false;
+    }
+
+    // `Date` is frozen while code runs, so wait on a timer to stamp the turn when
+    // it lands. No other event may run until the log has the turn's commands.
+    const failure = await this.ctx.blockConcurrencyWhile(async () => {
+      await scheduler.wait(0);
+      const at = new Date();
+      try {
+        for (const action of actions) {
+          this.appendEvent({ kind: "action", payload: action.storedActionEvent }, at);
+          this.broadcastActionResponse(action, setup, game);
+        }
+        this.broadcastClock(setup, game);
+        return null;
+      } catch (error) {
+        // Thrown out of this callback, it would reset the object.
+        this.restoreGameFromPersistedEvents();
+        return { error };
+      }
+    });
+    if (failure !== null) {
+      throw failure.error;
+    }
+
+    // No progress: back off rather than let the immediate wake ask again for ever.
+    if (game.pendingAiSlot() === slot) {
+      console.error("A server-held seat ended its turn still on the move:", {
+        matchId: setup.matchId,
+        slot,
+      });
+      return false;
+    }
     return true;
   }
 
@@ -764,10 +804,17 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   }
 
   private async nextWakeAt(setup: MatchSetup, failures: number): Promise<number | null> {
+    const game = this.loadGame();
+    // Not capped at the seat's deadline: a passed deadline that cannot be
+    // enforced would then wake the match in a loop.
+    const owedSlot = game?.pendingAiSlot();
+    if (game !== null && owedSlot !== undefined) {
+      const turnFailures = await this.turnFailures(game, owedSlot);
+      return Date.now() + (turnFailures > 0 ? retryDelayMs(turnFailures) : 0);
+    }
     if (failures > 0) {
       return Date.now() + retryDelayMs(failures);
     }
-    const game = this.loadGame();
     if (game === null) {
       // The match has its setup, so its log did not read back. The wake's
       // settle counts that as a failure and backs off.
@@ -781,12 +828,6 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       ]);
       const settled = recorded === true && (matchmakerWakes ?? 0) <= 0 && (ratingWakes ?? 0) <= 0;
       return settled ? null : Date.now() + RESULT_ALARM_DELAY_MS;
-    }
-    // A turn the server still owes is a turn nobody is going to ask for, so
-    // the match asks itself rather than waiting on a person who may not be
-    // in it any more.
-    if (game.pendingAiSlot() !== undefined) {
-      return Date.now() + AI_TURN_ALARM_DELAY_MS;
     }
     return this.clockState(setup, game)?.deadlineAt ?? null;
   }
@@ -1107,8 +1148,7 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     return (result?.value ?? 0) > 0;
   }
 
-  private appendEvent(event: MatchEvent): void {
-    const createdAt = new Date();
+  private appendEvent(event: MatchEvent, createdAt = new Date()): void {
     this.db
       .insert(matchEventsTable)
       .values({
