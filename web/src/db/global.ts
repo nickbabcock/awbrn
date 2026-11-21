@@ -36,6 +36,13 @@ const sqlLiterals = (values: readonly string[]) => sql.raw(values.map((v) => `'$
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  /**
+   * The name folded the way `displayNameKey` folds it, so that two names a
+   * reader would take for the same player cannot both be held.
+   */
+  nameKey: text("nameKey").notNull().unique(),
+  /** When the player last renamed themselves. A moderator's rename leaves it. */
+  nameChangedAt: integer("nameChangedAt", { mode: "timestamp" }),
   email: text("email").notNull().unique(),
   emailVerified: integer("emailVerified", { mode: "boolean" }).notNull(),
   image: text("image"),

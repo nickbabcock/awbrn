@@ -125,6 +125,7 @@ describe("saving map drafts", () => {
       await db.insert(user).values({
         id: userId,
         name: "Map maker",
+        nameKey: userId,
         email: `${userId}@example.com`,
         emailVerified: true,
         updatedAt: new Date(),
@@ -254,6 +255,7 @@ describe("saving map drafts", () => {
       await db.insert(user).values({
         id: userId,
         name: "Map maker",
+        nameKey: userId,
         email: `${userId}@example.com`,
         emailVerified: true,
         updatedAt: new Date(),

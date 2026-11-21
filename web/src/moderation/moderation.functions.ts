@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getAuth } from "#/auth/auth.server.ts";
 import { requirePermission } from "#/auth/permission.middleware.ts";
 import { userRoleUpdateSchema } from "#/auth/schemas.ts";
-import { listModerationActions, logModeration } from "./moderation.server.ts";
+import { listModerationActions, logModeration, renameUser } from "./moderation.server.ts";
 import { moderationLogRequestSchema, moderationReasonSchema } from "./schemas.ts";
 
 /**
@@ -108,4 +108,15 @@ export const unbanUserFn = createServerFn({ method: "POST" })
       reason: data.reason,
     });
     return { banned: false };
+  });
+
+export const renameUserFn = createServerFn({ method: "POST" })
+  .middleware([requirePermission({ user: ["rename"] })])
+  .validator(
+    z.object({ userId: z.string().min(1), name: z.string(), reason: moderationReasonSchema }),
+  )
+  .handler(async ({ data, context }) => {
+    const result = await renameUser({ actor: context.actor, ...data });
+    if (!result.ok) throw new Error(result.error.message);
+    return { name: result.name };
   });

@@ -42,6 +42,7 @@ async function seedMap(
     .values({
       id: creator.id,
       name: creator.name,
+      nameKey: creator.id,
       email: "create-match-test@example.com",
       emailVerified: true,
       updatedAt: new Date(),
@@ -263,7 +264,13 @@ describe("teams and per-seat bans", () => {
     await seed();
     await db
       .insert(user)
-      .values({ ...guest, email: "guest@example.com", emailVerified: true, updatedAt: new Date() })
+      .values({
+        ...guest,
+        nameKey: guest.id,
+        email: "guest@example.com",
+        emailVerified: true,
+        updatedAt: new Date(),
+      })
       .onConflictDoNothing();
     const map = await seedMap(foreignInvasion, "cmtestmap005");
     const created = await createMatch(

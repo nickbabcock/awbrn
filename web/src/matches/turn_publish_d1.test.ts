@@ -32,7 +32,7 @@ describe("publishing a turn", () => {
     const mapId = `${suffix}0000`.slice(0, 12);
     await env.DB.batch([
       env.DB.prepare(
-        "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)",
+        "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt, nameKey) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?1)",
       ).bind(userId, "Publisher", `${userId}@example.com`, seconds(now), seconds(now)),
       env.DB.prepare(
         "INSERT INTO maps (id, name, author, currentRevision, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)",

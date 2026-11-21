@@ -43,10 +43,10 @@ async function seed(options: { patientIsReady: boolean }): Promise<void> {
 
   await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)",
+      "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt, nameKey) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?1)",
     ).bind("ghost", "Ghost", "ghost@example.com", seconds(OPENED_AT), seconds(OPENED_AT)),
     env.DB.prepare(
-      "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)",
+      "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt, nameKey) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?1)",
     ).bind("patient", "Patient", "patient@example.com", seconds(OPENED_AT), seconds(OPENED_AT)),
     env.DB.prepare("INSERT INTO seasons (number, startsAt, endsAt) VALUES (1, ?, ?)").bind(
       seconds(OPENED_AT),
