@@ -1,3 +1,4 @@
+import { createClientOnlyFn } from "@tanstack/react-start";
 import { proxy, transfer, wrap } from "comlink";
 import {
   CanvasCourierHost,
@@ -35,6 +36,7 @@ import type {
 import { gameAssetPaths } from "./asset_manifest";
 import { useGameStore } from "./store";
 import type { GameWorker } from "./worker_types";
+import { spawnGameWorker } from "./spawn_worker";
 
 type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;
 
@@ -727,10 +729,12 @@ export class GameRunner {
 
   private getWorker(): GameWorker {
     if (!this.worker) {
-      this.rawWorker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+      this.rawWorker = spawnWorker();
       this.worker = wrap<GameWorker>(this.rawWorker);
     }
 
     return this.worker;
   }
 }
+
+const spawnWorker = createClientOnlyFn(spawnGameWorker);
