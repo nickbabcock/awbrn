@@ -15,6 +15,7 @@ export const MODERATION_ACTIONS = [
   "user.ban",
   "user.unban",
   "user.set-role",
+  "user.rename",
 ] as const;
 
 export const moderationActionSchema = z.enum(MODERATION_ACTIONS);

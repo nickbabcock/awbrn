@@ -130,7 +130,7 @@ export function AuthPage({
               ) : null}
               {isRegister ? (
                 <TextInput
-                  autoComplete="name"
+                  autoComplete="nickname"
                   enterKeyHint="next"
                   htmlName="name"
                   id="name"
@@ -229,7 +229,12 @@ async function submitAuthRequest(
 ) {
   if (isRegister) {
     const parsed = authSignUpSchema.safeParse(payload);
-    if (!parsed.success) throw new Error(fieldProblem(parsed.error.issues[0]?.path[0], payload));
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      // A name that is there but breaks a rule says which rule.
+      if (issue?.path[0] === "name" && payload.name.trim()) throw new Error(issue.message);
+      throw new Error(fieldProblem(issue?.path[0], payload));
+    }
     return authClient.signUp.email(parsed.data);
   }
 

@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Actor } from "#/auth/actor.ts";
+import { claimDisplayName } from "#/auth/display_name.server.ts";
 import { moderationActions, user } from "#/db/global.ts";
 import { generateModerationId } from "./moderation_id.ts";
 import {
@@ -46,6 +47,51 @@ export function moderationEntry(
     details: input.details ?? null,
     createdAt: input.now ?? new Date(),
   };
+}
+
+export interface RenameUserInput {
+  actor: Actor;
+  userId: string;
+  name: string;
+  reason: string;
+}
+
+/**
+ * Give a player a new name, as a moderator.
+ *
+ * This leaves `nameChangedAt` alone: the player's own rename stays theirs to
+ * use. The old name goes in the record, which is the only place it is kept.
+ */
+export async function renameUser(
+  input: RenameUserInput,
+): Promise<{ ok: true; name: string } | { ok: false; error: { message: string } }> {
+  const current = await db
+    .select({ name: user.name })
+    .from(user)
+    .where(eq(user.id, input.userId))
+    .get();
+  if (!current) return { ok: false, error: { message: "No such player" } };
+
+  const claim = await claimDisplayName(input.name, input.userId);
+  if (!claim.ok) return claim;
+
+  await db.batch([
+    db
+      .update(user)
+      .set({ name: claim.name, nameKey: claim.nameKey, updatedAt: new Date() })
+      .where(eq(user.id, input.userId)),
+    db.insert(moderationActions).values(
+      moderationEntry({
+        actor: input.actor,
+        action: "user.rename",
+        subjectType: "user",
+        subjectId: input.userId,
+        reason: input.reason,
+        details: { from: current.name, to: claim.name },
+      }),
+    ),
+  ]);
+  return { ok: true, name: claim.name };
 }
 
 /**

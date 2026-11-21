@@ -13,6 +13,8 @@ import { adminAc, defaultStatements } from "better-auth/plugins/admin/access";
  */
 export const statement = {
   ...defaultStatements,
+  /** `rename` is ours: the plugin's `update` would reach email and the rest too. */
+  user: [...defaultStatements.user, "rename"],
   map: ["import", "write", "tag", "rank", "edit-any"],
   match: ["void", "view-any"],
 } as const;
@@ -36,7 +38,7 @@ const userRole = ac.newRole({
 
 /** What a moderator adds: curation of the catalog, and the abuse tools. */
 const moderatorRole = ac.newRole({
-  user: ["list", "get", "ban"],
+  user: ["list", "get", "ban", "rename"],
   session: ["list", "revoke"],
   map: ["import", "write", "tag", "rank", "edit-any"],
   match: ["void", "view-any"],
@@ -45,6 +47,7 @@ const moderatorRole = ac.newRole({
 /** Everything a moderator holds, plus the rest of the admin plugin. */
 const adminRole = ac.newRole({
   ...adminAc.statements,
+  user: [...adminAc.statements.user, "rename"],
   map: ["import", "write", "tag", "rank", "edit-any"],
   match: ["void", "view-any"],
 });

@@ -4,7 +4,7 @@ import { useSuspenseInfiniteQuery, useSuspenseQuery } from "@tanstack/react-quer
 import { spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { OPEN_RANKED_POOLS } from "#/matchmaking/ranked_display.ts";
 import { headingLooks } from "#/play/headings.ts";
 import { RouterButton } from "#/ui/astryx-links.tsx";
@@ -16,6 +16,8 @@ import { Sheet, SheetHead } from "#/ui/Sheet.tsx";
 import { YouChip } from "#/ui/YouChip.tsx";
 import { layoutBunting } from "../bunting.ts";
 import { Bunting } from "../components/Bunting.tsx";
+import { ProfileRename } from "../components/ProfileRename.tsx";
+import { Button } from "#/ui/Button.tsx";
 import { ProfileCos } from "../components/ProfileCos.tsx";
 import { ProfileHistory } from "../components/ProfileHistory.tsx";
 import { ProfileOngoing } from "../components/ProfileOngoing.tsx";
@@ -89,13 +91,21 @@ export function PlayerProfilePage({ userId }: { userId: string }) {
 /** The name, YOU on your own, and the day they joined as a postmark. */
 function ProfileHead({ profile }: { profile: PlayerProfile }) {
   const joined = usePostmarkDate(profile.joinedAt);
+  const [isRenaming, setIsRenaming] = useState(false);
   return (
     <HStack as="header" xstyle={styles.head}>
-      {/* Focus lands here after a route change (`#/ui/arrivalFocus.ts`). */}
-      <Heading level={1} tabIndex={-1} xstyle={styles.name}>
-        {profile.name}
-      </Heading>
+      {isRenaming ? (
+        <ProfileRename name={profile.name} onDone={() => setIsRenaming(false)} />
+      ) : (
+        /* Focus lands here after a route change (`#/ui/arrivalFocus.ts`). */
+        <Heading level={1} tabIndex={-1} xstyle={styles.name}>
+          {profile.name}
+        </Heading>
+      )}
       {profile.isViewer ? <YouChip xstyle={styles.you} /> : null}
+      {profile.isViewer && !isRenaming ? (
+        <Button clickAction={() => setIsRenaming(true)} label="Rename" variant="ghost" />
+      ) : null}
       <Postmark
         arcText="JOINED"
         figure={joined.year}

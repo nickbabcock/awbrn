@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "300d7ee5-3e24-49cc-89e2-4e71a1e61763",
+  "id": "07a1b6c9-95a3-483c-a54e-1059b3ba5970",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -1056,7 +1056,7 @@
       "checkConstraints": {
         "moderation_actions_action_vocabulary": {
           "name": "moderation_actions_action_vocabulary",
-          "value": "\"moderation_actions\".\"action\" in ('map.rank', 'map.retag', 'match.void', 'user.ban', 'user.unban', 'user.set-role')"
+          "value": "\"moderation_actions\".\"action\" in ('map.rank', 'map.retag', 'match.void', 'user.ban', 'user.unban', 'user.set-role', 'user.rename')"
         },
         "moderation_actions_subject_vocabulary": {
           "name": "moderation_actions_subject_vocabulary",
@@ -1968,6 +1968,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "nameKey": {
+          "name": "nameKey",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "nameChangedAt": {
+          "name": "nameChangedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "email": {
           "name": "email",
           "type": "text",
@@ -2035,6 +2049,11 @@
         }
       },
       "indexes": {
+        "user_nameKey_unique": {
+          "name": "user_nameKey_unique",
+          "columns": ["nameKey"],
+          "isUnique": true
+        },
         "user_email_unique": {
           "name": "user_email_unique",
           "columns": ["email"],

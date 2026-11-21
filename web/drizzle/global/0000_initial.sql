@@ -162,7 +162,7 @@ CREATE TABLE `moderation_actions` (
 	`details` text,
 	`createdAt` integer DEFAULT (unixepoch()) NOT NULL,
 	FOREIGN KEY (`actorUserId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "moderation_actions_action_vocabulary" CHECK("moderation_actions"."action" in ('map.rank', 'map.retag', 'match.void', 'user.ban', 'user.unban', 'user.set-role')),
+	CONSTRAINT "moderation_actions_action_vocabulary" CHECK("moderation_actions"."action" in ('map.rank', 'map.retag', 'match.void', 'user.ban', 'user.unban', 'user.set-role', 'user.rename')),
 	CONSTRAINT "moderation_actions_subject_vocabulary" CHECK("moderation_actions"."subjectType" in ('map', 'map_revision', 'match', 'user'))
 );
 --> statement-breakpoint
@@ -316,6 +316,8 @@ CREATE INDEX `session_userId_idx` ON `session` (`userId`);--> statement-breakpoi
 CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
+	`nameKey` text NOT NULL,
+	`nameChangedAt` integer,
 	`email` text NOT NULL,
 	`emailVerified` integer NOT NULL,
 	`image` text,
@@ -327,6 +329,7 @@ CREATE TABLE `user` (
 	`updatedAt` integer NOT NULL
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `user_nameKey_unique` ON `user` (`nameKey`);--> statement-breakpoint
 CREATE UNIQUE INDEX `user_email_unique` ON `user` (`email`);--> statement-breakpoint
 CREATE TABLE `verification` (
 	`id` text PRIMARY KEY NOT NULL,

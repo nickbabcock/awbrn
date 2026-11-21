@@ -23,7 +23,7 @@ const SETTINGS = JSON.stringify({
 
 function insertUser(id: string, name: string): D1PreparedStatement {
   return env.DB.prepare(
-    "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)",
+    "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt, nameKey) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?1)",
   ).bind(id, name, `${id}@example.com`, seconds(AT), seconds(AT));
 }
 

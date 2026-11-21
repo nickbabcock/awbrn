@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ROLE_NAMES } from "./access.ts";
+import { displayNameSchema } from "./display_name.ts";
 
 export const authSignInSchema = z.object({
   email: z.string().email(),
@@ -7,7 +8,7 @@ export const authSignInSchema = z.object({
 });
 
 export const authSignUpSchema = authSignInSchema.extend({
-  name: z.string().trim().min(1),
+  name: displayNameSchema,
 });
 
 export type AuthSignInInput = z.infer<typeof authSignInSchema>;
