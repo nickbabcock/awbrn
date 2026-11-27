@@ -65,7 +65,9 @@ use crate::eval::{EvalWeights, Evaluator};
 use crate::fog::{FogEstimate, FogMemory};
 use crate::rng::Rng;
 
+#[cfg(test)]
 use ferry::ferry_plays;
+use ferry::ferry_plays_with;
 pub use reply::{PropertyValues, ReplyEstimate};
 
 use crate::replay_score::{ReplayReader, ReplayScore};
@@ -257,6 +259,10 @@ pub struct PlannerConfig {
     /// ([`RolloutConfig`]). `None` keeps the reply check.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rollout: Option<RolloutConfig>,
+    /// Whether a game of more than two live seats models every seat that
+    /// moves before our next turn. Two live seats play as without it.
+    #[serde(skip_serializing_if = "is_false")]
+    pub rounds: bool,
 }
 
 /// A check of the best lines that plays more turns after each line.
@@ -380,6 +386,7 @@ impl PlannerConfig {
         march_guard: false,
         run: false,
         rollout: None,
+        rounds: false,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -525,6 +532,15 @@ impl PlannerConfig {
         run: true,
         rollout: Some(RolloutConfig::THREE_TURNS),
         ..Self::V8
+    };
+
+    /// planner-v9 that models every seat of a round in games of more than
+    /// two live seats. The same as planner-v9 with two.
+    pub const V9_NSEAT: Self = Self {
+        identifier: "planner-v9-nseat",
+        baseline: crate::profile::V9_TEAMS_GREEDY_CONFIG,
+        rounds: true,
+        ..Self::V9
     };
 
     /// planner-v6 with the fog memory.
@@ -1191,13 +1207,23 @@ struct MarchTurn {
 
 impl TurnPlanner<'_> {
     fn leaf_value(&mut self, session: &Session) -> f64 {
+        let teams = self.rounds(session.state());
         match self.replay.as_deref_mut() {
             Some(replay) if ReplayScore::applies(session.state()) => {
                 Evaluator::terminal_value(session.state(), self.seat)
                     .unwrap_or_else(|| replay.value_in(session, self.seat))
             }
+            Some(replay) if teams && ReplayScore::applies_to_teams(session.state()) => {
+                Evaluator::terminal_value(session.state(), self.seat)
+                    .unwrap_or_else(|| replay.team_value_in(session, self.seat))
+            }
             _ => self.evaluator.value_in(session, self.seat),
         }
+    }
+
+    /// [`PlannerConfig::rounds`] when `state` has more than two live seats.
+    fn rounds(&self, state: &State) -> bool {
+        self.config.rounds && live_seats(state) > 2
     }
 
     fn plan(&mut self, root: &Session) -> Option<Line> {
@@ -1212,7 +1238,7 @@ impl TurnPlanner<'_> {
         // turn.
         let mut fixed = 0;
         let mut opening = if self.config.ferry {
-            ferry_plays(root)
+            ferry_plays_with(root, self.rounds(root.state()))
         } else {
             Vec::new()
         };
@@ -1495,6 +1521,9 @@ impl TurnPlanner<'_> {
     fn meter_term(&self, state: &State) -> f64 {
         match self.replay.as_deref() {
             Some(replay) if ReplayScore::applies(state) => replay.meter_term(state, self.seat),
+            Some(replay) if self.rounds(state) && ReplayScore::applies_to_teams(state) => {
+                replay.team_meter_term(state, self.seat)
+            }
             _ => 0.0,
         }
     }
@@ -1721,17 +1750,17 @@ impl TurnPlanner<'_> {
 
     /// The reply estimate of the enemy turn that starts in `session`.
     fn reply_estimate(&self, session: &Session) -> ReplyEstimate {
-        reply::estimate(
-            session,
-            self.seat,
-            self.config.property_values,
-            reply::ReplyOptions {
-                commander_effects: self.config.baseline.weights.commander_effects,
-                march: self.config.march,
-                contest: self.config.contest,
-                march_guard: self.config.march_guard,
-            },
-        )
+        let options = reply::ReplyOptions {
+            commander_effects: self.config.baseline.weights.commander_effects,
+            march: self.config.march,
+            contest: self.config.contest,
+            march_guard: self.config.march_guard,
+        };
+        if self.rounds(session.state()) {
+            reply::round_estimate(session, self.seat, self.config.property_values, options)
+        } else {
+            reply::estimate(session, self.seat, self.config.property_values, options)
+        }
     }
 
     fn out_of_work(&self) -> bool {
@@ -1856,13 +1885,23 @@ impl TurnPlanner<'_> {
                     .ok()?;
                 session.apply(end, &mut entropy, &mut ()).ok()?;
             }
-            for _ in 0..rollout.turns {
+            // In rounds, the rollout plays the other seats up to our next turn.
+            let rounds = self.rounds(session.state());
+            let turns = if rounds {
+                session.state().players.len()
+            } else {
+                usize::from(rollout.turns)
+            };
+            for _ in 0..turns {
                 if !matches!(session.state().match_state, Match::Active { .. }) {
                     break;
                 }
                 let side = session.state().turn.active_player.clone();
                 let seat = session.state().players.seat(&side)?;
                 let own = seat == self.seat;
+                if rounds && own {
+                    break;
+                }
                 // Each rollout turn is a new turn of its side: a line ends
                 // at the start of the enemy turn, or with the game. So the
                 // turn so far starts empty.
@@ -1938,7 +1977,7 @@ impl TurnPlanner<'_> {
             // At the start of an enemy turn, the value subtracts the reply
             // estimate, as the score of a line does. One turn keeps the value
             // of the Hard reply check, which never subtracts it.
-            if rollout.turns > 1
+            if (rollout.turns > 1 || rounds)
                 && matches!(session.state().match_state, Match::Active { .. })
                 && session
                     .state()
@@ -1981,7 +2020,7 @@ impl TurnPlanner<'_> {
         let rate = if own { self.march.rate } else { None };
         let held = if own { self.march.held } else { 0 };
         let mut opening = if self.config.ferry {
-            ferry_plays(session)
+            ferry_plays_with(session, self.rounds(session.state()))
         } else {
             Vec::new()
         };
@@ -2269,6 +2308,15 @@ impl TurnPlanner<'_> {
             penalty: 0.0,
         })
     }
+}
+
+/// The seats still in the game.
+fn live_seats(state: &State) -> usize {
+    state
+        .players
+        .seats()
+        .filter(|(_, player)| player.status == awvm::semantic::PlayerStatus::Active)
+        .count()
 }
 
 /// Whether the last play of a line is an explicit end of the turn.

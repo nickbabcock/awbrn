@@ -118,10 +118,12 @@ struct Ferry<'a> {
     targets: Vec<u32>,
     /// The cells of the properties to take.
     target_cells: Vec<Pos>,
+    /// Whether an allied property counts as taken ([`ferry_plays_with`]).
+    teams: bool,
 }
 
 impl<'a> Ferry<'a> {
-    fn new(state: &'a State, seat: PlayerIdx) -> Self {
+    fn new(state: &'a State, seat: PlayerIdx, teams: bool) -> Self {
         let land = Landmasses::of(state);
         let hostile = |owner: PlayerIdx| threat::hostile(state, seat, owner);
         // Landmasses with an own capturer, an enemy unit, or an enemy
@@ -177,6 +179,7 @@ impl<'a> Ferry<'a> {
             land,
             targets,
             target_cells,
+            teams,
         }
     }
 
@@ -197,6 +200,9 @@ impl<'a> Ferry<'a> {
                 && match tile.owner {
                     TileOwner::NotOwnable => false,
                     TileOwner::Neutral => true,
+                    TileOwner::Owned(holder) if self.teams => {
+                        threat::hostile(self.state, self.seat, holder)
+                    }
                     TileOwner::Owned(holder) => holder != self.seat,
                 }
         })
@@ -323,7 +329,14 @@ fn production_orders(session: &Session) -> Vec<Order> {
 ///
 /// The plays are for the active seat. A play can become illegal after an
 /// earlier play of the turn. The planner then skips it.
+#[cfg(test)]
 pub(crate) fn ferry_plays(session: &Session) -> Vec<Play> {
+    ferry_plays_with(session, false)
+}
+
+/// [`ferry_plays`]; with `teams`, a landmass whose only properties left are
+/// allied ones is done, since an ally's property cannot be captured.
+pub(crate) fn ferry_plays_with(session: &Session, teams: bool) -> Vec<Play> {
     let state = session.state();
     let Some(seat) = state.players.seat(&state.turn.active_player) else {
         return Vec::new();
@@ -331,7 +344,7 @@ pub(crate) fn ferry_plays(session: &Session) -> Vec<Play> {
     if state.settings.fog {
         return Vec::new();
     }
-    let ferry = Ferry::new(state, seat);
+    let ferry = Ferry::new(state, seat, teams);
     if ferry.targets.is_empty() {
         return Vec::new();
     }

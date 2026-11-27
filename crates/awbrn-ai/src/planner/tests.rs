@@ -3967,3 +3967,258 @@ fn a_decision_with_another_power_hold_is_not_a_repeat() {
     assert!(!matches!(held.kind(), OrderKind::Power(_)), "{held:?}");
     assert_eq!(hard.memo_checks, 0);
 }
+
+/// Map 162795 with five seats, no units, and these team numbers.
+fn five_seats(teams: [u8; 5]) -> (State, Vec<PlayerIdx>) {
+    let path = format!(
+        "{}/../../assets/maps/162795.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let map = awbrn_map::AwbwMap::parse_json(&std::fs::read(path).unwrap()).unwrap();
+    let factions = map.slot_factions(5);
+    let setup = awbrn_game::GameSetup {
+        map: awbrn_map::AwbrnMap::from_map(&map),
+        players: factions
+            .iter()
+            .zip(teams)
+            .map(|(faction, team)| awbrn_game::PlayerSetup {
+                faction: *faction,
+                team: std::num::NonZeroU8::new(team),
+                starting_funds: 0,
+                co: awbrn_types::Co::Andy,
+            })
+            .collect(),
+        fog_enabled: false,
+        rng_seed: 1,
+        unit_bans: Vec::new(),
+        lab_units: Vec::new(),
+    };
+    let mut state = awbrn_game::state_from_setup(&setup).unwrap();
+    state.units.retain(|_| false);
+    let seats = state.players.seats().map(|(seat, _)| seat).collect();
+    (state, seats)
+}
+
+/// `state` at the start of the turn of `active`, with `units` on plains.
+fn five_seat_session(
+    mut state: State,
+    active: PlayerIdx,
+    units: &[(awvm::ruleset::UnitKind, PlayerIdx, awvm::semantic::Pos)],
+) -> Session {
+    for (index, (kind, owner, position)) in units.iter().enumerate() {
+        let tile = state.board.tile_mut(*position);
+        if tile.owner == awvm::semantic::TileOwner::NotOwnable {
+            tile.terrain = awvm::ruleset::Terrain::Plain;
+        }
+        let id = u32::try_from(index).unwrap() + 1;
+        state.units.push(board_unit(
+            id,
+            *kind,
+            *owner,
+            Location::Board {
+                position: *position,
+            },
+        ));
+    }
+    state.next_unit_id = Some(u32::try_from(units.len()).unwrap() + 1);
+    let player = state.player(active).id().clone();
+    state.turn.position = state
+        .turn
+        .order
+        .iter()
+        .position(|id| *id == player)
+        .unwrap();
+    state.turn.active_player = player;
+    Session::new(state)
+}
+
+fn round_options() -> reply::ReplyOptions {
+    reply::ReplyOptions {
+        commander_effects: true,
+        march: false,
+        contest: true,
+        march_guard: false,
+    }
+}
+
+/// No one tank destroys ours; three seats in turn do.
+#[test]
+fn the_round_estimate_reads_the_second_hostile_seat() {
+    use awvm::ruleset::UnitKind::Tank;
+    use awvm::semantic::Pos;
+    let (state, seats) = five_seats([1, 2, 3, 4, 5]);
+    let ours = seats[4];
+    let session = five_seat_session(
+        state,
+        seats[0],
+        &[
+            (Tank, ours, Pos::new(13, 10)),
+            (Tank, seats[0], Pos::new(12, 10)),
+            (Tank, seats[1], Pos::new(14, 10)),
+            (Tank, seats[2], Pos::new(13, 11)),
+        ],
+    );
+    let values = PropertyValues::STANDARD;
+    let next = reply::estimate(&session, ours, values, round_options());
+    let round = reply::round_estimate(&session, ours, values, round_options());
+    assert_eq!(next.units_destroyed, 0);
+    assert_eq!(round.units_destroyed, 1);
+    assert!(round.unit_loss > next.unit_loss, "{round:?} {next:?}");
+    // The plan lists are the first seat's.
+    assert!(round.destroyed.is_empty());
+    assert_eq!(round.exposed, next.exposed);
+}
+
+/// The hostile seat moves after our allies; the plan lists name only our
+/// own units.
+#[test]
+fn a_team_seat_prices_the_hostile_seat_after_its_allies() {
+    use awvm::ruleset::UnitKind::Tank;
+    use awvm::semantic::Pos;
+    let (state, seats) = five_seats([1, 1, 1, 1, 2]);
+    let ours = seats[0];
+    let values = PropertyValues::STANDARD;
+    let target = |owner: PlayerIdx| {
+        five_seat_session(
+            state.clone(),
+            seats[1],
+            &[
+                (Tank, owner, Pos::new(13, 10)),
+                (Tank, seats[4], Pos::new(14, 10)),
+            ],
+        )
+    };
+    let own = target(ours);
+    assert_eq!(
+        reply::estimate(&own, ours, values, round_options()).total(),
+        0.0
+    );
+    let round = reply::round_estimate(&own, ours, values, round_options());
+    assert_eq!(round.exposed, vec![UnitId::new(1)]);
+    assert!(round.unit_loss > 0.0);
+    let ally = reply::round_estimate(&target(seats[2]), ours, values, round_options());
+    assert!(ally.unit_loss > 0.0 && ally.exposed.is_empty(), "{ally:?}");
+}
+
+/// The first hostile seat kills the blocker on our headquarters; the
+/// second captures.
+#[test]
+fn a_blocker_destroyed_by_one_seat_opens_the_tile_to_the_next() {
+    use awvm::ruleset::UnitKind::{Infantry, Tank};
+    let (mut state, seats) = five_seats([1, 2, 3, 4, 5]);
+    let ours = seats[4];
+    let (hq, _) = contest::decisive_tiles(&state, ours)[0];
+    state.board.tile_mut(hq).capture_points = Some(10);
+    let mut free = hq.orthogonal().filter(|at| state.board.get(*at).is_some());
+    let (left, right) = (free.next().unwrap(), free.next().unwrap());
+    let mut session = five_seat_session(
+        state,
+        seats[0],
+        &[
+            (Infantry, ours, hq),
+            (Tank, seats[0], left),
+            (Infantry, seats[1], right),
+        ],
+    );
+    let mut weak = session.state().clone();
+    weak.units.get_mut(UnitId::new(1)).unwrap().hp = 10;
+    session.reset(weak);
+    let values = PropertyValues::STANDARD;
+    assert!(!reply::estimate(&session, ours, values, round_options()).headquarters_lost);
+    let round = reply::round_estimate(&session, ours, values, round_options());
+    assert!(round.headquarters_lost, "{round:?}");
+}
+
+#[test]
+fn the_team_replay_score_sums_each_side() {
+    use awvm::ruleset::UnitKind::Tank;
+    use awvm::semantic::Pos;
+    let (state, seats) = five_seats([1, 1, 1, 1, 2]);
+    assert!(!ReplayScore::applies(&state));
+    assert!(ReplayScore::applies_to_teams(&state));
+    let ours = seats[0];
+    let mut reader = ReplayReader::new(ReplayScore::CUP_3_4);
+    let tank = |owner: PlayerIdx| {
+        five_seat_session(state.clone(), ours, &[(Tank, owner, Pos::new(13, 10))])
+    };
+    let empty = reader.team_value_in(&Session::new(state.clone()), ours);
+    let mate = reader.team_value_in(&tank(seats[2]), ours) - empty;
+    let foe = reader.team_value_in(&tank(seats[4]), ours) - empty;
+    assert!(mate > 7_000.0, "{mate}");
+    assert!(foe < -7_000.0, "{foe}");
+}
+
+#[test]
+fn the_rounds_do_not_change_a_two_seat_game() {
+    let game = |config: PlannerConfig| {
+        let config = PlannerConfig {
+            plans_per_turn: 4,
+            rollout: Some(RolloutConfig {
+                top: 2,
+                ..RolloutConfig::THREE_TURNS
+            }),
+            ..config
+        };
+        let state = arena(false, 3);
+        let mut session = Session::new(state.clone());
+        let mut first = PlannerAgent::with_config(1, config);
+        let mut second = PlannerAgent::with_config(2, config);
+        let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+        let mut entropy = Rng::from_seed(5);
+        let limits = Limits {
+            nodes: NodeBudget::new(256).unwrap(),
+            days: 8,
+            ..Limits::DEFAULT
+        };
+        let commands = play(state, &mut session, &mut agents, &mut entropy, limits)
+            .expect("the game runs")
+            .commands;
+        (commands, session.state().clone(), first.stats().candidates)
+    };
+    let (commands, end, candidates) = game(PlannerConfig::V9);
+    assert!(commands > 40 && candidates > 50, "{commands} {candidates}");
+    let (other, other_end, _) = game(PlannerConfig::V9_NSEAT);
+    assert_eq!((commands, &end), (other, &other_end));
+}
+
+/// Each hostile commander counts at its seat's share of the hostile army.
+#[test]
+fn the_build_model_reads_every_hostile_commander() {
+    use crate::build_policy::{BuildContext, decision_feature_names};
+    use awvm::ruleset::{CommanderKind, UnitKind::Tank};
+    use awvm::semantic::Pos;
+    let (mut state, seats) = five_seats([1, 1, 1, 1, 2]);
+    let ours = seats[4];
+    for (seat, co) in seats.iter().zip([
+        CommanderKind::Andy,
+        CommanderKind::Sonja,
+        CommanderKind::Andy,
+        CommanderKind::Sonja,
+        CommanderKind::Kindle,
+    ]) {
+        state.player_mut(*seat).commanders[0].id = co;
+    }
+    let session = five_seat_session(
+        state,
+        ours,
+        &[
+            (Tank, seats[1], Pos::new(13, 10)),
+            (Tank, seats[1], Pos::new(13, 12)),
+            (Tank, seats[2], Pos::new(14, 10)),
+        ],
+    );
+    let state = session.state();
+    let feature = |context: &BuildContext, name: &str| {
+        let index = decision_feature_names()
+            .iter()
+            .position(|other| other == name)
+            .unwrap();
+        context.site(Pos::new(0, 0)).decision[index]
+    };
+    let first = BuildContext::new(state, ours);
+    assert_eq!(feature(&first, "enemy_co_andy"), 1.0);
+    assert_eq!(feature(&first, "enemy_co_sonja"), 0.0);
+    let mixed = BuildContext::new_with(state, ours, true);
+    assert!((feature(&mixed, "enemy_co_andy") - 1.0 / 3.0).abs() < 1e-9);
+    assert!((feature(&mixed, "enemy_co_sonja") - 2.0 / 3.0).abs() < 1e-9);
+}
