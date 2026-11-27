@@ -456,6 +456,10 @@ pub struct Weights {
     /// out of the serialized weights when it is false.
     #[serde(skip_serializing_if = "is_false")]
     pub move2_order: bool,
+    /// Whether the build model reads every live hostile commander, weighted
+    /// by army ([`crate::build_policy::BuildContext::new_with`]).
+    #[serde(skip_serializing_if = "is_false")]
+    pub team_commanders: bool,
 }
 
 impl Weights {
@@ -514,6 +518,7 @@ impl Weights {
         decisive_labs: false,
         move2: false,
         move2_order: false,
+        team_commanders: false,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -896,7 +901,7 @@ fn choose_builds(session: &Session, seat: PlayerIdx, weights: &Weights, out: &mu
         return;
     }
     let state = session.state();
-    let context = BuildContext::new(state, seat);
+    let context = BuildContext::new_with(state, seat, weights.team_commanders);
     let dimensions = state.board.dimensions();
     let bias = crate::build_policy::range_bias(state, seat, weights.build_range);
     let mut legal = Vec::with_capacity(UnitKind::COUNT);

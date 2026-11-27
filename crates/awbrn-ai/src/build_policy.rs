@@ -297,6 +297,12 @@ fn produces(terrain: ruleset::Terrain) -> bool {
 impl BuildContext {
     /// Read the features that do not depend on the site.
     pub fn new(state: &State, seat: PlayerIdx) -> Self {
+        Self::new_with(state, seat, false)
+    }
+
+    /// [`BuildContext::new`]; with `teams` and several live hostile seats,
+    /// each enemy commander feature is its seat's share of the hostile army.
+    pub fn new_with(state: &State, seat: PlayerIdx, teams: bool) -> Self {
         let hostile = |other: PlayerIdx| crate::threat::hostile(state, seat, other);
         let mut shared = [0.0; DECISION_FEATURES];
         let day = state.turn.day as f64;
@@ -487,10 +493,49 @@ impl BuildContext {
             (class_value[4 * class + 1] as f64, share)
         });
 
+        let foes: Vec<PlayerIdx> = state
+            .players
+            .seats()
+            .filter(|(other, player)| {
+                hostile(*other) && player.status == awvm::semantic::PlayerStatus::Active
+            })
+            .map(|(other, _)| other)
+            .collect();
+        let mixed = teams && foes.len() > 1;
+        if mixed {
+            let army = |owner: PlayerIdx| -> u64 {
+                state
+                    .units
+                    .iter()
+                    .filter(|unit| unit.owner == owner)
+                    .map(|unit| value(unit.kind, unit.hp))
+                    .sum()
+            };
+            let armies: Vec<u64> = foes.iter().map(|foe| army(*foe)).collect();
+            let total: u64 = armies.iter().sum();
+            for (foe, army) in foes.iter().zip(armies) {
+                let Some(co) = state.player(*foe).commanders.iter().find(|co| co.active) else {
+                    continue;
+                };
+                let index = CommanderKind::ALL
+                    .iter()
+                    .position(|kind| *kind == co.id)
+                    .unwrap_or(0);
+                let share = if total == 0 {
+                    1.0 / foes.len() as f64
+                } else {
+                    army as f64 / total as f64
+                };
+                shared[CO_START + CommanderKind::COUNT + index] += share;
+            }
+        }
         for (side, players) in [
             (0, state.players.seats().find(|(other, _)| *other == seat)),
             (1, state.players.seats().find(|(other, _)| hostile(*other))),
         ] {
+            if side == 1 && mixed {
+                continue;
+            }
             let Some(co) = players.and_then(|(_, player)| {
                 player
                     .commanders
