@@ -15,7 +15,9 @@
 
 use awvm::commander::{self, PowerLevel, power_activation_cost};
 use awvm::ruleset::{self, CommanderKind, TerrainTrait, UnitKind};
-use awvm::semantic::{CAPTURE_REQUIRED_POINTS, Location, PlayerIdx, PowerState, State, UnitAction};
+use awvm::semantic::{
+    CAPTURE_REQUIRED_POINTS, Location, PlayerIdx, PlayerStatus, PowerState, State, UnitAction,
+};
 use awvm::session::Session;
 
 use crate::eval::{EvalWeights, Evaluator};
@@ -94,6 +96,11 @@ impl ReplayScore {
         state.players.len() == 2 && !state.settings.fog
     }
 
+    /// Whether [`ReplayReader::team_value_in`] applies.
+    pub fn applies_to_teams(state: &State) -> bool {
+        state.players.len() > 2 && !state.settings.fog
+    }
+
     /// Return the stock weights for the stock terms. A term that the score
     /// does not read has the weight zero, so that the stock score does not
     /// build its maps.
@@ -133,6 +140,19 @@ struct SeatFeatures {
     front_position: f64,
     immediate_threat: f64,
     deferred_threat: f64,
+}
+
+impl SeatFeatures {
+    fn add(&mut self, other: Self) {
+        self.material += other.material;
+        self.income += other.income;
+        self.bank += other.bank;
+        self.unit_count += other.unit_count;
+        self.capture_progress += other.capture_progress;
+        self.front_position += other.front_position;
+        self.immediate_threat += other.immediate_threat;
+        self.deferred_threat += other.deferred_threat;
+    }
 }
 
 /// Reads [`ReplayScore`] values and keeps its maps between reads.
@@ -181,9 +201,49 @@ impl ReplayReader {
         else {
             return 0.0;
         };
-        let score = self.score;
         let own = self.seat(session, seat);
         let other = self.seat(session, rival);
+        let power = power_features(state, seat, false);
+        self.combine(session, seat, own, other, power)
+    }
+
+    /// [`ReplayReader::value_in`] with our live side summed against the live
+    /// hostile seats.
+    pub fn team_value_in(&mut self, session: &Session, seat: PlayerIdx) -> f64 {
+        let state = session.state();
+        let live: Vec<PlayerIdx> = state
+            .players
+            .seats()
+            .filter(|(_, player)| player.status == PlayerStatus::Active)
+            .map(|(other, _)| other)
+            .collect();
+        let hostile = |other: PlayerIdx| crate::threat::hostile(state, seat, other);
+        if !live.iter().any(|other| hostile(*other)) {
+            return 0.0;
+        }
+        let mut own = SeatFeatures::default();
+        let mut other = SeatFeatures::default();
+        for index in live {
+            let features = self.seat(session, index);
+            if hostile(index) {
+                other.add(features);
+            } else {
+                own.add(features);
+            }
+        }
+        let power = power_features(state, seat, true);
+        self.combine(session, seat, own, other, power)
+    }
+
+    fn combine(
+        &mut self,
+        session: &Session,
+        seat: PlayerIdx,
+        own: SeatFeatures,
+        other: SeatFeatures,
+        power: [f64; 4],
+    ) -> f64 {
+        let score = self.score;
         let mut value = score.material * (own.material - other.material)
             + score.income * (own.income - other.income)
             + score.bank * 0.5 * (own.bank - other.bank)
@@ -199,7 +259,6 @@ impl ReplayReader {
                 + score.production * terms.production
                 + score.contest * terms.contest;
         }
-        let power = power_features(state, seat);
         value += score.power_meter_army * power[0]
             + score.cop_ready_army * power[1]
             + score.scop_ready_army * power[2]
@@ -211,7 +270,12 @@ impl ReplayReader {
     /// weight [`ReplayScore::power_meter_army`] times the signed meter
     /// feature.
     pub(crate) fn meter_term(&self, state: &State, seat: PlayerIdx) -> f64 {
-        self.score.power_meter_army * power_features(state, seat)[0]
+        self.score.power_meter_army * power_features(state, seat, false)[0]
+    }
+
+    /// [`ReplayReader::meter_term`] of the team form.
+    pub(crate) fn team_meter_term(&self, state: &State, seat: PlayerIdx) -> f64 {
+        self.score.power_meter_army * power_features(state, seat, true)[0]
     }
 
     fn seat(&mut self, session: &Session, seat: PlayerIdx) -> SeatFeatures {
@@ -310,11 +374,20 @@ fn army_value(kind: UnitKind, hp: u8) -> f64 {
 
 /// The power features from the view of `seat`: the power meter share, the
 /// normal power, the super power, and Eagle's refresh. Each is signed, so
-/// the rival's value counts against the seat.
-fn power_features(state: &State, seat: PlayerIdx) -> [f64; 4] {
+/// the rival's value counts against the seat. With `teams`, live allies count
+/// for the seat and live hostile seats against it.
+fn power_features(state: &State, seat: PlayerIdx, teams: bool) -> [f64; 4] {
     let mut power = [0.0; 4];
     for (owner, player) in state.players.seats() {
-        let sign = if owner == seat { 1.0 } else { -1.0 };
+        let sign = if !teams {
+            if owner == seat { 1.0 } else { -1.0 }
+        } else if player.status != PlayerStatus::Active {
+            continue;
+        } else if crate::threat::hostile(state, seat, owner) {
+            -1.0
+        } else {
+            1.0
+        };
         let Some(co) = player.commanders.iter().find(|co| co.active) else {
             continue;
         };
