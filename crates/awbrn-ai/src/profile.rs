@@ -97,6 +97,17 @@ pub const V9_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
     ..V8_GREEDY_CONFIG
 };
 
+/// [`V9_GREEDY_CONFIG`] with the build model reading every hostile seat's
+/// commander ([`Weights::team_commanders`]). The same with two live seats.
+pub const V9_TEAMS_GREEDY_CONFIG: BaselineConfig = BaselineConfig {
+    identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal-build-floor-v9-teams",
+    weights: Weights {
+        team_commanders: true,
+        ..V9_GREEDY_CONFIG.weights
+    },
+    ..V9_GREEDY_CONFIG
+};
+
 /// How hard an opponent is meant to be, as a player reads it.
 ///
 /// One tier holds one profile at a time. The tier is for selection. A match

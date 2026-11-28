@@ -19,10 +19,14 @@
 
 use crate::agents::greedy::{CaptureTurn, capture_strength};
 use awvm::ruleset::{self, TerrainTrait};
-use awvm::semantic::{CAPTURE_REQUIRED_POINTS, CellIdx, PlayerIdx, TileOwner, UnitId, UnitStore};
+use awvm::semantic::{
+    CAPTURE_REQUIRED_POINTS, CellIdx, Location, Match, PlayerIdx, PlayerStatus, State, TileOwner,
+    UnitId, UnitStore,
+};
 use awvm::session::{
     AttackCandidate, LegalScope, LegalVisitor, Order, OrderKind, OrderMask, Session, TargetKind,
 };
+use awvm::transition::Command;
 
 /// The value that the reply estimate puts on our losses, in funds.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -41,6 +45,10 @@ pub struct ReplyEstimate {
     pub exposed: Vec<UnitId>,
     /// Our properties that an enemy capturer can reach, most valuable first.
     pub threatened: Vec<CellIdx>,
+    /// The health focused fire takes from each unit of our side, allies too.
+    pub health_lost: Vec<(UnitId, f64)>,
+    /// The loss of each property of [`ReplyEstimate::threatened`].
+    pub property_losses: Vec<(CellIdx, f64)>,
 }
 
 impl ReplyEstimate {
@@ -82,7 +90,7 @@ struct Attack {
 }
 
 struct Collector<'a> {
-    ours: PlayerIdx,
+    side: &'a [PlayerIdx],
     units: &'a UnitStore,
     group_start: usize,
     attacks: Vec<Attack>,
@@ -105,7 +113,7 @@ impl LegalVisitor for Collector<'_> {
         let (Some(target), Some(forecast)) = (candidate.target_unit, candidate.forecast) else {
             return;
         };
-        if target.owner != self.ours {
+        if !self.side.contains(&target.owner) {
             return;
         }
         let damage = (f64::from(forecast.attack.low) + f64::from(forecast.attack.high)) / 2.0;
@@ -188,6 +196,17 @@ pub fn estimate(
     values: PropertyValues,
     options: ReplyOptions,
 ) -> ReplyEstimate {
+    estimate_for(session, ours, &[ours], values, options)
+}
+
+/// [`estimate`] counting fire on any seat of `side` as fire on us.
+fn estimate_for(
+    session: &Session,
+    ours: PlayerIdx,
+    side: &[PlayerIdx],
+    values: PropertyValues,
+    options: ReplyOptions,
+) -> ReplyEstimate {
     let ReplyOptions {
         commander_effects,
         march,
@@ -196,7 +215,7 @@ pub fn estimate(
     } = options;
     let state = session.state();
     let mut collector = Collector {
-        ours,
+        side,
         units: &state.units,
         group_start: 0,
         attacks: Vec::new(),
@@ -259,7 +278,7 @@ pub fn estimate(
             .collect()
     };
     let mut destroyed_units: Vec<(f64, UnitId)> = Vec::new();
-    let mut exposed_units: Vec<(f64, UnitId)> = Vec::new();
+    let mut exposed_units: Vec<(f64, UnitId, f64)> = Vec::new();
     loop {
         let mut best: Option<(usize, f64)> = None;
         for (index, attack) in attacks.iter().enumerate() {
@@ -283,14 +302,18 @@ pub fn estimate(
         let attack = attacks.swap_remove(index);
         let target = &mut remaining[attack.target_index];
         let destroyed = target.1 > 0.0 && attack.damage >= target.1;
+        let removed = attack.damage.min(target.1);
         target.1 = (target.1 - attack.damage).max(0.0);
         estimate.unit_loss += value;
         match exposed_units
             .iter_mut()
-            .find(|(_, id)| *id == attack.target)
+            .find(|(_, id, _)| *id == attack.target)
         {
-            Some((loss, _)) => *loss += value,
-            None => exposed_units.push((value, attack.target)),
+            Some((loss, _, health)) => {
+                *loss += value;
+                *health += removed;
+            }
+            None => exposed_units.push((value, attack.target, removed)),
         }
         if destroyed {
             estimate.units_destroyed += 1;
@@ -341,7 +364,7 @@ pub fn estimate(
                 .map(|unit| unit.id)
                 .collect();
             let mut found = Collector {
-                ours,
+                side,
                 units: &open.units,
                 group_start: 0,
                 attacks: Vec::new(),
@@ -488,11 +511,165 @@ pub fn estimate(
         }
     }
     estimate.property_loss = taken.iter().map(|(_, loss)| loss).sum();
+    // The plan lists name our own units only: a plan cannot move an ally.
+    let own = |id: &UnitId| state.units.get(*id).is_some_and(|unit| unit.owner == ours);
     destroyed_units.sort_by(|left, right| right.0.total_cmp(&left.0));
-    estimate.destroyed = destroyed_units.into_iter().map(|(_, id)| id).collect();
+    estimate.destroyed = destroyed_units
+        .into_iter()
+        .map(|(_, id)| id)
+        .filter(own)
+        .collect();
     exposed_units.sort_by(|left, right| right.0.total_cmp(&left.0));
-    estimate.exposed = exposed_units.into_iter().map(|(_, id)| id).collect();
+    estimate.exposed = exposed_units
+        .iter()
+        .map(|(_, id, _)| *id)
+        .filter(own)
+        .collect();
+    estimate.health_lost = exposed_units
+        .into_iter()
+        .map(|(_, id, health)| (id, health))
+        .collect();
     taken.sort_by(|left, right| right.1.total_cmp(&left.1));
-    estimate.threatened = taken.into_iter().map(|(cell, _)| cell).collect();
+    estimate.threatened = taken.iter().map(|(cell, _)| *cell).collect();
+    estimate.property_losses = taken;
     estimate
+}
+
+/// The live seats that move from the active seat of `state` up to the next
+/// turn of `seat`, in turn order.
+pub(crate) fn seats_before(state: &State, seat: PlayerIdx) -> Vec<PlayerIdx> {
+    let order = &state.turn.order;
+    let start = order
+        .iter()
+        .position(|id| *id == state.turn.active_player)
+        .unwrap_or(state.turn.position);
+    let mut seats = Vec::new();
+    for step in 0..order.len() {
+        let Some(index) = state.players.seat(&order[(start + step) % order.len()]) else {
+            continue;
+        };
+        if index == seat {
+            break;
+        }
+        if state.player(index).status == PlayerStatus::Active {
+            seats.push(index);
+        }
+    }
+    seats
+}
+
+/// The loss over every hostile seat that moves before our next turn, each
+/// read after the fire of the ones before it, so a blocker one destroys no
+/// longer blocks the next. The plan lists are the first hostile seat's only.
+pub(crate) fn round_estimate(
+    session: &Session,
+    ours: PlayerIdx,
+    values: PropertyValues,
+    options: ReplyOptions,
+) -> ReplyEstimate {
+    let state = session.state();
+    let before = seats_before(state, ours);
+    let hostile = before
+        .iter()
+        .filter(|seat| crate::threat::hostile(state, ours, **seat))
+        .count();
+    let side: Vec<PlayerIdx> = state
+        .players
+        .seats()
+        .filter(|(seat, player)| {
+            player.status == PlayerStatus::Active && !crate::threat::hostile(state, ours, *seat)
+        })
+        .map(|(seat, _)| seat)
+        .collect();
+    let mut round = ReplyEstimate::default();
+    let mut health: Vec<(UnitId, f64)> = Vec::new();
+    let mut passing = Session::new(state.clone());
+    let mut entropy = super::MeanLuck;
+    let mut read = 0;
+    for _ in 0..before.len() {
+        if read == hostile || !matches!(passing.state().match_state, Match::Active { .. }) {
+            break;
+        }
+        let player = passing.state().turn.active_player.clone();
+        let Some(seat) = passing.state().players.seat(&player) else {
+            break;
+        };
+        if seat == ours {
+            break;
+        }
+        if crate::threat::hostile(passing.state(), ours, seat) {
+            let found = estimate_for(&passing, ours, &side, values, options);
+            read += 1;
+            if read == 1 {
+                round.destroyed = found.destroyed.clone();
+                round.exposed = found.exposed.clone();
+                round.threatened = found.threatened.clone();
+            }
+            round.headquarters_lost |= found.headquarters_lost;
+            for &(cell, loss) in &found.property_losses {
+                match round.property_losses.iter_mut().find(|(at, _)| *at == cell) {
+                    Some((_, best)) => *best = best.max(loss),
+                    None => round.property_losses.push((cell, loss)),
+                }
+            }
+            for &(id, lost) in &found.health_lost {
+                match health.iter_mut().find(|(other, _)| *other == id) {
+                    Some((_, total)) => *total += lost,
+                    None => health.push((id, lost)),
+                }
+            }
+            if read == hostile {
+                break;
+            }
+            let mut next = passing.state().clone();
+            wound(&mut next, &found.health_lost);
+            passing = Session::new(next);
+        }
+        let Ok(end) = passing.resolve(&Command::EndTurn { player }) else {
+            break;
+        };
+        if passing.apply(end, &mut entropy, &mut ()).is_err() {
+            break;
+        }
+    }
+    // The health lost over the round, priced on the units as they start it.
+    for &(id, lost) in &health {
+        let Some(unit) = state.units.get(id) else {
+            continue;
+        };
+        let hp = f64::from(unit.hp);
+        let cost = ruleset::profile(unit.kind).cost as f64;
+        let lost = lost.min(hp);
+        round.unit_loss += lost * cost / 100.0;
+        if hp > 0.0 && lost >= hp {
+            round.unit_loss += cost * 0.1;
+            round.units_destroyed += 1;
+        }
+    }
+    round.health_lost = health;
+    round.property_loss = round.property_losses.iter().map(|(_, loss)| loss).sum();
+    round
+}
+
+/// Take `health` off the units of `state`; a unit with none left goes, with
+/// its cargo.
+fn wound(state: &mut State, health: &[(UnitId, f64)]) {
+    let mut gone: Vec<UnitId> = Vec::new();
+    for &(id, lost) in health {
+        let Some(unit) = state.units.get_mut(id) else {
+            continue;
+        };
+        let left = f64::from(unit.hp) - lost;
+        if left <= 0.0 {
+            gone.push(id);
+        } else {
+            unit.hp = left.ceil() as u8;
+        }
+    }
+    if !gone.is_empty() {
+        state.units.retain(|unit| {
+            !gone.contains(&unit.id)
+                && !matches!(unit.location, Location::Cargo { transport, .. } if gone.contains(&transport))
+        });
+    }
 }
